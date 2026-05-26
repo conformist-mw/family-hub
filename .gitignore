@@ -1,0 +1,12 @@
+/lessons
+*.exe
+*.test
+*.out
+
+/data/
+
+.env
+.env.local
+.envrc
+
+.DS_Store

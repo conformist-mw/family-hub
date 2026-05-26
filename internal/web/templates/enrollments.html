@@ -1,0 +1,28 @@
+{{define "content"}}
+{{$enrollments := .Data}}
+<div class="page-head">
+  <h1>Курсы</h1>
+  <a class="btn primary" href="/enrollments/new">+ Курс</a>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Ребёнок</th><th>Занятие</th><th>Оплата</th><th>Цена</th><th>Порог</th><th>Статус</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range $enrollments}}
+    <tr>
+      <td data-label="Ребёнок">{{.Child}}</td>
+      <td data-label="Занятие">{{.Activity}}</td>
+      <td data-label="Оплата">{{billingLabel .BillingType}}</td>
+      <td data-label="Цена">{{money .CurrentPrice}}</td>
+      <td data-label="Порог">{{.LowThreshold}}</td>
+      <td data-label="Статус">{{if .Active}}активен{{else}}архив{{end}}</td>
+      <td data-label=""><a class="btn small" href="/enrollments/{{.ID}}/edit">✎</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7" class="empty">Курсов нет.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

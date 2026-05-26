@@ -1,0 +1,44 @@
+{{define "content"}}
+{{$balances := .Data}}
+<div class="page-head">
+  <h1>Баланс</h1>
+  <a class="btn primary" href="/visits/new">+ Занятие</a>
+</div>
+
+<div class="cards">
+  {{range $balances}}
+  <div class="card state-{{.State}}">
+    <div class="card-top">
+      <div>
+        <div class="card-child">{{.Child}}</div>
+        <div class="card-activity">{{.Activity}}</div>
+      </div>
+      <span class="badge badge-{{.State}}">
+        {{if eq .BillingType "monthly"}}
+          {{if eq .State "empty"}}нет абонемента{{else}}{{.DaysLeft}} дн.{{end}}
+        {{else}}
+          {{if eq .State "empty"}}пора платить{{else}}осталось {{.Remaining}}{{end}}
+        {{end}}
+      </span>
+    </div>
+    <div class="card-meta">
+      <span>{{billingLabel .BillingType}}</span>
+      <span>{{money .CurrentPrice}}{{if eq .BillingType "monthly"}}/мес{{else}}/зан.{{end}}</span>
+    </div>
+    {{if eq .BillingType "per_lesson"}}
+    <div class="card-stats">
+      <span>оплачено <b>{{.Paid}}</b></span>
+      <span>прошло <b>{{.Done}}</b></span>
+      <span>осталось <b>{{.Remaining}}</b></span>
+    </div>
+    {{else}}
+    <div class="card-stats">
+      <span>оплачено до <b>{{if .CoversUntil}}{{dateRu .CoversUntil}}{{else}}—{{end}}</b></span>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="empty">Пока нет курсов. Заведи их на вкладке <a href="/enrollments">Курсы</a>.</p>
+  {{end}}
+</div>
+{{end}}

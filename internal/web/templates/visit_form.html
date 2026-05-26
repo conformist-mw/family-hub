@@ -1,0 +1,63 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{if $d.IsEdit}}Занятие{{else}}Новое занятие{{end}}</h1>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post" action="{{if $d.IsEdit}}/visits/{{$d.Visit.ID}}{{else}}/visits{{end}}">
+  <label>
+    Курс
+    <select name="enrollment_id" required>
+      <option value="">— выбери —</option>
+      {{range $d.Enrollments}}
+      <option value="{{.ID}}" {{if eq .ID $d.Visit.EnrollmentID}}selected{{end}}>{{.Child}} — {{.Activity}}{{if not .Active}} (архив){{end}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  <label>
+    Дата
+    <input type="date" name="date" id="date" value="{{$d.Visit.Date}}" required>
+    <div class="date-quick">
+      <button type="button" data-date="{{$d.Today}}">сегодня</button>
+      <button type="button" data-date="{{$d.Yesterday}}">вчера</button>
+      <button type="button" data-date="{{$d.Before}}">позавчера</button>
+    </div>
+  </label>
+
+  <label>
+    Статус
+    <select name="status" required>
+      {{range $d.Statuses}}
+      <option value="{{.Code}}" {{if eq .Code $d.Visit.Status}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  <label>
+    Комментарий
+    <textarea name="comment" placeholder="необязательно">{{$d.Visit.Comment}}</textarea>
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Сохранить</button>
+    <a class="btn" href="/visits">Отмена</a>
+  </div>
+</form>
+
+{{if $d.IsEdit}}
+<form method="post" action="/visits/{{$d.Visit.ID}}/delete" onsubmit="return confirm('Удалить запись?')" style="margin-top:14px">
+  <button class="btn danger" type="submit">Удалить запись</button>
+</form>
+{{end}}
+
+<script>
+  document.querySelectorAll('.date-quick button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.getElementById('date').value = b.dataset.date;
+    });
+  });
+</script>
+{{end}}

@@ -1,0 +1,43 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Занятия</h1>
+  <a class="btn primary" href="/visits/new">+ Занятие</a>
+</div>
+
+<form class="filters" method="get" action="/visits">
+  <select name="child" onchange="this.form.submit()">
+    <option value="">Все дети</option>
+    {{range $d.Children}}
+    <option value="{{.ID}}" {{if eq .ID $d.ChildID}}selected{{end}}>{{.Name}}</option>
+    {{end}}
+  </select>
+  <select name="status" onchange="this.form.submit()">
+    <option value="">Все статусы</option>
+    {{range $d.Statuses}}
+    <option value="{{.Code}}" {{if eq .Code $d.Status}}selected{{end}}>{{.Label}}</option>
+    {{end}}
+  </select>
+  <noscript><button class="btn small" type="submit">Фильтр</button></noscript>
+</form>
+
+<table>
+  <thead>
+    <tr><th>Дата</th><th>Ребёнок</th><th>Занятие</th><th>Статус</th><th>Комментарий</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range $d.Visits}}
+    <tr>
+      <td data-label="Дата">{{dateRu .Date}}</td>
+      <td data-label="Ребёнок">{{.Child}}</td>
+      <td data-label="Занятие">{{.Activity}}</td>
+      <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span></td>
+      <td data-label="Комментарий">{{.Comment}}</td>
+      <td data-label=""><a class="btn small" href="/visits/{{.ID}}/edit">✎</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">Записей нет.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

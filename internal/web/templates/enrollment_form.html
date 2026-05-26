@@ -1,0 +1,101 @@
+{{define "content"}}
+{{$d := .Data}}
+{{$e := $d.Enrollment}}
+<div class="page-head">
+  <h1>{{if $d.IsEdit}}{{$e.Child}} — {{$e.Activity}}{{else}}Новый курс{{end}}</h1>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post" action="{{if $d.IsEdit}}/enrollments/{{$e.ID}}{{else}}/enrollments{{end}}">
+  {{if $d.IsEdit}}
+    <div class="readonly-pair">
+      <div><span class="muted">Ребёнок</span><div>{{$e.Child}}</div></div>
+      <div><span class="muted">Занятие</span><div>{{$e.Activity}}</div></div>
+    </div>
+  {{else}}
+    <label>
+      Ребёнок
+      <input name="child" list="children-list" value="{{$e.Child}}" autocomplete="off" required>
+      <datalist id="children-list">
+        {{range $d.Children}}<option value="{{.Name}}">{{end}}
+      </datalist>
+    </label>
+    <label>
+      Занятие
+      <input name="activity" list="activities-list" value="{{$e.Activity}}" autocomplete="off" required>
+      <datalist id="activities-list">
+        {{range $d.Activities}}<option value="{{.Name}}">{{end}}
+      </datalist>
+    </label>
+  {{end}}
+
+  <label>
+    Тип оплаты
+    <select name="billing_type" required>
+      {{range $d.Billing}}
+      <option value="{{.Code}}" {{if eq .Code $e.BillingType}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  <label>
+    Цена, ₴ <span class="muted">(за занятие или за месяц)</span>
+    <input type="number" name="current_price" step="0.01" min="0" value="{{$e.CurrentPrice}}" required>
+  </label>
+
+  <label>
+    Порог напоминания <span class="muted">(осталось занятий / дней до конца абонемента)</span>
+    <input type="number" name="low_threshold" step="1" min="0" value="{{$e.LowThreshold}}" required>
+  </label>
+
+  {{if $d.IsEdit}}
+  <label class="checkbox">
+    <input type="checkbox" name="active" {{if $e.Active}}checked{{end}}>
+    Активен (снять — отправить в архив)
+  </label>
+  {{end}}
+
+  <label>
+    Заметка
+    <textarea name="notes" placeholder="необязательно">{{$e.Notes}}</textarea>
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Сохранить</button>
+    <a class="btn" href="/enrollments">Отмена</a>
+  </div>
+</form>
+
+{{if $d.IsEdit}}
+<section class="slots">
+  <h2>Расписание <span class="muted">(для напоминаний)</span></h2>
+  {{if $d.Slots}}
+  <ul class="slot-list">
+    {{range $d.Slots}}
+    <li>
+      <span>{{weekday .Weekday}}, {{.Time}}</span>
+      <form method="post" action="/enrollments/{{$e.ID}}/slots/{{.ID}}/delete">
+        <button class="btn small danger" type="submit">×</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">Слотов нет. Добавь день и время — бот будет вечером напоминать отметить занятие.</p>
+  {{end}}
+
+  <form class="slot-add" method="post" action="/enrollments/{{$e.ID}}/slots">
+    <select name="weekday">
+      {{range $d.Weekdays}}<option value="{{.N}}">{{.Label}}</option>{{end}}
+    </select>
+    <input type="time" name="time" required>
+    <button class="btn" type="submit">+ Слот</button>
+  </form>
+</section>
+
+<form method="post" action="/enrollments/{{$e.ID}}/delete" onsubmit="return confirm('Удалить курс? Доступно только если нет занятий и оплат.')" style="margin-top:18px">
+  <button class="btn danger" type="submit">Удалить курс</button>
+</form>
+{{end}}
+{{end}}

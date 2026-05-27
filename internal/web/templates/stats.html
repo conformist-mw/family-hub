@@ -1,0 +1,66 @@
+{{define "content"}}
+{{$s := .Data}}
+<div class="page-head">
+  <h1>Статистика</h1>
+</div>
+
+<div class="stat-totals">
+  <div class="stat-total">
+    <div class="stat-total-label">В этом месяце</div>
+    <div class="stat-total-value">{{money $s.TotalMonth}}</div>
+  </div>
+  <div class="stat-total">
+    <div class="stat-total-label">В этом году</div>
+    <div class="stat-total-value">{{money $s.TotalYear}}</div>
+  </div>
+  <div class="stat-total">
+    <div class="stat-total-label">За всё время</div>
+    <div class="stat-total-value">{{money $s.TotalAll}}</div>
+  </div>
+</div>
+
+<section class="stat-block">
+  <h2>По месяцам</h2>
+  <div class="bars">
+    {{range $s.ByMonth}}
+    <div class="bar-row">
+      <span class="bar-label">{{monthRu .Month}}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxMonth}}%"></span></span>
+      <span class="bar-value">{{money .Amount}}</span>
+    </div>
+    {{else}}
+    <p class="empty">Нет оплат.</p>
+    {{end}}
+  </div>
+</section>
+
+<section class="stat-block">
+  <h2>По людям</h2>
+  <div class="bars">
+    {{range $s.ByPerson}}
+    <div class="bar-row">
+      <span class="bar-label">{{.Person}}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxPerson}}%"></span></span>
+      <span class="bar-value">{{money .Amount}}</span>
+    </div>
+    {{else}}
+    <p class="empty">Нет оплат.</p>
+    {{end}}
+  </div>
+</section>
+
+<section class="stat-block">
+  <h2>По занятиям</h2>
+  <div class="bars">
+    {{range $s.ByCourse}}
+    <div class="bar-row">
+      <span class="bar-label">{{.Person}} · {{classLabel .Class .ClassDesc}}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxCourse}}%"></span></span>
+      <span class="bar-value">{{money .Amount}} <span class="muted">/ {{.Attended}}</span></span>
+    </div>
+    {{else}}
+    <p class="empty">Нет оплат.</p>
+    {{end}}
+  </div>
+</section>
+{{end}}

@@ -63,6 +63,29 @@ var funcs = template.FuncMap{
 		}
 		return name + " (" + desc + ")"
 	},
+	"barPct": func(v, max float64) int {
+		if max <= 0 {
+			return 0
+		}
+		p := int(v / max * 100)
+		if p < 2 && v > 0 {
+			p = 2
+		}
+		return p
+	},
+	"monthRu": func(ym string) string {
+		months := [...]string{"", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"}
+		if len(ym) != 7 {
+			return ym
+		}
+		y := ym[:4]
+		var m int
+		fmt.Sscanf(ym[5:], "%d", &m)
+		if m < 1 || m > 12 {
+			return ym
+		}
+		return months[m] + " " + y
+	},
 	"addedAt": func(s string) string {
 		if s == "" {
 			return ""
@@ -98,6 +121,7 @@ func parseTemplates() map[string]*template.Template {
 		"payment_form.html",
 		"enrollments.html",
 		"enrollment_form.html",
+		"stats.html",
 	}
 	m := map[string]*template.Template{}
 	for _, p := range pages {

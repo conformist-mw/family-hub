@@ -127,6 +127,26 @@ label.checkbox input { width: auto; }
 .pick-chips button { font: inherit; font-size: 13px; padding: 7px 12px; border: 1px solid var(--line); background: #fff; border-radius: 999px; cursor: pointer; }
 .pick-chips button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+.stat-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.stat-total { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.stat-total-label { color: var(--muted); font-size: 13px; }
+.stat-total-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+.stat-block { margin-bottom: 26px; }
+.stat-block h2 { font-size: 17px; margin: 0 0 12px; }
+.bars { display: flex; flex-direction: column; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; font-size: 14px; }
+.bar-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: var(--bg); border-radius: 999px; height: 14px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.bar-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+@media (max-width: 560px) {
+  .stat-totals { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 110px 1fr auto; gap: 8px; font-size: 13px; }
+  .bar-label { font-size: 13px; }
+}
+
 .row-actions { display: flex; gap: 8px; }
 .status-pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .status-done { background: #dcfce7; color: var(--ok); }

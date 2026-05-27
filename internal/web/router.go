@@ -44,6 +44,8 @@ func NewRouter(db *sql.DB, logger *slog.Logger) http.Handler {
 	mux.HandleFunc("POST /payments/{id}", a.handlePaymentUpdate)
 	mux.HandleFunc("POST /payments/{id}/delete", a.handlePaymentDelete)
 
+	mux.HandleFunc("GET /stats", a.handleStats)
+
 	mux.HandleFunc("GET /enrollments", a.handleEnrollments)
 	mux.HandleFunc("GET /enrollments/new", a.handleEnrollmentNew)
 	mux.HandleFunc("POST /enrollments", a.handleEnrollmentCreate)

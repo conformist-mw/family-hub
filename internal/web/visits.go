@@ -9,7 +9,7 @@ import (
 	"lessons/internal/store"
 )
 
-const pageSize = 50
+const pageSize = 20
 
 func parsePage(r *http.Request) int {
 	p, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -103,6 +103,7 @@ type visitFormData struct {
 	Visit       model.Visit
 	Enrollments []model.Enrollment
 	Frequent    []model.Enrollment
+	Reasons     []string
 	Statuses    []statusOption
 	IsEdit      bool
 	Today       string
@@ -120,6 +121,15 @@ func (a *App) frequentEnrollments() []model.Enrollment {
 	return fe
 }
 
+func (a *App) reasonChips() []string {
+	rs, err := a.Store.FrequentComments(6)
+	if err != nil {
+		a.Logger.Error("frequent comments", "err", err)
+		return nil
+	}
+	return rs
+}
+
 func (a *App) handleVisitNew(w http.ResponseWriter, r *http.Request) {
 	enrollments, err := a.Store.ListEnrollments(true)
 	if err != nil {
@@ -130,6 +140,7 @@ func (a *App) handleVisitNew(w http.ResponseWriter, r *http.Request) {
 		Visit:       model.Visit{Date: today(), Status: model.StatusDone},
 		Enrollments: enrollments,
 		Frequent:    a.frequentEnrollments(),
+		Reasons:     a.reasonChips(),
 		Statuses:    statusOptions,
 		Today:       today(),
 		Yesterday:   daysAgo(1),
@@ -166,6 +177,7 @@ func (a *App) handleVisitEdit(w http.ResponseWriter, r *http.Request) {
 		Visit:       v,
 		Enrollments: enrollments,
 		Frequent:    a.frequentEnrollments(),
+		Reasons:     a.reasonChips(),
 		Statuses:    statusOptions,
 		IsEdit:      true,
 		Today:       today(),
@@ -228,6 +240,7 @@ func (a *App) renderVisitFormError(w http.ResponseWriter, v model.Visit, isEdit 
 		Visit:       v,
 		Enrollments: enrollments,
 		Frequent:    a.frequentEnrollments(),
+		Reasons:     a.reasonChips(),
 		Statuses:    statusOptions,
 		IsEdit:      isEdit,
 		Today:       today(),

@@ -87,6 +87,30 @@ func (s *Store) ListPersons() ([]model.Person, error) {
 	return out, rows.Err()
 }
 
+// FrequentComments returns the most-used short visit comments, for quick-pick
+// reason chips (e.g. "заболел").
+func (s *Store) FrequentComments(limit int) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT comment FROM visits
+		WHERE comment <> '' AND length(comment) <= 40
+		GROUP BY comment
+		ORDER BY COUNT(*) DESC, comment
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // DistinctClassNames returns class names already used, for input suggestions.
 func (s *Store) DistinctClassNames() ([]string, error) {
 	rows, err := s.db.Query(`SELECT DISTINCT name FROM enrollments ORDER BY name`)

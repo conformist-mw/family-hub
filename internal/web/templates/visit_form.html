@@ -45,7 +45,14 @@
 
   <label>
     Комментарий
-    <textarea name="comment" placeholder="необязательно">{{$d.Visit.Comment}}</textarea>
+    {{if $d.Reasons}}
+    <div class="pick-chips" id="reason-chips">
+      {{range $d.Reasons}}
+      <button type="button" data-reason="{{.}}">{{.}}</button>
+      {{end}}
+    </div>
+    {{end}}
+    <textarea name="comment" id="comment" placeholder="необязательно">{{$d.Visit.Comment}}</textarea>
   </label>
 
   <div class="form-actions">
@@ -84,5 +91,11 @@
     sel.addEventListener('change', sync);
     sync();
   })();
+
+  document.querySelectorAll('#reason-chips button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.getElementById('comment').value = b.dataset.reason;
+    });
+  });
 </script>
 {{end}}

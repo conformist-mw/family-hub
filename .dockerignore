@@ -1,0 +1,9 @@
+.git
+.gitignore
+/data/
+/lessons
+*.md
+review/
+_xlsx_extracted/
+.env
+.env.local

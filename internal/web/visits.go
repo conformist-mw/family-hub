@@ -2,11 +2,38 @@ package web
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"lessons/internal/model"
 	"lessons/internal/store"
 )
+
+const pageSize = 50
+
+func parsePage(r *http.Request) int {
+	p, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if p < 1 {
+		return 1
+	}
+	return p
+}
+
+func pageURL(path string, vals url.Values, page int) string {
+	q := url.Values{}
+	for k, v := range vals {
+		if len(v) > 0 && v[0] != "" {
+			q.Set(k, v[0])
+		}
+	}
+	if page > 1 {
+		q.Set("page", strconv.Itoa(page))
+	}
+	if enc := q.Encode(); enc != "" {
+		return path + "?" + enc
+	}
+	return path
+}
 
 type statusOption struct {
 	Code  string
@@ -26,40 +53,71 @@ type visitsListData struct {
 	Statuses []statusOption
 	PersonID int64
 	Status   string
+	Page     int
+	PrevURL  string
+	NextURL  string
 }
 
 func (a *App) handleVisits(w http.ResponseWriter, r *http.Request) {
 	personID, _ := strconv.ParseInt(r.URL.Query().Get("person"), 10, 64)
 	status := r.URL.Query().Get("status")
+	page := parsePage(r)
 
-	visits, err := a.Store.ListVisits(store.VisitFilter{PersonID: personID, Status: status, Limit: 300})
+	visits, err := a.Store.ListVisits(store.VisitFilter{
+		PersonID: personID, Status: status,
+		Limit: pageSize + 1, Offset: (page - 1) * pageSize,
+	})
 	if err != nil {
 		a.serverError(w, err)
 		return
+	}
+	hasNext := len(visits) > pageSize
+	if hasNext {
+		visits = visits[:pageSize]
 	}
 	persons, err := a.Store.ListPersons()
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "visits.html", "Занятия", "visits", visitsListData{
+
+	vals := url.Values{"person": {r.URL.Query().Get("person")}, "status": {status}}
+	data := visitsListData{
 		Visits:   visits,
 		Persons:  persons,
 		Statuses: statusOptions,
 		PersonID: personID,
 		Status:   status,
-	})
+		Page:     page,
+	}
+	if page > 1 {
+		data.PrevURL = pageURL("/visits", vals, page-1)
+	}
+	if hasNext {
+		data.NextURL = pageURL("/visits", vals, page+1)
+	}
+	a.render(w, "visits.html", "Занятия", "visits", data)
 }
 
 type visitFormData struct {
 	Visit       model.Visit
 	Enrollments []model.Enrollment
+	Frequent    []model.Enrollment
 	Statuses    []statusOption
 	IsEdit      bool
 	Today       string
 	Yesterday   string
 	Before      string
 	Error       string
+}
+
+func (a *App) frequentEnrollments() []model.Enrollment {
+	fe, err := a.Store.FrequentActiveEnrollments(8)
+	if err != nil {
+		a.Logger.Error("frequent enrollments", "err", err)
+		return nil
+	}
+	return fe
 }
 
 func (a *App) handleVisitNew(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +129,7 @@ func (a *App) handleVisitNew(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "visit_form.html", "Новое занятие", "visits", visitFormData{
 		Visit:       model.Visit{Date: today(), Status: model.StatusDone},
 		Enrollments: enrollments,
+		Frequent:    a.frequentEnrollments(),
 		Statuses:    statusOptions,
 		Today:       today(),
 		Yesterday:   daysAgo(1),
@@ -106,6 +165,7 @@ func (a *App) handleVisitEdit(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "visit_form.html", "Занятие", "visits", visitFormData{
 		Visit:       v,
 		Enrollments: enrollments,
+		Frequent:    a.frequentEnrollments(),
 		Statuses:    statusOptions,
 		IsEdit:      true,
 		Today:       today(),
@@ -167,6 +227,7 @@ func (a *App) renderVisitFormError(w http.ResponseWriter, v model.Visit, isEdit 
 	a.render(w, "visit_form.html", "Занятие", "visits", visitFormData{
 		Visit:       v,
 		Enrollments: enrollments,
+		Frequent:    a.frequentEnrollments(),
 		Statuses:    statusOptions,
 		IsEdit:      isEdit,
 		Today:       today(),

@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"lessons/internal/model"
@@ -13,14 +14,26 @@ type paymentsListData struct {
 	Persons  []model.Person
 	PersonID int64
 	Total    float64
+	Page     int
+	PrevURL  string
+	NextURL  string
 }
 
 func (a *App) handlePayments(w http.ResponseWriter, r *http.Request) {
 	personID, _ := strconv.ParseInt(r.URL.Query().Get("person"), 10, 64)
-	payments, err := a.Store.ListPayments(store.PaymentFilter{PersonID: personID, Limit: 300})
+	page := parsePage(r)
+
+	payments, err := a.Store.ListPayments(store.PaymentFilter{
+		PersonID: personID,
+		Limit:    pageSize + 1, Offset: (page - 1) * pageSize,
+	})
 	if err != nil {
 		a.serverError(w, err)
 		return
+	}
+	hasNext := len(payments) > pageSize
+	if hasNext {
+		payments = payments[:pageSize]
 	}
 	persons, err := a.Store.ListPersons()
 	if err != nil {
@@ -32,12 +45,22 @@ func (a *App) handlePayments(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "payments.html", "Оплаты", "payments", paymentsListData{
+
+	vals := url.Values{"person": {r.URL.Query().Get("person")}}
+	data := paymentsListData{
 		Payments: payments,
 		Persons:  persons,
 		PersonID: personID,
 		Total:    total,
-	})
+		Page:     page,
+	}
+	if page > 1 {
+		data.PrevURL = pageURL("/payments", vals, page-1)
+	}
+	if hasNext {
+		data.NextURL = pageURL("/payments", vals, page+1)
+	}
+	a.render(w, "payments.html", "Оплаты", "payments", data)
 }
 
 type paymentFormData struct {

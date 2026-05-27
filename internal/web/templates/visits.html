@@ -41,4 +41,12 @@
     {{end}}
   </tbody>
 </table>
+
+{{if or $d.PrevURL $d.NextURL}}
+<div class="pager">
+  {{if $d.PrevURL}}<a class="btn small" href="{{$d.PrevURL}}">← Новее</a>{{else}}<span></span>{{end}}
+  <span class="muted">стр. {{$d.Page}}</span>
+  {{if $d.NextURL}}<a class="btn small" href="{{$d.NextURL}}">Старее →</a>{{else}}<span></span>{{end}}
+</div>
+{{end}}
 {{end}}

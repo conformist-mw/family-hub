@@ -21,7 +21,10 @@ func (s *Store) Balances() ([]model.Balance, error) {
 		       COALESCE((SELECT SUM(lessons_paid) FROM payments pm
 		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL),0) AS paid,
 		       (SELECT COUNT(*) FROM visits v
-		        WHERE v.enrollment_id=e.id AND v.status='done') AS done
+		        WHERE v.enrollment_id=e.id AND v.status='done') AS done,
+		       (SELECT COUNT(*) FROM visits v
+		        WHERE v.enrollment_id=e.id AND v.status='done'
+		          AND v.date >= date('now','localtime','start of month')) AS done_this_month
 		FROM enrollments e
 		JOIN persons p ON p.id = e.person_id
 		WHERE e.active = 1
@@ -38,7 +41,7 @@ func (s *Store) Balances() ([]model.Balance, error) {
 		var b model.Balance
 		if err := rows.Scan(&b.ID, &b.PersonID, &b.Person, &b.Name, &b.Description,
 			&b.BillingType, &b.CurrentPrice, &b.LowThreshold, &b.Active, &b.Notes,
-			&b.Paid, &b.Done); err != nil {
+			&b.Paid, &b.Done, &b.DoneThisMonth); err != nil {
 			return nil, err
 		}
 		b.Remaining = b.Paid - b.Done

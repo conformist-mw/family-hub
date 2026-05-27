@@ -10,6 +10,7 @@ import (
 type PaymentFilter struct {
 	PersonID int64
 	Limit    int
+	Offset   int
 }
 
 func (s *Store) ListPayments(f PaymentFilter) ([]model.Payment, error) {
@@ -31,6 +32,9 @@ func (s *Store) ListPayments(f PaymentFilter) ([]model.Payment, error) {
 	q += " ORDER BY pm.date DESC, pm.id DESC"
 	if f.Limit > 0 {
 		q += " LIMIT " + strconv.Itoa(f.Limit)
+	}
+	if f.Offset > 0 {
+		q += " OFFSET " + strconv.Itoa(f.Offset)
 	}
 
 	rows, err := s.db.Query(q, args...)

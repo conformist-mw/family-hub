@@ -30,6 +30,33 @@ func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	return out, rows.Err()
 }
 
+// FrequentActiveEnrollments returns active enrollments ordered by how many
+// visits they have, for quick-pick chips on the visit form.
+func (s *Store) FrequentActiveEnrollments(limit int) ([]model.Enrollment, error) {
+	rows, err := s.db.Query(`
+		SELECT e.id, e.person_id, p.name, e.name, e.description,
+		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
+		FROM enrollments e
+		JOIN persons p ON p.id = e.person_id
+		WHERE e.active = 1
+		ORDER BY (SELECT COUNT(*) FROM visits v WHERE v.enrollment_id = e.id) DESC, p.name, e.name
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Enrollment
+	for rows.Next() {
+		var e model.Enrollment
+		if err := rows.Scan(&e.ID, &e.PersonID, &e.Person, &e.Name, &e.Description,
+			&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) GetEnrollment(id int64) (model.Enrollment, error) {
 	var e model.Enrollment
 	err := s.db.QueryRow(`

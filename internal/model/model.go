@@ -82,12 +82,13 @@ type Payment struct {
 // Balance is a per-enrollment rollup shown on the dashboard.
 type Balance struct {
 	Enrollment
-	Paid        int    // sum of lessons_paid (per_lesson)
-	Done        int    // count of done visits
-	Remaining   int    // Paid - Done (per_lesson)
-	CoveredNow  bool   // monthly: is today within a paid period
-	CoversUntil string // monthly: end of the contiguous block covering today, "" if none
-	DaysLeft    int    // monthly: days until CoversUntil
+	Paid          int    // sum of lessons_paid (per_lesson)
+	Done          int    // count of done visits (all time)
+	Remaining     int    // Paid - Done (per_lesson)
+	DoneThisMonth int    // done visits since the start of the current month
+	CoveredNow    bool   // monthly: is today within a paid period
+	CoversUntil   string // monthly: end of the contiguous block covering today, "" if none
+	DaysLeft      int    // monthly: days until CoversUntil
 }
 
 // State returns one of: ok, low, empty — drives the dashboard badge.

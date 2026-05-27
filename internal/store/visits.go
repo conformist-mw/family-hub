@@ -11,6 +11,7 @@ type VisitFilter struct {
 	PersonID int64
 	Status   string
 	Limit    int
+	Offset   int
 }
 
 func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
@@ -35,6 +36,9 @@ func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 	q += " ORDER BY v.date DESC, v.id DESC"
 	if f.Limit > 0 {
 		q += " LIMIT " + strconv.Itoa(f.Limit)
+	}
+	if f.Offset > 0 {
+		q += " OFFSET " + strconv.Itoa(f.Offset)
 	}
 
 	rows, err := s.db.Query(q, args...)

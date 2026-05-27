@@ -9,7 +9,14 @@
 <form class="stack" method="post" action="{{if $d.IsEdit}}/visits/{{$d.Visit.ID}}{{else}}/visits{{end}}">
   <label>
     Курс
-    <select name="enrollment_id" required>
+    {{if $d.Frequent}}
+    <div class="pick-chips">
+      {{range $d.Frequent}}
+      <button type="button" data-eid="{{.ID}}">{{.Person}} · {{classLabel .Name .Description}}</button>
+      {{end}}
+    </div>
+    {{end}}
+    <select name="enrollment_id" id="enrollment" required>
       <option value="">— выбери —</option>
       {{range $d.Enrollments}}
       <option value="{{.ID}}" {{if eq .ID $d.Visit.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}}{{if not .Active}} (архив){{end}}</option>
@@ -59,5 +66,23 @@
       document.getElementById('date').value = b.dataset.date;
     });
   });
+
+  (function () {
+    var sel = document.getElementById('enrollment');
+    var chips = document.querySelectorAll('.pick-chips button');
+    function sync() {
+      chips.forEach(function (c) {
+        c.classList.toggle('active', c.dataset.eid === sel.value);
+      });
+    }
+    chips.forEach(function (c) {
+      c.addEventListener('click', function () {
+        sel.value = c.dataset.eid;
+        sync();
+      });
+    });
+    sel.addEventListener('change', sync);
+    sync();
+  })();
 </script>
 {{end}}

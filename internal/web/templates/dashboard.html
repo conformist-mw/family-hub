@@ -27,13 +27,13 @@
     </div>
     {{if eq .BillingType "per_lesson"}}
     <div class="card-stats">
-      <span>оплачено <b>{{.Paid}}</b></span>
-      <span>прошло <b>{{.Done}}</b></span>
       <span>осталось <b>{{.Remaining}}</b></span>
+      <span class="muted">в этом месяце: {{.DoneThisMonth}}</span>
     </div>
     {{else}}
     <div class="card-stats">
       <span>оплачено до <b>{{if .CoveredNow}}{{dateRu .CoversUntil}}{{else}}—{{end}}</b></span>
+      <span class="muted">в этом месяце: {{.DoneThisMonth}}</span>
     </div>
     {{end}}
   </div>

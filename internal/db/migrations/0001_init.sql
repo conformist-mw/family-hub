@@ -1,29 +1,27 @@
 -- +goose Up
-CREATE TABLE children (
+CREATE TABLE persons (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL UNIQUE,
+    name       TEXT    NOT NULL,
+    kind       TEXT    NOT NULL DEFAULT 'child' CHECK (kind IN ('child','adult')),
     active     INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE activities (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL UNIQUE,
+    notes      TEXT    NOT NULL DEFAULT '',
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE enrollments (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    child_id      INTEGER NOT NULL REFERENCES children(id),
-    activity_id   INTEGER NOT NULL REFERENCES activities(id),
+    person_id     INTEGER NOT NULL REFERENCES persons(id),
+    name          TEXT    NOT NULL,
+    description   TEXT    NOT NULL DEFAULT '',
     billing_type  TEXT    NOT NULL CHECK (billing_type IN ('per_lesson','monthly')),
     current_price REAL    NOT NULL,
     low_threshold INTEGER NOT NULL DEFAULT 2,
     active        INTEGER NOT NULL DEFAULT 1,
     notes         TEXT    NOT NULL DEFAULT '',
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (child_id, activity_id)
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX idx_enrollments_person ON enrollments(person_id);
 
 CREATE TABLE regular_slots (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,5 +66,4 @@ DROP TABLE payments;
 DROP TABLE visits;
 DROP TABLE regular_slots;
 DROP TABLE enrollments;
-DROP TABLE activities;
-DROP TABLE children;
+DROP TABLE persons;

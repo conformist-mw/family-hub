@@ -8,28 +8,27 @@ import (
 )
 
 type VisitFilter struct {
-	ChildID int64
-	Status  string
-	Limit   int
+	PersonID int64
+	Status   string
+	Limit    int
 }
 
 func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 	var where []string
 	var args []any
-	if f.ChildID != 0 {
-		where = append(where, "e.child_id = ?")
-		args = append(args, f.ChildID)
+	if f.PersonID != 0 {
+		where = append(where, "e.person_id = ?")
+		args = append(args, f.PersonID)
 	}
 	if f.Status != "" {
 		where = append(where, "v.status = ?")
 		args = append(args, f.Status)
 	}
 	q := `
-		SELECT v.id, v.enrollment_id, c.name, a.name, v.date, v.status, v.comment
+		SELECT v.id, v.enrollment_id, p.name, e.name, e.description, v.date, v.status, v.comment
 		FROM visits v
 		JOIN enrollments e ON e.id = v.enrollment_id
-		JOIN children c    ON c.id = e.child_id
-		JOIN activities a  ON a.id = e.activity_id`
+		JOIN persons p     ON p.id = e.person_id`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -46,7 +45,7 @@ func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 	var out []model.Visit
 	for rows.Next() {
 		var v model.Visit
-		if err := rows.Scan(&v.ID, &v.EnrollmentID, &v.Child, &v.Activity, &v.Date, &v.Status, &v.Comment); err != nil {
+		if err := rows.Scan(&v.ID, &v.EnrollmentID, &v.Person, &v.Class, &v.ClassDesc, &v.Date, &v.Status, &v.Comment); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -57,13 +56,12 @@ func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 func (s *Store) GetVisit(id int64) (model.Visit, error) {
 	var v model.Visit
 	err := s.db.QueryRow(`
-		SELECT v.id, v.enrollment_id, c.name, a.name, v.date, v.status, v.comment
+		SELECT v.id, v.enrollment_id, p.name, e.name, e.description, v.date, v.status, v.comment
 		FROM visits v
 		JOIN enrollments e ON e.id = v.enrollment_id
-		JOIN children c    ON c.id = e.child_id
-		JOIN activities a  ON a.id = e.activity_id
+		JOIN persons p     ON p.id = e.person_id
 		WHERE v.id = ?`, id).Scan(
-		&v.ID, &v.EnrollmentID, &v.Child, &v.Activity, &v.Date, &v.Status, &v.Comment)
+		&v.ID, &v.EnrollmentID, &v.Person, &v.Class, &v.ClassDesc, &v.Date, &v.Status, &v.Comment)
 	return v, err
 }
 

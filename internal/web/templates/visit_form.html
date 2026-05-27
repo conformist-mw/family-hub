@@ -12,7 +12,7 @@
     <select name="enrollment_id" required>
       <option value="">— выбери —</option>
       {{range $d.Enrollments}}
-      <option value="{{.ID}}" {{if eq .ID $d.Visit.EnrollmentID}}selected{{end}}>{{.Child}} — {{.Activity}}{{if not .Active}} (архив){{end}}</option>
+      <option value="{{.ID}}" {{if eq .ID $d.Visit.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}}{{if not .Active}} (архив){{end}}</option>
       {{end}}
     </select>
   </label>

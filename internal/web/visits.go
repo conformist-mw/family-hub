@@ -22,31 +22,31 @@ var statusOptions = []statusOption{
 
 type visitsListData struct {
 	Visits   []model.Visit
-	Children []model.Child
+	Persons  []model.Person
 	Statuses []statusOption
-	ChildID  int64
+	PersonID int64
 	Status   string
 }
 
 func (a *App) handleVisits(w http.ResponseWriter, r *http.Request) {
-	childID, _ := strconv.ParseInt(r.URL.Query().Get("child"), 10, 64)
+	personID, _ := strconv.ParseInt(r.URL.Query().Get("person"), 10, 64)
 	status := r.URL.Query().Get("status")
 
-	visits, err := a.Store.ListVisits(store.VisitFilter{ChildID: childID, Status: status, Limit: 300})
+	visits, err := a.Store.ListVisits(store.VisitFilter{PersonID: personID, Status: status, Limit: 300})
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	children, err := a.Store.ListChildren()
+	persons, err := a.Store.ListPersons()
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
 	a.render(w, "visits.html", "Занятия", "visits", visitsListData{
 		Visits:   visits,
-		Children: children,
+		Persons:  persons,
 		Statuses: statusOptions,
-		ChildID:  childID,
+		PersonID: personID,
 		Status:   status,
 	})
 }

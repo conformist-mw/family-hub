@@ -6,10 +6,10 @@
 </div>
 
 <form class="filters" method="get" action="/visits">
-  <select name="child" onchange="this.form.submit()">
-    <option value="">Все дети</option>
-    {{range $d.Children}}
-    <option value="{{.ID}}" {{if eq .ID $d.ChildID}}selected{{end}}>{{.Name}}</option>
+  <select name="person" onchange="this.form.submit()">
+    <option value="">Все</option>
+    {{range $d.Persons}}
+    <option value="{{.ID}}" {{if eq .ID $d.PersonID}}selected{{end}}>{{.Name}}</option>
     {{end}}
   </select>
   <select name="status" onchange="this.form.submit()">
@@ -23,14 +23,14 @@
 
 <table>
   <thead>
-    <tr><th>Дата</th><th>Ребёнок</th><th>Занятие</th><th>Статус</th><th>Комментарий</th><th></th></tr>
+    <tr><th>Дата</th><th>Кто</th><th>Занятие</th><th>Статус</th><th>Комментарий</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Visits}}
     <tr>
       <td data-label="Дата">{{dateRu .Date}}</td>
-      <td data-label="Ребёнок">{{.Child}}</td>
-      <td data-label="Занятие">{{.Activity}}</td>
+      <td data-label="Кто">{{.Person}}</td>
+      <td data-label="Занятие">{{classLabel .Class .ClassDesc}}</td>
       <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span></td>
       <td data-label="Комментарий">{{.Comment}}</td>
       <td data-label=""><a class="btn small" href="/visits/{{.ID}}/edit">✎</a></td>

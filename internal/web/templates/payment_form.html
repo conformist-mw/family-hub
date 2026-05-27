@@ -14,7 +14,7 @@
       <option value="">— выбери —</option>
       {{range $d.Enrollments}}
       <option value="{{.ID}}" data-billing="{{.BillingType}}" data-price="{{.CurrentPrice}}"
-        {{if eq .ID $p.EnrollmentID}}selected{{end}}>{{.Child}} — {{.Activity}} ({{billingLabel .BillingType}}){{if not .Active}} (архив){{end}}</option>
+        {{if eq .ID $p.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}} ({{billingLabel .BillingType}}){{if not .Active}} (архив){{end}}</option>
       {{end}}
     </select>
   </label>

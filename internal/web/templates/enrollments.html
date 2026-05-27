@@ -7,13 +7,13 @@
 
 <table>
   <thead>
-    <tr><th>Ребёнок</th><th>Занятие</th><th>Оплата</th><th>Цена</th><th>Порог</th><th>Статус</th><th></th></tr>
+    <tr><th>Кто</th><th>Занятие</th><th>Оплата</th><th>Цена</th><th>Порог</th><th>Статус</th><th></th></tr>
   </thead>
   <tbody>
     {{range $enrollments}}
     <tr>
-      <td data-label="Ребёнок">{{.Child}}</td>
-      <td data-label="Занятие">{{.Activity}}</td>
+      <td data-label="Кто">{{.Person}}</td>
+      <td data-label="Занятие">{{classLabel .Name .Description}}</td>
       <td data-label="Оплата">{{billingLabel .BillingType}}</td>
       <td data-label="Цена">{{money .CurrentPrice}}</td>
       <td data-label="Порог">{{.LowThreshold}}</td>

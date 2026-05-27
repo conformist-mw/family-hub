@@ -2,7 +2,7 @@
 {{$d := .Data}}
 {{$e := $d.Enrollment}}
 <div class="page-head">
-  <h1>{{if $d.IsEdit}}{{$e.Child}} — {{$e.Activity}}{{else}}Новый курс{{end}}</h1>
+  <h1>{{if $d.IsEdit}}{{$e.Person}} — {{classLabel $e.Name $e.Description}}{{else}}Новый курс{{end}}</h1>
 </div>
 
 {{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
@@ -10,25 +10,30 @@
 <form class="stack" method="post" action="{{if $d.IsEdit}}/enrollments/{{$e.ID}}{{else}}/enrollments{{end}}">
   {{if $d.IsEdit}}
     <div class="readonly-pair">
-      <div><span class="muted">Ребёнок</span><div>{{$e.Child}}</div></div>
-      <div><span class="muted">Занятие</span><div>{{$e.Activity}}</div></div>
+      <div><span class="muted">Кто</span><div>{{$e.Person}}</div></div>
     </div>
   {{else}}
     <label>
-      Ребёнок
-      <input name="child" list="children-list" value="{{$e.Child}}" autocomplete="off" required>
-      <datalist id="children-list">
-        {{range $d.Children}}<option value="{{.Name}}">{{end}}
-      </datalist>
-    </label>
-    <label>
-      Занятие
-      <input name="activity" list="activities-list" value="{{$e.Activity}}" autocomplete="off" required>
-      <datalist id="activities-list">
-        {{range $d.Activities}}<option value="{{.Name}}">{{end}}
+      Кто
+      <input name="person" list="persons-list" value="{{$e.Person}}" autocomplete="off" required>
+      <datalist id="persons-list">
+        {{range $d.Persons}}<option value="{{.Name}}">{{end}}
       </datalist>
     </label>
   {{end}}
+
+  <label>
+    Название занятия
+    <input name="name" list="classnames-list" value="{{$e.Name}}" autocomplete="off" required>
+    <datalist id="classnames-list">
+      {{range $d.ClassNames}}<option value="{{.}}">{{end}}
+    </datalist>
+  </label>
+
+  <label>
+    Описание <span class="muted">(чтобы отличать одинаковые — тренер, группа, зал)</span>
+    <input name="description" value="{{$e.Description}}" autocomplete="off">
+  </label>
 
   <label>
     Тип оплаты

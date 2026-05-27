@@ -6,10 +6,10 @@
 </div>
 
 <form class="filters" method="get" action="/payments">
-  <select name="child" onchange="this.form.submit()">
-    <option value="">Все дети</option>
-    {{range $d.Children}}
-    <option value="{{.ID}}" {{if eq .ID $d.ChildID}}selected{{end}}>{{.Name}}</option>
+  <select name="person" onchange="this.form.submit()">
+    <option value="">Все</option>
+    {{range $d.Persons}}
+    <option value="{{.ID}}" {{if eq .ID $d.PersonID}}selected{{end}}>{{.Name}}</option>
     {{end}}
   </select>
   <span class="total">Всего: <b>{{money $d.Total}}</b></span>
@@ -17,14 +17,14 @@
 
 <table>
   <thead>
-    <tr><th>Дата</th><th>Ребёнок</th><th>Занятие</th><th>За что</th><th>Сумма</th><th></th></tr>
+    <tr><th>Дата</th><th>Кто</th><th>Занятие</th><th>За что</th><th>Сумма</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Payments}}
     <tr>
       <td data-label="Дата">{{dateRu .Date}}</td>
-      <td data-label="Ребёнок">{{.Child}}</td>
-      <td data-label="Занятие">{{.Activity}}</td>
+      <td data-label="Кто">{{.Person}}</td>
+      <td data-label="Занятие">{{classLabel .Class .ClassDesc}}</td>
       <td data-label="За что">
         {{if .LessonsPaid}}{{.LessonsPaid}} зан.{{else if .CoversUntil}}абон. {{dateRu (deref .CoversFrom)}}—{{dateRu (deref .CoversUntil)}}{{else}}—{{end}}
       </td>

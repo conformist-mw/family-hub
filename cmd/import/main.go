@@ -34,6 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("import done",
+		"persons", stats.Persons,
 		"enrollments", stats.Enrollments,
 		"visits", stats.Visits,
 		"payments", stats.Payments,

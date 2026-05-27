@@ -10,32 +10,32 @@ import (
 
 type paymentsListData struct {
 	Payments []model.Payment
-	Children []model.Child
-	ChildID  int64
+	Persons  []model.Person
+	PersonID int64
 	Total    float64
 }
 
 func (a *App) handlePayments(w http.ResponseWriter, r *http.Request) {
-	childID, _ := strconv.ParseInt(r.URL.Query().Get("child"), 10, 64)
-	payments, err := a.Store.ListPayments(store.PaymentFilter{ChildID: childID, Limit: 300})
+	personID, _ := strconv.ParseInt(r.URL.Query().Get("person"), 10, 64)
+	payments, err := a.Store.ListPayments(store.PaymentFilter{PersonID: personID, Limit: 300})
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	children, err := a.Store.ListChildren()
+	persons, err := a.Store.ListPersons()
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	total, err := a.Store.TotalPaid(childID)
+	total, err := a.Store.TotalPaid(personID)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
 	a.render(w, "payments.html", "Оплаты", "payments", paymentsListData{
 		Payments: payments,
-		Children: children,
-		ChildID:  childID,
+		Persons:  persons,
+		PersonID: personID,
 		Total:    total,
 	})
 }

@@ -8,67 +8,46 @@ import (
 	"lessons/internal/model"
 )
 
-var ErrDuplicateEnrollment = errors.New("такой курс уже есть")
 var ErrEnrollmentHasData = errors.New("у курса есть занятия или оплаты — заархивируй вместо удаления")
 
-func (s *Store) getOrCreateChild(name string) (int64, error) {
-	return getOrCreateNamed(s.db, "children", name)
-}
-
-func (s *Store) getOrCreateActivity(name string) (int64, error) {
-	return getOrCreateNamed(s.db, "activities", name)
-}
-
-func getOrCreateNamed(db *sql.DB, table, name string) (int64, error) {
+func (s *Store) getOrCreatePerson(name string) (int64, error) {
 	name = strings.TrimSpace(name)
 	var id int64
-	err := db.QueryRow("SELECT id FROM "+table+" WHERE name = ?", name).Scan(&id)
+	err := s.db.QueryRow("SELECT id FROM persons WHERE name = ?", name).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
-	res, err := db.Exec("INSERT INTO "+table+" (name) VALUES (?)", name)
+	res, err := s.db.Exec("INSERT INTO persons (name) VALUES (?)", name)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) CreateEnrollment(childName, activityName, billingType string, price float64, lowThreshold int, notes string) (int64, error) {
-	childID, err := s.getOrCreateChild(childName)
+func (s *Store) CreateEnrollment(personName, name, description, billingType string, price float64, lowThreshold int, notes string) (int64, error) {
+	personID, err := s.getOrCreatePerson(personName)
 	if err != nil {
-		return 0, err
-	}
-	activityID, err := s.getOrCreateActivity(activityName)
-	if err != nil {
-		return 0, err
-	}
-	var existing int64
-	err = s.db.QueryRow(`SELECT id FROM enrollments WHERE child_id=? AND activity_id=?`, childID, activityID).Scan(&existing)
-	if err == nil {
-		return 0, ErrDuplicateEnrollment
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO enrollments (child_id, activity_id, billing_type, current_price, low_threshold, notes)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		childID, activityID, billingType, price, lowThreshold, notes)
+		INSERT INTO enrollments (person_id, name, description, billing_type, current_price, low_threshold, notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		personID, strings.TrimSpace(name), description, billingType, price, lowThreshold, notes)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdateEnrollment(id int64, billingType string, price float64, lowThreshold int, active bool, notes string) error {
+func (s *Store) UpdateEnrollment(id int64, name, description, billingType string, price float64, lowThreshold int, active bool, notes string) error {
 	_, err := s.db.Exec(`
 		UPDATE enrollments
-		SET billing_type=?, current_price=?, low_threshold=?, active=?, notes=?
+		SET name=?, description=?, billing_type=?, current_price=?, low_threshold=?, active=?, notes=?
 		WHERE id=?`,
-		billingType, price, lowThreshold, active, notes, id)
+		strings.TrimSpace(name), description, billingType, price, lowThreshold, active, notes, id)
 	return err
 }
 

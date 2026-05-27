@@ -31,8 +31,8 @@ func (a *App) handleEnrollments(w http.ResponseWriter, r *http.Request) {
 type enrollmentFormData struct {
 	Enrollment model.Enrollment
 	Billing    []billingOption
-	Children   []model.Child
-	Activities []model.Activity
+	Persons    []model.Person
+	ClassNames []string
 	Slots      []model.Slot
 	Weekdays   []weekdayOption
 	IsEdit     bool
@@ -63,8 +63,9 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	child := normalizeName(r.FormValue("child"))
-	activity := normalizeName(r.FormValue("activity"))
+	person := normalizeName(r.FormValue("person"))
+	name := normalizeName(r.FormValue("name"))
+	description := normalizeName(r.FormValue("description"))
 	billing := r.FormValue("billing_type")
 	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
 	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
@@ -72,12 +73,12 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 
 	formData := enrollmentFormData{
 		Enrollment: model.Enrollment{
-			Child: child, Activity: activity, BillingType: billing,
+			Person: person, Name: name, Description: description, BillingType: billing,
 			CurrentPrice: price, LowThreshold: low, Notes: notes, Active: true,
 		},
 	}
-	if child == "" || activity == "" {
-		formData.Error = "укажи ребёнка и занятие"
+	if person == "" || name == "" {
+		formData.Error = "укажи человека и название занятия"
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
@@ -91,13 +92,7 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
-	_, err := a.Store.CreateEnrollment(child, activity, billing, price, low, notes)
-	if errors.Is(err, store.ErrDuplicateEnrollment) {
-		formData.Error = err.Error()
-		a.renderEnrollmentForm(w, formData)
-		return
-	}
-	if err != nil {
+	if _, err := a.Store.CreateEnrollment(person, name, description, billing, price, low, notes); err != nil {
 		a.serverError(w, err)
 		return
 	}
@@ -129,22 +124,24 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	name := normalizeName(r.FormValue("name"))
+	description := normalizeName(r.FormValue("description"))
 	billing := r.FormValue("billing_type")
 	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
 	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
 	active := r.FormValue("active") == "on"
 	notes := normalizeName(r.FormValue("notes"))
 
-	if !isValidBilling(billing) || price < 0 {
+	if name == "" || !isValidBilling(billing) || price < 0 {
 		enr, _ := a.Store.GetEnrollment(id)
 		slots, _ := a.Store.ListSlots(id)
 		a.renderEnrollmentForm(w, enrollmentFormData{
 			Enrollment: enr, Slots: slots, IsEdit: true,
-			Error: "проверь тип оплаты и цену",
+			Error: "проверь название, тип оплаты и цену",
 		})
 		return
 	}
-	if err := a.Store.UpdateEnrollment(id, billing, price, low, active, notes); err != nil {
+	if err := a.Store.UpdateEnrollment(id, name, description, billing, price, low, active, notes); err != nil {
 		a.serverError(w, err)
 		return
 	}
@@ -203,10 +200,10 @@ func (a *App) renderEnrollmentForm(w http.ResponseWriter, data enrollmentFormDat
 	data.Billing = billingOptions
 	data.Weekdays = weekdayOptions()
 	if !data.IsEdit {
-		children, _ := a.Store.ListChildren()
-		activities, _ := a.Store.ListActivities()
-		data.Children = children
-		data.Activities = activities
+		persons, _ := a.Store.ListPersons()
+		names, _ := a.Store.DistinctClassNames()
+		data.Persons = persons
+		data.ClassNames = names
 	}
 	a.render(w, "enrollment_form.html", "Курс", "enrollments", data)
 }

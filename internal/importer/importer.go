@@ -2,6 +2,7 @@ package importer
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -31,12 +32,18 @@ const (
 var earliestValid = mustDate("2025-11-27")
 
 type Stats struct {
+	Persons     int
 	Enrollments int
 	Visits      int
 	Payments    int
 	DateFixed   int
 	StatusFixed int
 	Skipped     int
+}
+
+// enrollKey identifies an enrollment by owner + class name.
+func enrollKey(personID int64, name string) string {
+	return strconv.FormatInt(personID, 10) + "\x00" + name
 }
 
 func Import(database *sql.DB, xlsxPath string, logger *slog.Logger) (Stats, error) {
@@ -54,20 +61,17 @@ func Import(database *sql.DB, xlsxPath string, logger *slog.Logger) (Stats, erro
 	}
 	defer tx.Rollback()
 
-	children, err := loadNameMap(tx, "children")
+	persons, err := loadPersons(tx)
 	if err != nil {
-		return stats, fmt.Errorf("load children: %w", err)
-	}
-	activities, err := loadNameMap(tx, "activities")
-	if err != nil {
-		return stats, fmt.Errorf("load activities: %w", err)
+		return stats, fmt.Errorf("load persons: %w", err)
 	}
 
-	enrollments, n, err := upsertEnrollments(tx, f, children, activities, logger)
+	enrollments, n, err := upsertEnrollments(tx, f, persons, logger)
 	if err != nil {
 		return stats, fmt.Errorf("enrollments: %w", err)
 	}
 	stats.Enrollments = n
+	stats.Persons = len(persons)
 
 	if _, err := tx.Exec("DELETE FROM visits"); err != nil {
 		return stats, err
@@ -76,13 +80,13 @@ func Import(database *sql.DB, xlsxPath string, logger *slog.Logger) (Stats, erro
 		return stats, err
 	}
 
-	vs, err := importVisits(tx, f, children, activities, enrollments, logger, &stats)
+	vs, err := importVisits(tx, f, persons, enrollments, logger, &stats)
 	if err != nil {
 		return stats, fmt.Errorf("visits: %w", err)
 	}
 	stats.Visits = vs
 
-	ps, err := importPayments(tx, f, children, activities, enrollments, logger, &stats)
+	ps, err := importPayments(tx, f, persons, enrollments, logger, &stats)
 	if err != nil {
 		return stats, fmt.Errorf("payments: %w", err)
 	}
@@ -100,8 +104,8 @@ type execer interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-func loadNameMap(tx execer, table string) (map[string]int64, error) {
-	rows, err := tx.Query("SELECT id, name FROM " + table)
+func loadPersons(tx execer) (map[string]int64, error) {
+	rows, err := tx.Query("SELECT id, name FROM persons")
 	if err != nil {
 		return nil, err
 	}
@@ -118,60 +122,78 @@ func loadNameMap(tx execer, table string) (map[string]int64, error) {
 	return out, rows.Err()
 }
 
-func upsertEnrollments(tx execer, f *excelize.File, children, activities map[string]int64, logger *slog.Logger) (map[[2]int64]int64, int, error) {
+func getOrCreatePerson(tx execer, persons map[string]int64, name string) (int64, error) {
+	name = strings.TrimSpace(name)
+	if id, ok := persons[name]; ok {
+		return id, nil
+	}
+	res, err := tx.Exec("INSERT INTO persons (name) VALUES (?)", name)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	persons[name] = id
+	return id, nil
+}
+
+func upsertEnrollments(tx execer, f *excelize.File, persons map[string]int64, logger *slog.Logger) (map[string]int64, int, error) {
 	rows, err := f.GetRows(currentSheet)
 	if err != nil {
 		return nil, 0, err
 	}
-	enrollments := map[[2]int64]int64{}
+	enrollments := map[string]int64{}
 	count := 0
 	for i, row := range rows {
-		if i == 0 {
+		if i == 0 || len(row) < 6 {
 			continue
 		}
-		if len(row) < 6 {
-			continue
-		}
-		childName := strings.TrimSpace(row[0])
-		activityName := strings.TrimSpace(row[1])
+		personName := strings.TrimSpace(row[0])
+		className := strings.TrimSpace(row[1])
 		priceStr := strings.TrimSpace(row[5])
-		if childName == "" || activityName == "" || priceStr == "" {
+		if personName == "" || className == "" || priceStr == "" {
 			continue
 		}
-		childID, ok := children[childName]
-		if !ok {
-			logger.Warn("unknown child in current", "name", childName)
-			continue
-		}
-		activityID, ok := activities[activityName]
-		if !ok {
-			logger.Warn("unknown activity in current", "name", activityName)
-			continue
+		personID, err := getOrCreatePerson(tx, persons, personName)
+		if err != nil {
+			return nil, 0, err
 		}
 		price, err := strconv.ParseFloat(strings.ReplaceAll(priceStr, ",", "."), 64)
 		if err != nil {
-			logger.Warn("bad price", "child", childName, "activity", activityName, "value", priceStr)
+			logger.Warn("bad price", "person", personName, "class", className, "value", priceStr)
 			continue
 		}
-		_, err = tx.Exec(`
-			INSERT INTO enrollments (child_id, activity_id, billing_type, current_price)
-			VALUES (?, ?, 'per_lesson', ?)
-			ON CONFLICT(child_id, activity_id) DO UPDATE SET current_price = excluded.current_price
-		`, childID, activityID, price)
-		if err != nil {
-			return nil, 0, fmt.Errorf("upsert enrollment %s/%s: %w", childName, activityName, err)
-		}
+
 		var id int64
-		if err := tx.QueryRow(`SELECT id FROM enrollments WHERE child_id=? AND activity_id=?`, childID, activityID).Scan(&id); err != nil {
+		err = tx.QueryRow(`SELECT id FROM enrollments WHERE person_id=? AND name=?`, personID, className).Scan(&id)
+		switch {
+		case err == nil:
+			if _, err := tx.Exec(`UPDATE enrollments SET current_price=? WHERE id=?`, price, id); err != nil {
+				return nil, 0, err
+			}
+		case errors.Is(err, sql.ErrNoRows):
+			res, err := tx.Exec(`
+				INSERT INTO enrollments (person_id, name, billing_type, current_price)
+				VALUES (?, ?, 'per_lesson', ?)`, personID, className, price)
+			if err != nil {
+				return nil, 0, fmt.Errorf("insert enrollment %s/%s: %w", personName, className, err)
+			}
+			id, err = res.LastInsertId()
+			if err != nil {
+				return nil, 0, err
+			}
+		default:
 			return nil, 0, err
 		}
-		enrollments[[2]int64{childID, activityID}] = id
+		enrollments[enrollKey(personID, className)] = id
 		count++
 	}
 	return enrollments, count, nil
 }
 
-func importVisits(tx execer, f *excelize.File, children, activities map[string]int64, enrollments map[[2]int64]int64, logger *slog.Logger, stats *Stats) (int, error) {
+func importVisits(tx execer, f *excelize.File, persons, enrollments map[string]int64, logger *slog.Logger, stats *Stats) (int, error) {
 	rows, err := f.Rows(visitsSheet)
 	if err != nil {
 		return 0, err
@@ -186,23 +208,20 @@ func importVisits(tx execer, f *excelize.File, children, activities map[string]i
 		if err != nil {
 			return 0, err
 		}
-		if rowIdx == 1 {
-			continue
-		}
-		if len(cells) < 6 {
+		if rowIdx == 1 || len(cells) < 6 {
 			continue
 		}
 		tsRaw := strings.TrimSpace(cells[0])
 		dateRaw := strings.TrimSpace(cells[1])
-		activityName := strings.TrimSpace(cells[2])
+		className := strings.TrimSpace(cells[2])
 		statusRaw := strings.TrimSpace(cells[3])
 		comment := ""
 		if len(cells) > 4 {
 			comment = strings.TrimSpace(cells[4])
 		}
-		childName := strings.TrimSpace(cells[5])
+		personName := strings.TrimSpace(cells[5])
 
-		if dateRaw == "" || activityName == "" || statusRaw == "" || childName == "" {
+		if dateRaw == "" || className == "" || statusRaw == "" || personName == "" {
 			stats.Skipped++
 			continue
 		}
@@ -230,29 +249,23 @@ func importVisits(tx execer, f *excelize.File, children, activities map[string]i
 			stats.StatusFixed++
 		}
 
-		childID, ok := children[childName]
+		personID, ok := persons[personName]
 		if !ok {
-			logger.Warn("unknown child in visit", "row", rowIdx, "name", childName)
+			logger.Warn("unknown person in visit", "row", rowIdx, "name", personName)
 			stats.Skipped++
 			continue
 		}
-		activityID, ok := activities[activityName]
+		enrollmentID, ok := enrollments[enrollKey(personID, className)]
 		if !ok {
-			logger.Warn("unknown activity in visit", "row", rowIdx, "name", activityName)
-			stats.Skipped++
-			continue
-		}
-		enrollmentID, ok := enrollments[[2]int64{childID, activityID}]
-		if !ok {
-			logger.Warn("no enrollment for visit", "row", rowIdx, "child", childName, "activity", activityName)
+			logger.Warn("no enrollment for visit", "row", rowIdx, "person", personName, "class", className)
 			stats.Skipped++
 			continue
 		}
 
 		_, err = tx.Exec(`
 			INSERT INTO visits (enrollment_id, date, status, comment, created_at)
-			VALUES (?, ?, ?, ?, ?)
-		`, enrollmentID, date.Format("2006-01-02"), status, comment, ts.Format(time.RFC3339))
+			VALUES (?, ?, ?, ?, ?)`,
+			enrollmentID, date.Format("2006-01-02"), status, comment, ts.Format(time.RFC3339))
 		if err != nil {
 			return 0, fmt.Errorf("insert visit row %d: %w", rowIdx, err)
 		}
@@ -261,7 +274,7 @@ func importVisits(tx execer, f *excelize.File, children, activities map[string]i
 	return count, rows.Error()
 }
 
-func importPayments(tx execer, f *excelize.File, children, activities map[string]int64, enrollments map[[2]int64]int64, logger *slog.Logger, stats *Stats) (int, error) {
+func importPayments(tx execer, f *excelize.File, persons, enrollments map[string]int64, logger *slog.Logger, stats *Stats) (int, error) {
 	rows, err := f.Rows(paymentsSheet)
 	if err != nil {
 		return 0, err
@@ -276,15 +289,12 @@ func importPayments(tx execer, f *excelize.File, children, activities map[string
 		if err != nil {
 			return 0, err
 		}
-		if rowIdx == 1 {
-			continue
-		}
-		if len(cells) < 5 {
+		if rowIdx == 1 || len(cells) < 5 {
 			continue
 		}
 		dateRaw := strings.TrimSpace(cells[0])
-		childName := strings.TrimSpace(cells[1])
-		activityName := strings.TrimSpace(cells[2])
+		personName := strings.TrimSpace(cells[1])
+		className := strings.TrimSpace(cells[2])
 		lessonsRaw := strings.TrimSpace(cells[3])
 		amountRaw := strings.TrimSpace(cells[4])
 		comment := ""
@@ -292,7 +302,7 @@ func importPayments(tx execer, f *excelize.File, children, activities map[string
 			comment = strings.TrimSpace(cells[5])
 		}
 
-		if dateRaw == "" || childName == "" || activityName == "" {
+		if dateRaw == "" || personName == "" || className == "" {
 			continue
 		}
 
@@ -315,29 +325,23 @@ func importPayments(tx execer, f *excelize.File, children, activities map[string
 			continue
 		}
 
-		childID, ok := children[childName]
+		personID, ok := persons[personName]
 		if !ok {
-			logger.Warn("unknown child in payment", "row", rowIdx, "name", childName)
+			logger.Warn("unknown person in payment", "row", rowIdx, "name", personName)
 			stats.Skipped++
 			continue
 		}
-		activityID, ok := activities[activityName]
+		enrollmentID, ok := enrollments[enrollKey(personID, className)]
 		if !ok {
-			logger.Warn("unknown activity in payment", "row", rowIdx, "name", activityName)
-			stats.Skipped++
-			continue
-		}
-		enrollmentID, ok := enrollments[[2]int64{childID, activityID}]
-		if !ok {
-			logger.Warn("no enrollment for payment", "row", rowIdx, "child", childName, "activity", activityName)
+			logger.Warn("no enrollment for payment", "row", rowIdx, "person", personName, "class", className)
 			stats.Skipped++
 			continue
 		}
 
 		_, err = tx.Exec(`
 			INSERT INTO payments (enrollment_id, date, amount, lessons_paid, comment)
-			VALUES (?, ?, ?, ?, ?)
-		`, enrollmentID, date.Format("2006-01-02"), amount, int64(lessons), comment)
+			VALUES (?, ?, ?, ?, ?)`,
+			enrollmentID, date.Format("2006-01-02"), amount, int64(lessons), comment)
 		if err != nil {
 			return 0, fmt.Errorf("insert payment row %d: %w", rowIdx, err)
 		}

@@ -57,6 +57,12 @@ var funcs = template.FuncMap{
 		}
 		return *p
 	},
+	"classLabel": func(name, desc string) string {
+		if desc == "" {
+			return name
+		}
+		return name + " (" + desc + ")"
+	},
 }
 
 type pageData struct {

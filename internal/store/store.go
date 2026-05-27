@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"sort"
 	"time"
 
 	"lessons/internal/model"
@@ -15,42 +16,102 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 
 func (s *Store) Balances() ([]model.Balance, error) {
 	rows, err := s.db.Query(`
-		SELECT e.id, e.child_id, e.activity_id, c.name, a.name,
+		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
-		       COALESCE((SELECT SUM(lessons_paid) FROM payments p
-		                 WHERE p.enrollment_id=e.id AND p.lessons_paid IS NOT NULL),0) AS paid,
+		       COALESCE((SELECT SUM(lessons_paid) FROM payments pm
+		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL),0) AS paid,
 		       (SELECT COUNT(*) FROM visits v
-		        WHERE v.enrollment_id=e.id AND v.status='done') AS done,
-		       COALESCE((SELECT MAX(covers_until) FROM payments p
-		                 WHERE p.enrollment_id=e.id AND p.covers_until IS NOT NULL),'') AS covers_until
+		        WHERE v.enrollment_id=e.id AND v.status='done') AS done
 		FROM enrollments e
-		JOIN children c   ON c.id = e.child_id
-		JOIN activities a ON a.id = e.activity_id
-		ORDER BY e.active DESC, c.name, a.name
+		JOIN persons p ON p.id = e.person_id
+		WHERE e.active = 1
+		ORDER BY p.name, e.name
 	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	today := time.Now()
+	today := truncateDay(time.Now())
 	var out []model.Balance
 	for rows.Next() {
 		var b model.Balance
-		if err := rows.Scan(&b.ID, &b.ChildID, &b.ActivityID, &b.Child, &b.Activity,
+		if err := rows.Scan(&b.ID, &b.PersonID, &b.Person, &b.Name, &b.Description,
 			&b.BillingType, &b.CurrentPrice, &b.LowThreshold, &b.Active, &b.Notes,
-			&b.Paid, &b.Done, &b.CoversUntil); err != nil {
+			&b.Paid, &b.Done); err != nil {
 			return nil, err
 		}
 		b.Remaining = b.Paid - b.Done
-		if b.CoversUntil != "" {
-			if until, err := model.ParseDate(b.CoversUntil); err == nil {
-				b.DaysLeft = int(until.Sub(truncateDay(today)).Hours() / 24)
+		if b.BillingType == model.BillingMonthly {
+			periods, err := s.coveragePeriods(b.ID)
+			if err != nil {
+				return nil, err
 			}
+			b.CoveredNow, b.CoversUntil, b.DaysLeft = coverageFromToday(periods, today)
 		}
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+type period struct {
+	from time.Time
+	to   time.Time
+}
+
+func (s *Store) coveragePeriods(enrollmentID int64) ([]period, error) {
+	rows, err := s.db.Query(`
+		SELECT covers_from, covers_until FROM payments
+		WHERE enrollment_id=? AND covers_from IS NOT NULL AND covers_until IS NOT NULL`, enrollmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ps []period
+	for rows.Next() {
+		var from, to string
+		if err := rows.Scan(&from, &to); err != nil {
+			return nil, err
+		}
+		f, err1 := model.ParseDate(from)
+		t, err2 := model.ParseDate(to)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		ps = append(ps, period{from: f, to: t})
+	}
+	return ps, rows.Err()
+}
+
+// coverageFromToday reports whether today is covered by some paid period and,
+// if so, the end of the contiguous run starting at today (merging adjacent or
+// overlapping periods). A gap between periods correctly ends the run.
+func coverageFromToday(periods []period, today time.Time) (bool, string, int) {
+	if len(periods) == 0 {
+		return false, "", 0
+	}
+	sort.Slice(periods, func(i, j int) bool { return periods[i].from.Before(periods[j].from) })
+
+	var cover *time.Time
+	for _, p := range periods {
+		if !today.Before(p.from) && !today.After(p.to) {
+			end := p.to
+			cover = &end
+			break
+		}
+	}
+	if cover == nil {
+		return false, "", 0
+	}
+	for _, p := range periods {
+		// extend if the next period begins no later than the day after current end
+		if !p.from.After(cover.AddDate(0, 0, 1)) && p.to.After(*cover) {
+			end := p.to
+			cover = &end
+		}
+	}
+	days := int(cover.Sub(today).Hours() / 24)
+	return true, cover.Format("2006-01-02"), days
 }
 
 func truncateDay(t time.Time) time.Time {

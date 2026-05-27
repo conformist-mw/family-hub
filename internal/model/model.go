@@ -10,6 +10,9 @@ const (
 	StatusRescheduled = "rescheduled"
 	StatusCancelled   = "cancelled"
 	StatusSkipped     = "skipped"
+
+	KindChild = "child"
+	KindAdult = "adult"
 )
 
 var StatusLabels = map[string]string{
@@ -21,23 +24,20 @@ var StatusLabels = map[string]string{
 
 var WeekdayLabels = [7]string{"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
 
-type Child struct {
+type Person struct {
 	ID     int64
 	Name   string
+	Kind   string
 	Active bool
-}
-
-type Activity struct {
-	ID   int64
-	Name string
+	Notes  string
 }
 
 type Enrollment struct {
 	ID           int64
-	ChildID      int64
-	ActivityID   int64
-	Child        string
-	Activity     string
+	PersonID     int64
+	Person       string
+	Name         string
+	Description  string
 	BillingType  string
 	CurrentPrice float64
 	LowThreshold int
@@ -56,8 +56,9 @@ type Slot struct {
 type Visit struct {
 	ID           int64
 	EnrollmentID int64
-	Child        string
-	Activity     string
+	Person       string
+	Class        string
+	ClassDesc    string
 	Date         string
 	Status       string
 	Comment      string
@@ -66,8 +67,9 @@ type Visit struct {
 type Payment struct {
 	ID           int64
 	EnrollmentID int64
-	Child        string
-	Activity     string
+	Person       string
+	Class        string
+	ClassDesc    string
 	Date         string
 	Amount       float64
 	LessonsPaid  *int64
@@ -79,21 +81,19 @@ type Payment struct {
 // Balance is a per-enrollment rollup shown on the dashboard.
 type Balance struct {
 	Enrollment
-	Paid        int     // sum of lessons_paid (per_lesson)
-	Done        int     // count of done visits
-	Remaining   int     // Paid - Done (per_lesson)
-	CoversUntil string  // latest covers_until (monthly), "" if none
-	DaysLeft    int     // days until CoversUntil (monthly)
+	Paid        int    // sum of lessons_paid (per_lesson)
+	Done        int    // count of done visits
+	Remaining   int    // Paid - Done (per_lesson)
+	CoveredNow  bool   // monthly: is today within a paid period
+	CoversUntil string // monthly: end of the contiguous block covering today, "" if none
+	DaysLeft    int    // monthly: days until CoversUntil
 }
 
 // State returns one of: ok, low, empty — drives the dashboard badge.
 func (b Balance) State() string {
 	switch b.BillingType {
 	case BillingMonthly:
-		if b.CoversUntil == "" {
-			return "empty"
-		}
-		if b.DaysLeft < 0 {
+		if !b.CoveredNow {
 			return "empty"
 		}
 		if b.DaysLeft <= b.LowThreshold {

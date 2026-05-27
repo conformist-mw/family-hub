@@ -8,28 +8,27 @@ import (
 )
 
 type PaymentFilter struct {
-	ChildID int64
-	Limit   int
+	PersonID int64
+	Limit    int
 }
 
 func (s *Store) ListPayments(f PaymentFilter) ([]model.Payment, error) {
 	var where []string
 	var args []any
-	if f.ChildID != 0 {
-		where = append(where, "e.child_id = ?")
-		args = append(args, f.ChildID)
+	if f.PersonID != 0 {
+		where = append(where, "e.person_id = ?")
+		args = append(args, f.PersonID)
 	}
 	q := `
-		SELECT p.id, p.enrollment_id, c.name, a.name, p.date, p.amount,
-		       p.lessons_paid, p.covers_from, p.covers_until, p.comment
-		FROM payments p
-		JOIN enrollments e ON e.id = p.enrollment_id
-		JOIN children c    ON c.id = e.child_id
-		JOIN activities a  ON a.id = e.activity_id`
+		SELECT pm.id, pm.enrollment_id, p.name, e.name, e.description, pm.date, pm.amount,
+		       pm.lessons_paid, pm.covers_from, pm.covers_until, pm.comment
+		FROM payments pm
+		JOIN enrollments e ON e.id = pm.enrollment_id
+		JOIN persons p     ON p.id = e.person_id`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
-	q += " ORDER BY p.date DESC, p.id DESC"
+	q += " ORDER BY pm.date DESC, pm.id DESC"
 	if f.Limit > 0 {
 		q += " LIMIT " + strconv.Itoa(f.Limit)
 	}
@@ -41,22 +40,22 @@ func (s *Store) ListPayments(f PaymentFilter) ([]model.Payment, error) {
 	defer rows.Close()
 	var out []model.Payment
 	for rows.Next() {
-		var p model.Payment
-		if err := rows.Scan(&p.ID, &p.EnrollmentID, &p.Child, &p.Activity, &p.Date, &p.Amount,
-			&p.LessonsPaid, &p.CoversFrom, &p.CoversUntil, &p.Comment); err != nil {
+		var pm model.Payment
+		if err := rows.Scan(&pm.ID, &pm.EnrollmentID, &pm.Person, &pm.Class, &pm.ClassDesc, &pm.Date, &pm.Amount,
+			&pm.LessonsPaid, &pm.CoversFrom, &pm.CoversUntil, &pm.Comment); err != nil {
 			return nil, err
 		}
-		out = append(out, p)
+		out = append(out, pm)
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) TotalPaid(childID int64) (float64, error) {
-	q := `SELECT COALESCE(SUM(p.amount),0) FROM payments p JOIN enrollments e ON e.id=p.enrollment_id`
+func (s *Store) TotalPaid(personID int64) (float64, error) {
+	q := `SELECT COALESCE(SUM(pm.amount),0) FROM payments pm JOIN enrollments e ON e.id=pm.enrollment_id`
 	var args []any
-	if childID != 0 {
-		q += " WHERE e.child_id = ?"
-		args = append(args, childID)
+	if personID != 0 {
+		q += " WHERE e.person_id = ?"
+		args = append(args, personID)
 	}
 	var total float64
 	err := s.db.QueryRow(q, args...).Scan(&total)
@@ -64,18 +63,17 @@ func (s *Store) TotalPaid(childID int64) (float64, error) {
 }
 
 func (s *Store) GetPayment(id int64) (model.Payment, error) {
-	var p model.Payment
+	var pm model.Payment
 	err := s.db.QueryRow(`
-		SELECT p.id, p.enrollment_id, c.name, a.name, p.date, p.amount,
-		       p.lessons_paid, p.covers_from, p.covers_until, p.comment
-		FROM payments p
-		JOIN enrollments e ON e.id = p.enrollment_id
-		JOIN children c    ON c.id = e.child_id
-		JOIN activities a  ON a.id = e.activity_id
-		WHERE p.id = ?`, id).Scan(
-		&p.ID, &p.EnrollmentID, &p.Child, &p.Activity, &p.Date, &p.Amount,
-		&p.LessonsPaid, &p.CoversFrom, &p.CoversUntil, &p.Comment)
-	return p, err
+		SELECT pm.id, pm.enrollment_id, p.name, e.name, e.description, pm.date, pm.amount,
+		       pm.lessons_paid, pm.covers_from, pm.covers_until, pm.comment
+		FROM payments pm
+		JOIN enrollments e ON e.id = pm.enrollment_id
+		JOIN persons p     ON p.id = e.person_id
+		WHERE pm.id = ?`, id).Scan(
+		&pm.ID, &pm.EnrollmentID, &pm.Person, &pm.Class, &pm.ClassDesc, &pm.Date, &pm.Amount,
+		&pm.LessonsPaid, &pm.CoversFrom, &pm.CoversUntil, &pm.Comment)
+	return pm, err
 }
 
 func (s *Store) CreatePayment(p model.Payment) (int64, error) {

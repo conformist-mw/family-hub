@@ -4,15 +4,14 @@ import "lessons/internal/model"
 
 func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	q := `
-		SELECT e.id, e.child_id, e.activity_id, c.name, a.name,
+		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
 		FROM enrollments e
-		JOIN children c   ON c.id = e.child_id
-		JOIN activities a ON a.id = e.activity_id`
+		JOIN persons p ON p.id = e.person_id`
 	if activeOnly {
 		q += " WHERE e.active = 1"
 	}
-	q += " ORDER BY e.active DESC, c.name, a.name"
+	q += " ORDER BY e.active DESC, p.name, e.name"
 
 	rows, err := s.db.Query(q)
 	if err != nil {
@@ -22,7 +21,7 @@ func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	var out []model.Enrollment
 	for rows.Next() {
 		var e model.Enrollment
-		if err := rows.Scan(&e.ID, &e.ChildID, &e.ActivityID, &e.Child, &e.Activity,
+		if err := rows.Scan(&e.ID, &e.PersonID, &e.Person, &e.Name, &e.Description,
 			&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes); err != nil {
 			return nil, err
 		}
@@ -34,47 +33,47 @@ func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 func (s *Store) GetEnrollment(id int64) (model.Enrollment, error) {
 	var e model.Enrollment
 	err := s.db.QueryRow(`
-		SELECT e.id, e.child_id, e.activity_id, c.name, a.name,
+		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
 		FROM enrollments e
-		JOIN children c   ON c.id = e.child_id
-		JOIN activities a ON a.id = e.activity_id
+		JOIN persons p ON p.id = e.person_id
 		WHERE e.id = ?`, id).Scan(
-		&e.ID, &e.ChildID, &e.ActivityID, &e.Child, &e.Activity,
+		&e.ID, &e.PersonID, &e.Person, &e.Name, &e.Description,
 		&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes)
 	return e, err
 }
 
-func (s *Store) ListChildren() ([]model.Child, error) {
-	rows, err := s.db.Query(`SELECT id, name, active FROM children ORDER BY name`)
+func (s *Store) ListPersons() ([]model.Person, error) {
+	rows, err := s.db.Query(`SELECT id, name, kind, active, notes FROM persons ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []model.Child
+	var out []model.Person
 	for rows.Next() {
-		var c model.Child
-		if err := rows.Scan(&c.ID, &c.Name, &c.Active); err != nil {
+		var p model.Person
+		if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.Active, &p.Notes); err != nil {
 			return nil, err
 		}
-		out = append(out, c)
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) ListActivities() ([]model.Activity, error) {
-	rows, err := s.db.Query(`SELECT id, name FROM activities ORDER BY name`)
+// DistinctClassNames returns class names already used, for input suggestions.
+func (s *Store) DistinctClassNames() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT name FROM enrollments ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []model.Activity
+	var out []string
 	for rows.Next() {
-		var a model.Activity
-		if err := rows.Scan(&a.ID, &a.Name); err != nil {
+		var n string
+		if err := rows.Scan(&n); err != nil {
 			return nil, err
 		}
-		out = append(out, a)
+		out = append(out, n)
 	}
 	return out, rows.Err()
 }

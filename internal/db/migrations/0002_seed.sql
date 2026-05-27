@@ -1,13 +1,5 @@
 -- +goose Up
-INSERT INTO children (name) VALUES ('Демид'), ('Егор');
-
-INSERT INTO activities (name) VALUES
-    ('Гимнастика'),
-    ('Логопед'),
-    ('Тренажор'),
-    ('Психолог'),
-    ('Английский');
+INSERT INTO persons (name, kind) VALUES ('Демид', 'child'), ('Егор', 'child');
 
 -- +goose Down
-DELETE FROM activities;
-DELETE FROM children;
+DELETE FROM persons;

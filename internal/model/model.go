@@ -62,6 +62,7 @@ type Visit struct {
 	Date         string
 	Status       string
 	Comment      string
+	Created      string
 }
 
 type Payment struct {

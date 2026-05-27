@@ -63,6 +63,18 @@ var funcs = template.FuncMap{
 		}
 		return name + " (" + desc + ")"
 	},
+	"addedAt": func(s string) string {
+		if s == "" {
+			return ""
+		}
+		// new rows: SQLite datetime('now') in UTC; imported rows: RFC3339 with offset
+		for _, l := range []string{time.RFC3339, "2006-01-02 15:04:05"} {
+			if t, err := time.Parse(l, s); err == nil {
+				return t.Local().Format("02.01 15:04")
+			}
+		}
+		return s
+	},
 }
 
 type pageData struct {

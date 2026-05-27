@@ -25,7 +25,7 @@ func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 		args = append(args, f.Status)
 	}
 	q := `
-		SELECT v.id, v.enrollment_id, p.name, e.name, e.description, v.date, v.status, v.comment
+		SELECT v.id, v.enrollment_id, p.name, e.name, e.description, v.date, v.status, v.comment, v.created_at
 		FROM visits v
 		JOIN enrollments e ON e.id = v.enrollment_id
 		JOIN persons p     ON p.id = e.person_id`
@@ -45,7 +45,7 @@ func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 	var out []model.Visit
 	for rows.Next() {
 		var v model.Visit
-		if err := rows.Scan(&v.ID, &v.EnrollmentID, &v.Person, &v.Class, &v.ClassDesc, &v.Date, &v.Status, &v.Comment); err != nil {
+		if err := rows.Scan(&v.ID, &v.EnrollmentID, &v.Person, &v.Class, &v.ClassDesc, &v.Date, &v.Status, &v.Comment, &v.Created); err != nil {
 			return nil, err
 		}
 		out = append(out, v)

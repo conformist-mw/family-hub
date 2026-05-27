@@ -23,7 +23,7 @@
 
 <table>
   <thead>
-    <tr><th>Дата</th><th>Кто</th><th>Занятие</th><th>Статус</th><th>Комментарий</th><th></th></tr>
+    <tr><th>Дата</th><th>Кто</th><th>Занятие</th><th>Статус</th><th>Комментарий</th><th>Добавлено</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Visits}}
@@ -33,10 +33,11 @@
       <td data-label="Занятие">{{classLabel .Class .ClassDesc}}</td>
       <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span></td>
       <td data-label="Комментарий">{{.Comment}}</td>
+      <td data-label="Добавлено" class="muted">{{addedAt .Created}}</td>
       <td data-label=""><a class="btn small" href="/visits/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
-    <tr><td colspan="6" class="empty">Записей нет.</td></tr>
+    <tr><td colspan="7" class="empty">Записей нет.</td></tr>
     {{end}}
   </tbody>
 </table>

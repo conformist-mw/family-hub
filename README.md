@@ -62,3 +62,7 @@ just deploy-hetzner-tag lessons
 Runs as a container behind Traefik with oauth2-proxy auth. The image bundles
 both the server and the importer plus the seed spreadsheet, so the production
 database is seeded on first deploy and is the source of truth afterwards.
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the data model, deployment
+pipeline (SOPS + Ansible + Docker Hub), Telegram bot internals, common
+operational recipes, and the open backlog.

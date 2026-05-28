@@ -10,7 +10,7 @@
   <label>
     Курс
     {{if $d.Frequent}}
-    <div class="pick-chips">
+    <div class="pick-chips" id="enrollment-chips">
       {{range $d.Frequent}}
       <button type="button" data-eid="{{.ID}}">{{.Person}} · {{classLabel .Name .Description}}</button>
       {{end}}
@@ -76,7 +76,7 @@
 
   (function () {
     var sel = document.getElementById('enrollment');
-    var chips = document.querySelectorAll('.pick-chips button');
+    var chips = document.querySelectorAll('#enrollment-chips button');
     function sync() {
       chips.forEach(function (c) {
         c.classList.toggle('active', c.dataset.eid === sel.value);
@@ -84,8 +84,11 @@
     }
     chips.forEach(function (c) {
       c.addEventListener('click', function () {
-        sel.value = c.dataset.eid;
-        sync();
+        var eid = c.dataset.eid;
+        Array.prototype.forEach.call(sel.options, function (o) {
+          o.selected = (o.value === eid);
+        });
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
       });
     });
     sel.addEventListener('change', sync);

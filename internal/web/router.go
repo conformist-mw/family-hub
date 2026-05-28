@@ -16,7 +16,7 @@ type App struct {
 	templates map[string]*template.Template
 }
 
-func NewRouter(db *sql.DB, logger *slog.Logger) http.Handler {
+func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler) http.Handler {
 	a := &App{
 		DB:        db,
 		Store:     store.New(db),
@@ -28,6 +28,9 @@ func NewRouter(db *sql.DB, logger *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
+	if webhook != nil && webhookPath != "" {
+		mux.Handle("POST "+webhookPath, webhook)
+	}
 	mux.HandleFunc("GET /{$}", a.handleDashboard)
 
 	mux.HandleFunc("GET /visits", a.handleVisits)

@@ -77,7 +77,7 @@ func main() {
 			if err := lessonsBot.RegisterWebhook(); err != nil {
 				logger.Error("bot: register webhook", "err", err)
 			} else {
-				logger.Info("bot: webhook registered", "url", cfg.WebhookURL, "path", webhookPath)
+				logger.Info("bot: webhook registered")
 			}
 		} else {
 			go lessonsBot.RunPolling(ctx)

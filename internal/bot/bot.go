@@ -20,6 +20,8 @@ type Config struct {
 	WebhookURL    string
 	WebhookSecret string
 	AllowedChats  []int64
+	NotifyChat    int64 // where evening reminders are pushed; 0 disables
+	ReminderHour  int   // local hour for evening reminders; <0 or >23 disables
 }
 
 type Bot struct {
@@ -81,6 +83,13 @@ func New(cfg Config, st *store.Store, logger *slog.Logger) (*Bot, error) {
 	tb.Handle("/help", bot.cmdHelp)
 	tb.Handle("/balance", bot.cmdBalance)
 	tb.Handle("/stats", bot.cmdStats)
+	tb.Handle("/add", bot.cmdAdd)
+
+	tb.Handle(&tele.Btn{Unique: "rem_visit"}, bot.onReminderTap)
+	tb.Handle(&tele.Btn{Unique: "add_course"}, bot.onAddCourse)
+	tb.Handle(&tele.Btn{Unique: "add_date"}, bot.onAddDate)
+	tb.Handle(&tele.Btn{Unique: "add_status"}, bot.onAddStatus)
+	tb.Handle(&tele.Btn{Unique: "add_cancel"}, bot.onAddCancel)
 
 	return bot, nil
 }

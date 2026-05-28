@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -50,11 +51,18 @@ func main() {
 	var webhookHandler http.Handler
 	var webhookPath string
 	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
+		notifyChat, _ := strconv.ParseInt(os.Getenv("TELEGRAM_NOTIFY_CHAT"), 10, 64)
+		reminderHour := 20
+		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_REMINDER_HOUR")); err == nil {
+			reminderHour = v
+		}
 		cfg := bot.Config{
 			Token:         token,
 			WebhookURL:    os.Getenv("TELEGRAM_WEBHOOK_URL"),
 			WebhookSecret: os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
 			AllowedChats:  bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
+			NotifyChat:    notifyChat,
+			ReminderHour:  reminderHour,
 		}
 		lessonsBot, err = bot.New(cfg, store.New(database), logger)
 		if err != nil {
@@ -74,6 +82,7 @@ func main() {
 		} else {
 			go lessonsBot.RunPolling(ctx)
 		}
+		go lessonsBot.RunScheduler(ctx)
 	} else {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
 	}

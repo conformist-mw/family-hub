@@ -26,6 +26,7 @@ func (b *Bot) cmdStart(c tele.Context) error {
 
 func (b *Bot) cmdHelp(c tele.Context) error {
 	return c.Send(strings.Join([]string{
+		"/add — отметить занятие через кнопки (курс → дата → статус)",
 		"/balance — остаток занятий и абонементов по каждому курсу",
 		"/stats — потрачено в этом месяце / году / за всё время",
 		"/start — приветствие, показывает chat id",

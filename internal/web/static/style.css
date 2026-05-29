@@ -153,6 +153,7 @@ label.checkbox input { width: auto; }
 .status-rescheduled { background: #e0e7ff; color: #4338ca; }
 .status-cancelled { background: #fee2e2; color: var(--empty); }
 .status-skipped { background: #f3f4f6; color: var(--muted); }
+.warn-pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #fee2e2; color: var(--empty); white-space: nowrap; }
 
 @media (max-width: 560px) {
   main { padding: 12px; }

@@ -5,7 +5,9 @@ import "lessons/internal/model"
 func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	q := `
 		SELECT e.id, e.person_id, p.name, e.name, e.description,
-		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
+		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
+		       (SELECT COUNT(*) FROM regular_slots s
+		        WHERE s.enrollment_id = e.id AND s.active = 1) AS slot_count
 		FROM enrollments e
 		JOIN persons p ON p.id = e.person_id`
 	if activeOnly {
@@ -22,7 +24,8 @@ func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	for rows.Next() {
 		var e model.Enrollment
 		if err := rows.Scan(&e.ID, &e.PersonID, &e.Person, &e.Name, &e.Description,
-			&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes); err != nil {
+			&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes,
+			&e.SlotCount); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

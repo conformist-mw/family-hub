@@ -43,6 +43,7 @@ type Enrollment struct {
 	LowThreshold int
 	Active       bool
 	Notes        string
+	SlotCount    int // weekly reminder slots; only populated by ListEnrollments
 }
 
 type Slot struct {

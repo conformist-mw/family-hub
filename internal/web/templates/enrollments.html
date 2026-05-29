@@ -7,7 +7,7 @@
 
 <table>
   <thead>
-    <tr><th>Кто</th><th>Занятие</th><th>Оплата</th><th>Цена</th><th>Порог</th><th>Статус</th><th></th></tr>
+    <tr><th>Кто</th><th>Занятие</th><th>Оплата</th><th>Цена</th><th>Порог</th><th>Расписание</th><th>Статус</th><th></th></tr>
   </thead>
   <tbody>
     {{range $enrollments}}
@@ -17,11 +17,14 @@
       <td data-label="Оплата">{{billingLabel .BillingType}}</td>
       <td data-label="Цена">{{money .CurrentPrice}}</td>
       <td data-label="Порог">{{.LowThreshold}}</td>
+      <td data-label="Расписание">
+        {{if gt .SlotCount 0}}{{.SlotCount}}/нед{{else if .Active}}<span class="warn-pill">нет напоминаний</span>{{else}}—{{end}}
+      </td>
       <td data-label="Статус">{{if .Active}}активен{{else}}архив{{end}}</td>
       <td data-label=""><a class="btn small" href="/enrollments/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
-    <tr><td colspan="7" class="empty">Курсов нет.</td></tr>
+    <tr><td colspan="8" class="empty">Курсов нет.</td></tr>
     {{end}}
   </tbody>
 </table>

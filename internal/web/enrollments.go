@@ -44,10 +44,14 @@ type weekdayOption struct {
 	Label string
 }
 
+// weekdayOptions lists weekdays for the schedule dropdown starting at Monday,
+// which is how the week reads here. The N value stays Go's time.Weekday code
+// (Sunday=0) so it matches what the scheduler compares against.
 func weekdayOptions() []weekdayOption {
-	out := make([]weekdayOption, 7)
-	for i := 0; i < 7; i++ {
-		out[i] = weekdayOption{N: i, Label: model.WeekdayLabels[i]}
+	order := []int{1, 2, 3, 4, 5, 6, 0} // Пн … Вс
+	out := make([]weekdayOption, len(order))
+	for i, n := range order {
+		out[i] = weekdayOption{N: n, Label: model.WeekdayLabels[n]}
 	}
 	return out
 }

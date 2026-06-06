@@ -10,39 +10,50 @@ import (
 	"lessons/internal/model"
 )
 
-// RunScheduler ticks once a minute and fires the evening reminder when its
-// configured hour rolls around for the day. It blocks until ctx is done; meant
-// to run in its own goroutine alongside polling/webhook.
+// RunScheduler ticks once a minute and sends a reminder for each of today's
+// slots once the slot time plus the configured delay has passed. It blocks
+// until ctx is done; meant to run in its own goroutine alongside
+// polling/webhook.
 func (b *Bot) RunScheduler(ctx context.Context) {
-	if b.cfg.NotifyChat == 0 || b.cfg.ReminderHour < 0 || b.cfg.ReminderHour > 23 {
+	if b.cfg.NotifyChat == 0 || b.cfg.ReminderDelayMin < 0 {
 		b.logger.Info("bot: scheduler disabled",
 			"notify_chat", b.cfg.NotifyChat,
-			"reminder_hour", b.cfg.ReminderHour)
+			"reminder_delay_min", b.cfg.ReminderDelayMin)
 		return
 	}
 	b.logger.Info("bot: scheduler started",
 		"notify_chat", b.cfg.NotifyChat,
-		"reminder_hour", b.cfg.ReminderHour)
+		"reminder_delay_min", b.cfg.ReminderDelayMin)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
-	var lastEveningSent string // YYYY-MM-DD of the last day reminders were sent
+	// Enrollments already reminded today; reset at midnight. The state is
+	// in-memory only — after a restart, unanswered reminders for slots that
+	// are already due fire again, which is the catch-up we want.
+	reminded := make(map[int64]bool)
+	var remindedDate string
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
 			today := now.Format("2006-01-02")
-			if lastEveningSent != today && now.Hour() >= b.cfg.ReminderHour {
-				b.sendEveningReminders(now)
-				lastEveningSent = today
+			if remindedDate != today {
+				reminded = make(map[int64]bool)
+				remindedDate = today
 			}
+			b.sendDueReminders(now, reminded)
 		}
 	}
 }
 
-func (b *Bot) sendEveningReminders(now time.Time) {
+// sendDueReminders sends one reminder per enrollment for today's slots whose
+// time plus the configured delay has passed and that have no visit recorded
+// yet. Multiple slots per enrollment in one day collapse into a single
+// reminder after the earliest due slot — the visit model is one record per
+// enrollment per date anyway.
+func (b *Bot) sendDueReminders(now time.Time, reminded map[int64]bool) {
 	weekday := int(now.Weekday())
 	today := now.Format("2006-01-02")
 	slots, err := b.store.SlotsForWeekday(weekday)
@@ -50,20 +61,20 @@ func (b *Bot) sendEveningReminders(now time.Time) {
 		b.logger.Error("bot: reminders query", "err", err)
 		return
 	}
-	if len(slots) == 0 {
-		b.logger.Info("bot: no slots for today", "weekday", weekday)
-		return
-	}
 
-	// Dedupe by enrollment — if multiple slots in one day for the same
-	// enrollment, send one reminder.
-	seen := make(map[int64]bool)
 	for _, sl := range slots {
 		eid := sl.Enrollment.ID
-		if seen[eid] {
+		if reminded[eid] {
 			continue
 		}
-		seen[eid] = true
+		due, err := slotDue(now, sl.Slot.Time, b.cfg.ReminderDelayMin)
+		if err != nil {
+			b.logger.Error("bot: bad slot time", "err", err, "slot", sl.Slot.ID, "time", sl.Slot.Time)
+			continue
+		}
+		if now.Before(due) {
+			continue
+		}
 
 		exists, err := b.store.VisitExistsForDate(eid, today)
 		if err != nil {
@@ -71,11 +82,30 @@ func (b *Bot) sendEveningReminders(now time.Time) {
 			continue
 		}
 		if exists {
-			b.logger.Info("bot: reminder skipped (already recorded)", "eid", eid, "date", today)
+			reminded[eid] = true
 			continue
 		}
 		b.sendReminderFor(sl.Enrollment, sl.Slot, today)
+		reminded[eid] = true
 	}
+}
+
+// slotDue computes when the reminder for a "HH:MM" slot becomes due on the
+// day of now. A delay that would push the reminder past midnight is clamped
+// to 23:59 — the scheduler only looks at today's slots, so a reminder must
+// fire on the same day as its slot or not at all.
+func slotDue(now time.Time, hhmm string, delayMin int) (time.Time, error) {
+	t, err := time.Parse("15:04", hhmm)
+	if err != nil {
+		return time.Time{}, err
+	}
+	due := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location()).
+		Add(time.Duration(delayMin) * time.Minute)
+	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, now.Location())
+	if due.After(endOfDay) {
+		due = endOfDay
+	}
+	return due, nil
 }
 
 func (b *Bot) sendReminderFor(e model.Enrollment, sl model.Slot, date string) {

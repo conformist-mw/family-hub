@@ -20,8 +20,8 @@ type Config struct {
 	WebhookURL    string
 	WebhookSecret string
 	AllowedChats  []int64
-	NotifyChat    int64 // where evening reminders are pushed; 0 disables
-	ReminderHour  int   // local hour for evening reminders; <0 or >23 disables
+	NotifyChat       int64 // where attendance reminders are pushed; 0 disables
+	ReminderDelayMin int   // minutes after a slot's time to ask about it; <0 disables
 }
 
 type Bot struct {

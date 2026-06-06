@@ -39,7 +39,7 @@ just deploy-hetzner-tag lessons
   not touch data.
 - Migrations (`goose`) run automatically on container start.
 - Prod env (token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
-  `TELEGRAM_REMINDER_HOUR`, `TZ=Europe/Kyiv`) comes from the role +
+  `TELEGRAM_REMINDER_DELAY_MIN`, `TZ=Europe/Kyiv`) comes from the role +
   `roles/lessons/vars/secrets.sops.yaml`. Reminders only fire on prod because
   `TELEGRAM_NOTIFY_CHAT` is unset locally.
 

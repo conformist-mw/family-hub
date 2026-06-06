@@ -99,10 +99,12 @@ data/          # local SQLite (gitignored)
   status buttons). The state is encoded into callback data; each tap
   edits the same message to advance.
 - The **scheduler** (`internal/bot/scheduler.go`) is a once-a-minute
-  ticker. At `TELEGRAM_REMINDER_HOUR` (default `20`, container TZ is
-  `Europe/Kyiv`) it sends one message per active `regular_slot` matching
-  today's weekday to `TELEGRAM_NOTIFY_CHAT`, with the same four inline
-  buttons. Visits already recorded for today are skipped.
+  ticker. `TELEGRAM_REMINDER_DELAY_MIN` minutes (default `60`, container
+  TZ is `Europe/Kyiv`) after each active `regular_slot` matching today's
+  weekday it sends a message to `TELEGRAM_NOTIFY_CHAT`, with the same
+  four inline buttons. One reminder per enrollment per day; visits
+  already recorded for today are skipped. Sent-state is in-memory, so a
+  mid-day restart re-sends still-unanswered reminders.
 
 ## Deployment
 

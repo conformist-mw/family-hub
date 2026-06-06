@@ -52,17 +52,17 @@ func main() {
 	var webhookPath string
 	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
 		notifyChat, _ := strconv.ParseInt(os.Getenv("TELEGRAM_NOTIFY_CHAT"), 10, 64)
-		reminderHour := 20
-		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_REMINDER_HOUR")); err == nil {
-			reminderHour = v
+		reminderDelay := 60
+		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_REMINDER_DELAY_MIN")); err == nil {
+			reminderDelay = v
 		}
 		cfg := bot.Config{
-			Token:         token,
-			WebhookURL:    os.Getenv("TELEGRAM_WEBHOOK_URL"),
-			WebhookSecret: os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
-			AllowedChats:  bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
-			NotifyChat:    notifyChat,
-			ReminderHour:  reminderHour,
+			Token:            token,
+			WebhookURL:       os.Getenv("TELEGRAM_WEBHOOK_URL"),
+			WebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+			AllowedChats:     bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
+			NotifyChat:       notifyChat,
+			ReminderDelayMin: reminderDelay,
 		}
 		lessonsBot, err = bot.New(cfg, store.New(database), logger)
 		if err != nil {

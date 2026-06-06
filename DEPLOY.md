@@ -50,5 +50,5 @@ just deploy-hetzner-tag lessons
 docker logs --tail=50 lessons        # expect "listening", "scheduler started"
 ```
 
-A working scheduler logs `bot: scheduler started notify_chat=... reminder_hour=20`
+A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_min=60`
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing.

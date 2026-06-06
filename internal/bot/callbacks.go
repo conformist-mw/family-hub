@@ -27,7 +27,7 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 	}
 	if exists {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Уже отмечено"})
-		return c.Edit(c.Message().Text+"\n— уже отмечено", &tele.ReplyMarkup{})
+		return c.Edit(reminderFinalText(c.Message().Text, "уже отмечено"), &tele.ReplyMarkup{})
 	}
 	if _, err := b.store.CreateVisit(eid, date, status, ""); err != nil {
 		b.logger.Error("bot: create visit", "err", err)
@@ -35,7 +35,14 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 		return nil
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
-	return c.Edit(c.Message().Text+"\n— "+model.StatusLabels[status], &tele.ReplyMarkup{})
+	return c.Edit(reminderFinalText(c.Message().Text, model.StatusLabels[status]), &tele.ReplyMarkup{})
+}
+
+// reminderFinalText turns the reminder question into its final state: the
+// "— было?" tail is replaced with the chosen outcome so the answered message
+// reads as a statement, not a question.
+func reminderFinalText(question, outcome string) string {
+	return strings.TrimSuffix(question, " — было?") + " — " + outcome
 }
 
 func parseReminderData(data string) (int64, string, string, error) {

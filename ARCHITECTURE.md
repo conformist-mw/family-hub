@@ -98,6 +98,12 @@ data/          # local SQLite (gitignored)
 - `/add` is an inline three-step flow (course chips → date chips →
   status buttons). The state is encoded into callback data; each tap
   edits the same message to advance.
+- A non-done status (reminder or `/add`) adds a **reason step**: chips
+  from `FrequentComments` (same source as the web form) plus "Другое".
+  The visit is created before the step, so abandoning it loses only the
+  comment; "Другое" leaves the comment empty for later editing in the
+  web UI. The chosen reason is saved as the visit comment and shown in
+  the final message ("… · отменено · заболел").
 - The **scheduler** (`internal/bot/scheduler.go`) is a once-a-minute
   ticker. `TELEGRAM_REMINDER_DELAY_MIN` minutes (default `60`, container
   TZ is `Europe/Kyiv`) after each active `regular_slot` matching today's
@@ -105,6 +111,17 @@ data/          # local SQLite (gitignored)
   four inline buttons. One reminder per enrollment per day; visits
   already recorded for today are skipped. Sent-state is in-memory, so a
   mid-day restart re-sends still-unanswered reminders.
+- The scheduler also sends a buttonless **empty-balance warning**
+  `TELEGRAM_PRELESSON_LEAD_MIN` minutes (default `120`, `<0` disables)
+  before a slot when nothing paid covers the lesson: zero/negative
+  remaining (per-lesson) or no active pass (monthly). Only inside the
+  `[slot−lead, slot)` window — never after the lesson has started — and
+  once per enrollment per day.
+- After a lesson is marked via inline buttons (reminder or `/add`), the
+  final message carries a one-line balance: 🟢/🟡/🔴 per
+  `Balance.State()`, "Осталось оплаченных: X из Y" for per-lesson
+  (Y is the most recent pack size, not the all-time total),
+  "Абонемент до …, осталось N дн." for monthly.
 
 ## Deployment
 

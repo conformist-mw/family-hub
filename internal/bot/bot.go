@@ -22,6 +22,7 @@ type Config struct {
 	AllowedChats  []int64
 	NotifyChat       int64 // where attendance reminders are pushed; 0 disables
 	ReminderDelayMin int   // minutes after a slot's time to ask about it; <0 disables
+	PreLessonLeadMin int   // minutes before a slot to warn about an empty balance; <0 disables
 }
 
 type Bot struct {
@@ -90,6 +91,7 @@ func New(cfg Config, st *store.Store, logger *slog.Logger) (*Bot, error) {
 	tb.Handle(&tele.Btn{Unique: "add_date"}, bot.onAddDate)
 	tb.Handle(&tele.Btn{Unique: "add_status"}, bot.onAddStatus)
 	tb.Handle(&tele.Btn{Unique: "add_cancel"}, bot.onAddCancel)
+	tb.Handle(&tele.Btn{Unique: "vis_reason"}, bot.onReasonTap)
 
 	return bot, nil
 }

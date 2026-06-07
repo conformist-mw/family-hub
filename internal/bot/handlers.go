@@ -76,6 +76,43 @@ func formatBalanceLine(bal model.Balance) string {
 		mark, bal.Person, label, bal.Remaining, bal.DoneThisMonth)
 }
 
+// balanceStatusLine renders the one-line paid-balance summary appended to a
+// Telegram message right after a lesson is marked. The traffic-light marker
+// follows Balance.State so it agrees with the dashboard badge.
+func balanceStatusLine(bal model.Balance) string {
+	mark := "🟢"
+	switch bal.State() {
+	case "low":
+		mark = "🟡"
+	case "empty":
+		mark = "🔴"
+	}
+	if bal.BillingType == model.BillingMonthly {
+		if !bal.CoveredNow {
+			return mark + " Нет активного абонемента"
+		}
+		return fmt.Sprintf("%s Абонемент до %s, осталось %d дн.", mark, dateRu(bal.CoversUntil), bal.DaysLeft)
+	}
+	// "из N" is the size of the most recent pack — "how much of the last
+	// payment is left". Dropped when no payment has been recorded yet.
+	if bal.LastPack == 0 {
+		return fmt.Sprintf("%s Осталось оплаченных: %d", mark, bal.Remaining)
+	}
+	return fmt.Sprintf("%s Осталось оплаченных: %d из %d", mark, bal.Remaining, bal.LastPack)
+}
+
+// balanceLineFor loads and formats the balance line for an enrollment. It
+// returns "" on a lookup failure — the visit is already recorded at that
+// point, and a missing balance line must not turn that into an error.
+func (b *Bot) balanceLineFor(eid int64) string {
+	bal, err := b.store.BalanceFor(eid)
+	if err != nil {
+		b.logger.Error("bot: balance line", "err", err, "eid", eid)
+		return ""
+	}
+	return balanceStatusLine(bal)
+}
+
 func (b *Bot) cmdStats(c tele.Context) error {
 	st, err := b.store.Stats()
 	if err != nil {

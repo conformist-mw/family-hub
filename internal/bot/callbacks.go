@@ -35,7 +35,11 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 		return nil
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
-	return c.Edit(reminderFinalText(c.Message().Text, model.StatusLabels[status]), &tele.ReplyMarkup{})
+	text := reminderFinalText(c.Message().Text, model.StatusLabels[status])
+	if line := b.balanceLineFor(eid); line != "" {
+		text += "\n" + line
+	}
+	return c.Edit(text, &tele.ReplyMarkup{})
 }
 
 // reminderFinalText turns the reminder question into its final state: the
@@ -202,6 +206,9 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 	}
 	text := fmt.Sprintf("Записано: %s · %s · %s · %s",
 		e.Person, label, dateRu(date), model.StatusLabels[status])
+	if line := b.balanceLineFor(eid); line != "" {
+		text += "\n" + line
+	}
 	return c.Edit(text, &tele.ReplyMarkup{})
 }
 

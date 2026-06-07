@@ -15,11 +15,32 @@ type Store struct {
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
 func (s *Store) Balances() ([]model.Balance, error) {
+	return s.balances("e.active = 1")
+}
+
+// BalanceFor returns the balance rollup for a single enrollment. Unlike
+// Balances it does not filter on active — it is used to annotate a visit
+// that was just recorded, and that visit exists regardless.
+func (s *Store) BalanceFor(enrollmentID int64) (model.Balance, error) {
+	out, err := s.balances("e.id = ?", enrollmentID)
+	if err != nil {
+		return model.Balance{}, err
+	}
+	if len(out) == 0 {
+		return model.Balance{}, sql.ErrNoRows
+	}
+	return out[0], nil
+}
+
+func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 	rows, err := s.db.Query(`
 		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
 		       COALESCE((SELECT SUM(lessons_paid) FROM payments pm
 		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL),0) AS paid,
+		       COALESCE((SELECT pm.lessons_paid FROM payments pm
+		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL
+		                 ORDER BY pm.date DESC, pm.id DESC LIMIT 1),0) AS last_pack,
 		       (SELECT COUNT(*) FROM visits v
 		        WHERE v.enrollment_id=e.id AND v.status='done') AS done,
 		       (SELECT COUNT(*) FROM visits v
@@ -27,9 +48,9 @@ func (s *Store) Balances() ([]model.Balance, error) {
 		          AND v.date >= date('now','localtime','start of month')) AS done_this_month
 		FROM enrollments e
 		JOIN persons p ON p.id = e.person_id
-		WHERE e.active = 1
+		WHERE `+where+`
 		ORDER BY p.name, e.name
-	`)
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +62,7 @@ func (s *Store) Balances() ([]model.Balance, error) {
 		var b model.Balance
 		if err := rows.Scan(&b.ID, &b.PersonID, &b.Person, &b.Name, &b.Description,
 			&b.BillingType, &b.CurrentPrice, &b.LowThreshold, &b.Active, &b.Notes,
-			&b.Paid, &b.Done, &b.DoneThisMonth); err != nil {
+			&b.Paid, &b.LastPack, &b.Done, &b.DoneThisMonth); err != nil {
 			return nil, err
 		}
 		b.Remaining = b.Paid - b.Done

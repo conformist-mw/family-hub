@@ -56,6 +56,10 @@ func main() {
 		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_REMINDER_DELAY_MIN")); err == nil {
 			reminderDelay = v
 		}
+		preLessonLead := 120
+		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_PRELESSON_LEAD_MIN")); err == nil {
+			preLessonLead = v
+		}
 		cfg := bot.Config{
 			Token:            token,
 			WebhookURL:       os.Getenv("TELEGRAM_WEBHOOK_URL"),
@@ -63,6 +67,7 @@ func main() {
 			AllowedChats:     bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
 			NotifyChat:       notifyChat,
 			ReminderDelayMin: reminderDelay,
+			PreLessonLeadMin: preLessonLead,
 		}
 		lessonsBot, err = bot.New(cfg, store.New(database), logger)
 		if err != nil {

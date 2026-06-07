@@ -98,6 +98,12 @@ data/          # local SQLite (gitignored)
 - `/add` is an inline three-step flow (course chips → date chips →
   status buttons). The state is encoded into callback data; each tap
   edits the same message to advance.
+- A non-done status (reminder or `/add`) adds a **reason step**: chips
+  from `FrequentComments` (same source as the web form) plus "Другое".
+  The visit is created before the step, so abandoning it loses only the
+  comment; "Другое" leaves the comment empty for later editing in the
+  web UI. The chosen reason is saved as the visit comment and shown in
+  the final message ("… · отменено · заболел").
 - The **scheduler** (`internal/bot/scheduler.go`) is a once-a-minute
   ticker. `TELEGRAM_REMINDER_DELAY_MIN` minutes (default `60`, container
   TZ is `Europe/Kyiv`) after each active `regular_slot` matching today's

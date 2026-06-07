@@ -86,6 +86,13 @@ func (s *Store) UpdateVisit(id, enrollmentID int64, date, status, comment string
 	return err
 }
 
+// SetVisitComment updates only the comment. Used by the Telegram reason
+// step, which runs after the visit row already exists.
+func (s *Store) SetVisitComment(id int64, comment string) error {
+	_, err := s.db.Exec(`UPDATE visits SET comment=? WHERE id=?`, comment, id)
+	return err
+}
+
 func (s *Store) DeleteVisit(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM visits WHERE id=?`, id)
 	return err

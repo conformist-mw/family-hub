@@ -29,12 +29,16 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Уже отмечено"})
 		return c.Edit(reminderFinalText(c.Message().Text, "уже отмечено"), &tele.ReplyMarkup{})
 	}
-	if _, err := b.store.CreateVisit(eid, date, status, ""); err != nil {
+	visitID, err := b.store.CreateVisit(eid, date, status, "")
+	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось записать"})
 		return nil
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
+	if status != model.StatusDone {
+		return b.askReason(c, visitID, reminderFinalText(c.Message().Text, model.StatusLabels[status]))
+	}
 	text := reminderFinalText(c.Message().Text, model.StatusLabels[status])
 	if line := b.balanceLineFor(eid); line != "" {
 		text += "\n" + line
@@ -194,7 +198,8 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Уже есть запись на эту дату"})
 		return c.Edit("Запись на эту дату уже есть.", &tele.ReplyMarkup{})
 	}
-	if _, err := b.store.CreateVisit(eid, date, status, ""); err != nil {
+	visitID, err := b.store.CreateVisit(eid, date, status, "")
+	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось"})
 		return nil
@@ -203,6 +208,11 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 	label := e.Name
 	if e.Description != "" {
 		label = e.Name + " (" + e.Description + ")"
+	}
+	if status != model.StatusDone {
+		header := fmt.Sprintf("%s · %s · %s · %s",
+			e.Person, label, dateRu(date), model.StatusLabels[status])
+		return b.askReason(c, visitID, header)
 	}
 	text := fmt.Sprintf("Записано: %s · %s · %s · %s",
 		e.Person, label, dateRu(date), model.StatusLabels[status])
@@ -215,6 +225,104 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 func (b *Bot) onAddCancel(c tele.Context) error {
 	_ = c.Respond(&tele.CallbackResponse{})
 	return c.Edit("Отменено.", &tele.ReplyMarkup{})
+}
+
+// reasonOther marks the "Другое" reason button: the visit stays without a
+// comment so the exact reason can be typed later in the web UI.
+const reasonOther = "x"
+
+// reasonLimit mirrors the web form's reason chips (reasonChips), so both
+// surfaces offer the same quick picks.
+const reasonLimit = 6
+
+// askReason edits the message into the second quick step for a lesson that
+// did not happen: why? The visit is already recorded at this point, so an
+// abandoned flow loses only the comment, not the status.
+func (b *Bot) askReason(c tele.Context, visitID int64, header string) error {
+	reasons, err := b.store.FrequentComments(reasonLimit)
+	if err != nil {
+		b.logger.Error("bot: frequent comments", "err", err)
+	}
+	if len(reasons) == 0 {
+		// Nothing to suggest yet — finish as if "Другое" was chosen.
+		return b.finishVisit(c, visitID, "")
+	}
+	m := &tele.ReplyMarkup{}
+	var rows []tele.Row
+	id := strconv.FormatInt(visitID, 10)
+	for i := 0; i < len(reasons); i += 2 {
+		btn1 := m.Data(reasons[i], "vis_reason", id+":"+strconv.Itoa(i))
+		if i+1 < len(reasons) {
+			rows = append(rows, m.Row(btn1, m.Data(reasons[i+1], "vis_reason", id+":"+strconv.Itoa(i+1))))
+		} else {
+			rows = append(rows, m.Row(btn1))
+		}
+	}
+	rows = append(rows, m.Row(m.Data("Другое", "vis_reason", id+":"+reasonOther)))
+	m.Inline(rows...)
+	return c.Edit(header+"\nПочему?", m)
+}
+
+// onReasonTap handles the reason buttons.
+// Data: "<visit_id>:<reason_index>" or "<visit_id>:x" for "Другое".
+func (b *Bot) onReasonTap(c tele.Context) error {
+	parts := strings.SplitN(c.Data(), ":", 2)
+	if len(parts) != 2 {
+		_ = c.Respond(&tele.CallbackResponse{Text: "Bad data"})
+		return nil
+	}
+	visitID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		_ = c.Respond(&tele.CallbackResponse{Text: "Bad data"})
+		return nil
+	}
+
+	// Resolve the index against a fresh frequent-comments list. The list may
+	// have shifted since the buttons were rendered; a stale index degrades to
+	// "без комментария" rather than failing the flow.
+	reason := ""
+	if parts[1] != reasonOther {
+		if idx, err := strconv.Atoi(parts[1]); err == nil {
+			if reasons, err := b.store.FrequentComments(reasonLimit); err == nil && idx >= 0 && idx < len(reasons) {
+				reason = reasons[idx]
+			}
+		}
+	}
+	return b.finishVisit(c, visitID, reason)
+}
+
+// finishVisit stores the chosen reason (if any) and rewrites the message to
+// its final state: status, reason and the balance line.
+func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
+	if reason != "" {
+		if err := b.store.SetVisitComment(visitID, reason); err != nil {
+			b.logger.Error("bot: set visit comment", "err", err, "visit", visitID)
+			_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось сохранить причину"})
+			return nil
+		}
+	}
+	v, err := b.store.GetVisit(visitID)
+	if err != nil {
+		// The visit was deleted (e.g. via the web UI) between the two steps.
+		b.logger.Error("bot: get visit", "err", err, "visit", visitID)
+		_ = c.Respond(&tele.CallbackResponse{Text: "Запись не найдена"})
+		return c.Edit("Запись не найдена — возможно, удалена.", &tele.ReplyMarkup{})
+	}
+	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
+	label := v.Class
+	if v.ClassDesc != "" {
+		label = v.Class + " (" + v.ClassDesc + ")"
+	}
+	reasonText := reason
+	if reasonText == "" {
+		reasonText = "без комментария"
+	}
+	text := fmt.Sprintf("Записано: %s · %s · %s · %s · %s",
+		v.Person, label, dateRu(v.Date), model.StatusLabels[v.Status], reasonText)
+	if line := b.balanceLineFor(v.EnrollmentID); line != "" {
+		text += "\n" + line
+	}
+	return c.Edit(text, &tele.ReplyMarkup{})
 }
 
 func dateRu(s string) string {

@@ -165,10 +165,7 @@ func emptyBalanceText(bal model.Balance) string {
 	if bal.BillingType == model.BillingMonthly {
 		return "нет активного абонемента"
 	}
-	if bal.LastPack == 0 {
-		return fmt.Sprintf("оплаченных занятий %d", max(bal.Remaining, 0))
-	}
-	return fmt.Sprintf("оплаченных занятий %d из %d", max(bal.Remaining, 0), bal.LastPack)
+	return "нет оплаченных занятий"
 }
 
 // slotDue computes when the reminder for a "HH:MM" slot becomes due on the

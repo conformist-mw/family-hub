@@ -30,7 +30,7 @@
     <tr>
       <td data-label="Дата">{{dateRu .Date}}</td>
       <td data-label="Кто">{{.Person}}</td>
-      <td data-label="Занятие">{{classLabel .Class .ClassDesc}}</td>
+      <td data-label="Занятие">{{.Class}}</td>
       <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span></td>
       <td data-label="Комментарий">{{.Comment}}</td>
       <td data-label="Добавлено" class="muted">{{addedAt .Created}}</td>

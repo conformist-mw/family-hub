@@ -97,9 +97,6 @@ func (b *Bot) cmdAdd(c tele.Context) error {
 
 func courseBtn(m *tele.ReplyMarkup, e model.Enrollment) tele.Btn {
 	label := e.Person + " · " + e.Name
-	if e.Description != "" {
-		label += " (" + e.Description + ")"
-	}
 	return m.Data(label, "add_course", strconv.FormatInt(e.ID, 10))
 }
 
@@ -131,12 +128,8 @@ func (b *Bot) onAddCourse(c tele.Context) error {
 		),
 		m.Row(m.Data("Отмена", "add_cancel", "")),
 	)
-	label := e.Name
-	if e.Description != "" {
-		label = e.Name + " (" + e.Description + ")"
-	}
 	_ = c.Respond(&tele.CallbackResponse{})
-	return c.Edit(fmt.Sprintf("%s · %s\nКогда?", e.Person, label), m)
+	return c.Edit(fmt.Sprintf("%s · %s\nКогда?", e.Person, e.Name), m)
 }
 
 // onAddDate: date picked → ask for status.
@@ -173,12 +166,8 @@ func (b *Bot) onAddDate(c tele.Context) error {
 		),
 		m.Row(m.Data("Отмена", "add_cancel", "")),
 	)
-	label := e.Name
-	if e.Description != "" {
-		label = e.Name + " (" + e.Description + ")"
-	}
 	_ = c.Respond(&tele.CallbackResponse{})
-	return c.Edit(fmt.Sprintf("%s · %s\n%s — как прошло?", e.Person, label, dateRu(date)), m)
+	return c.Edit(fmt.Sprintf("%s · %s\n%s — как прошло?", e.Person, e.Name, dateRu(date)), m)
 }
 
 // onAddStatus: status picked → create visit.
@@ -205,17 +194,13 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 		return nil
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
-	label := e.Name
-	if e.Description != "" {
-		label = e.Name + " (" + e.Description + ")"
-	}
 	if status != model.StatusDone {
 		header := fmt.Sprintf("%s · %s · %s · %s",
-			e.Person, label, dateRu(date), model.StatusLabels[status])
+			e.Person, e.Name, dateRu(date), model.StatusLabels[status])
 		return b.askReason(c, visitID, header)
 	}
 	text := fmt.Sprintf("Записано: %s · %s · %s · %s",
-		e.Person, label, dateRu(date), model.StatusLabels[status])
+		e.Person, e.Name, dateRu(date), model.StatusLabels[status])
 	if line := b.balanceLineFor(eid); line != "" {
 		text += "\n" + line
 	}
@@ -309,16 +294,12 @@ func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
 		return c.Edit("Запись не найдена — возможно, удалена.", &tele.ReplyMarkup{})
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
-	label := v.Class
-	if v.ClassDesc != "" {
-		label = v.Class + " (" + v.ClassDesc + ")"
-	}
 	reasonText := reason
 	if reasonText == "" {
 		reasonText = "без комментария"
 	}
 	text := fmt.Sprintf("Записано: %s · %s · %s · %s · %s",
-		v.Person, label, dateRu(v.Date), model.StatusLabels[v.Status], reasonText)
+		v.Person, v.Class, dateRu(v.Date), model.StatusLabels[v.Status], reasonText)
 	if line := b.balanceLineFor(v.EnrollmentID); line != "" {
 		text += "\n" + line
 	}

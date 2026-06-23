@@ -61,9 +61,6 @@ func formatBalanceLine(bal model.Balance) string {
 		mark = "✓"
 	}
 	label := bal.Name
-	if bal.Description != "" {
-		label = bal.Name + " (" + bal.Description + ")"
-	}
 	if bal.BillingType == model.BillingMonthly {
 		switch {
 		case !bal.CoveredNow:
@@ -133,11 +130,7 @@ func (b *Bot) cmdStats(c tele.Context) error {
 			top = top[:5]
 		}
 		for _, c := range top {
-			name := c.Class
-			if c.ClassDesc != "" {
-				name = c.Class + " (" + c.ClassDesc + ")"
-			}
-			lines = append(lines, fmt.Sprintf("• %s — %s: %s", c.Person, name, money(c.Amount)))
+			lines = append(lines, fmt.Sprintf("• %s — %s: %s", c.Person, c.Class, money(c.Amount)))
 		}
 	}
 	return c.Send(strings.Join(lines, "\n"), tele.ModeMarkdown)

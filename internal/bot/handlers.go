@@ -3,11 +3,23 @@ package bot
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	tele "gopkg.in/telebot.v3"
 
 	"lessons/internal/model"
 )
+
+// capitalizeFirst upper-cases the first rune of s, leaving the rest intact. It
+// is rune-aware so Cyrillic (multi-byte) leads are handled correctly.
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[size:]
+}
 
 func (b *Bot) cmdStart(c tele.Context) error {
 	chat := c.Chat()
@@ -89,6 +101,12 @@ func balanceStatusLine(bal model.Balance) string {
 			return mark + " Нет активного абонемента"
 		}
 		return fmt.Sprintf("%s Абонемент до %s, осталось %d дн.", mark, dateRu(bal.CoversUntil), bal.DaysLeft)
+	}
+	// An empty balance reads as the pre-lesson warning's wording rather than
+	// a literal "0 из N", which looked odd. emptyBalanceText keeps both
+	// surfaces in sync; capitalised here as it starts the line.
+	if bal.State() == "empty" {
+		return mark + " " + capitalizeFirst(emptyBalanceText(bal))
 	}
 	// "из N" is the size of the most recent pack — "how much of the last
 	// payment is left". Dropped when no payment has been recorded yet.

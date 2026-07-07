@@ -79,7 +79,7 @@
   <ul class="slot-list">
     {{range $d.Slots}}
     <li>
-      <span>{{weekday .Weekday}}, {{.Time}}</span>
+      <span>{{weekday .Weekday}}, {{.Time}} <span class="muted">· {{.DurationMin}} мин</span></span>
       <form method="post" action="/enrollments/{{$e.ID}}/slots/{{.ID}}/delete">
         <button class="btn small danger" type="submit">×</button>
       </form>
@@ -95,6 +95,7 @@
       {{range $d.Weekdays}}<option value="{{.N}}">{{.Label}}</option>{{end}}
     </select>
     <input type="time" name="time" required>
+    <input type="number" name="duration_min" min="5" step="5" value="60" title="Продолжительность, мин">
     <button class="btn primary" type="submit">Сохранить слот</button>
   </form>
 </section>

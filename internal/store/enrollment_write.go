@@ -68,7 +68,7 @@ func (s *Store) DeleteEnrollment(id int64) error {
 
 func (s *Store) ListSlots(enrollmentID int64) ([]model.Slot, error) {
 	rows, err := s.db.Query(`
-		SELECT id, enrollment_id, weekday, time, active
+		SELECT id, enrollment_id, weekday, time, duration_min, active
 		FROM regular_slots WHERE enrollment_id=?
 		ORDER BY weekday, time`, enrollmentID)
 	if err != nil {
@@ -78,7 +78,7 @@ func (s *Store) ListSlots(enrollmentID int64) ([]model.Slot, error) {
 	var out []model.Slot
 	for rows.Next() {
 		var sl model.Slot
-		if err := rows.Scan(&sl.ID, &sl.EnrollmentID, &sl.Weekday, &sl.Time, &sl.Active); err != nil {
+		if err := rows.Scan(&sl.ID, &sl.EnrollmentID, &sl.Weekday, &sl.Time, &sl.DurationMin, &sl.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, sl)
@@ -86,10 +86,10 @@ func (s *Store) ListSlots(enrollmentID int64) ([]model.Slot, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) CreateSlot(enrollmentID int64, weekday int, t string) error {
+func (s *Store) CreateSlot(enrollmentID int64, weekday int, t string, durationMin int) error {
 	_, err := s.db.Exec(`
-		INSERT INTO regular_slots (enrollment_id, weekday, time) VALUES (?, ?, ?)`,
-		enrollmentID, weekday, t)
+		INSERT INTO regular_slots (enrollment_id, weekday, time, duration_min) VALUES (?, ?, ?, ?)`,
+		enrollmentID, weekday, t, durationMin)
 	return err
 }
 

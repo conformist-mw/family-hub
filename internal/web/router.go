@@ -31,6 +31,7 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	if webhook != nil && webhookPath != "" {
 		mux.Handle("POST "+webhookPath, webhook)
 	}
+	mux.HandleFunc("GET /calendar.ics", a.handleCalendarICS)
 	mux.HandleFunc("GET /{$}", a.handleDashboard)
 
 	mux.HandleFunc("GET /visits", a.handleVisits)

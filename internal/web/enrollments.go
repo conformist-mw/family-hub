@@ -179,11 +179,15 @@ func (a *App) handleSlotCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	weekday, _ := strconv.Atoi(r.FormValue("weekday"))
 	t := normalizeName(r.FormValue("time"))
+	duration, _ := strconv.Atoi(r.FormValue("duration_min"))
+	if duration <= 0 {
+		duration = 60
+	}
 	if weekday < 0 || weekday > 6 || t == "" {
 		http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
 		return
 	}
-	if err := a.Store.CreateSlot(id, weekday, t); err != nil {
+	if err := a.Store.CreateSlot(id, weekday, t, duration); err != nil {
 		a.serverError(w, err)
 		return
 	}

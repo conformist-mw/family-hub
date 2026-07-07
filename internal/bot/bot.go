@@ -16,10 +16,10 @@ import (
 )
 
 type Config struct {
-	Token         string
-	WebhookURL    string
-	WebhookSecret string
-	AllowedChats  []int64
+	Token            string
+	WebhookURL       string
+	WebhookSecret    string
+	AllowedChats     []int64
 	NotifyChat       int64 // where attendance reminders are pushed; 0 disables
 	ReminderDelayMin int   // minutes after a slot's time to ask about it; <0 disables
 	PreLessonLeadMin int   // minutes before a slot to warn about an empty balance; <0 disables

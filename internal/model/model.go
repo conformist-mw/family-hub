@@ -51,6 +51,7 @@ type Slot struct {
 	EnrollmentID int64
 	Weekday      int
 	Time         string
+	DurationMin  int
 	Active       bool
 }
 

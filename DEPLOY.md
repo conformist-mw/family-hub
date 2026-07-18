@@ -33,10 +33,13 @@ just deploy-hetzner-tag lessons
 
 ## Notes
 
-- The image bundles `Доп. занятия.xlsx` as `seed.xlsx`. The Ansible role runs
-  the importer **only on the first deploy** (gated by the absence of
-  `lessons.db`). After that the prod DB is the source of truth — redeploys do
-  not touch data.
+- The image carries **no seed spreadsheet** — `Доп. занятия.xlsx` holds
+  personal data and is gitignored + dockerignored. Prod was seeded long ago;
+  the DB is the source of truth and redeploys never touch it. To seed a
+  fresh install, copy the local Excel to the host and run the bundled
+  importer against it once:
+  `docker run --rm -v <dir>:/data -v "$PWD/Доп. занятия.xlsx":/seed.xlsx \
+   --entrypoint /app/import olegsmedyuk/lessons:latest -src /seed.xlsx -db /data/lessons.db`
 - Migrations (`goose`) run automatically on container start.
 - Prod env (token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
   `TELEGRAM_REMINDER_DELAY_MIN`, `TZ=Europe/Kyiv`) comes from the role +

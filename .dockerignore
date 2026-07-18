@@ -3,7 +3,9 @@
 /data/
 /lessons
 *.md
+docs/
 review/
 _xlsx_extracted/
 .env
 .env.local
+Доп. занятия.xlsx

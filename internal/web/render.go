@@ -63,6 +63,12 @@ var funcs = template.FuncMap{
 		}
 		return *p
 	},
+	"deref64": func(p *int64) int64 {
+		if p == nil {
+			return 0
+		}
+		return *p
+	},
 	"classLabel": func(name, desc string) string {
 		if desc == "" {
 			return name

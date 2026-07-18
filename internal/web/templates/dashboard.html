@@ -1,6 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 {{$absences := $d.Absences}}
+{{$schedule := $d.Schedule}}
 <div class="page-head">
   <h1>Баланс</h1>
   <a class="btn primary" href="/visits/new">+ Занятие</a>
@@ -11,10 +12,10 @@
   <div class="card state-{{.State}}">
     <div class="card-top">
       <div>
-        <div class="card-child">{{.Person}}</div>
         <div class="card-activity">{{classLabel .Name .Description}}</div>
+        <div class="card-child">{{.Person}}{{with index $schedule .ID}} · {{.}}{{end}}</div>
         {{with index $absences .ID}}
-        <div class="muted" title="{{absenceKind .Kind}} · {{.Trainer}}">🏖 тренер до {{dateRu .DateTo}}</div>
+        <div class="card-absence" title="{{absenceKind .Kind}} · {{.Trainer}}">🏖 тренер до {{dateRu .DateTo}}</div>
         {{end}}
       </div>
       <span class="badge badge-{{.State}}">
@@ -26,25 +27,39 @@
       </span>
     </div>
     <div class="card-meta">
-      <span>{{billingLabel .BillingType}}</span>
-      <span>{{money .CurrentPrice}}{{if eq .BillingType "monthly"}}/мес{{else}}/зан.{{end}}</span>
+      <span>
+        {{money .CurrentPrice}}{{if eq .BillingType "monthly"}}/мес{{else}}/зан.{{end}}
+        {{if eq .BillingType "monthly"}} · до {{if .CoveredNow}}{{dateRu .CoversUntil}}{{else}}—{{end}}{{end}}
+        · мес: {{.DoneThisMonth}}
+      </span>
+      <a href="/enrollments/{{.ID}}/audit">сверка</a>
     </div>
-    {{if eq .BillingType "per_lesson"}}
-    <div class="card-stats">
-      <span>осталось <b>{{.Remaining}}</b></span>
-      <span class="muted">в этом месяце: {{.DoneThisMonth}}</span>
-      <a class="muted" href="/enrollments/{{.ID}}/audit">сверка</a>
-    </div>
-    {{else}}
-    <div class="card-stats">
-      <span>оплачено до <b>{{if .CoveredNow}}{{dateRu .CoversUntil}}{{else}}—{{end}}</b></span>
-      <span class="muted">в этом месяце: {{.DoneThisMonth}}</span>
-      <a class="muted" href="/enrollments/{{.ID}}/audit">сверка</a>
-    </div>
-    {{end}}
   </div>
   {{else}}
   <p class="empty">Пока нет курсов. Заведи их на вкладке <a href="/enrollments">Курсы</a>.</p>
   {{end}}
 </div>
+
+{{if $d.Payments}}
+<section class="dash-payments">
+  <div class="dash-payments-head">
+    <h2>Последние оплаты</h2>
+    <a href="/payments">все →</a>
+  </div>
+  <table class="dash-table">
+    <tbody>
+      {{range $d.Payments}}
+      <tr>
+        <td class="dash-date">{{dateRu .Date}}</td>
+        <td>{{.Person}} · {{classLabel .Class .ClassDesc}}</td>
+        <td class="dash-what">
+          {{if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateRu (deref .CoversUntil)}}{{end}}
+        </td>
+        <td class="dash-amount">{{money .Amount}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
 {{end}}

@@ -51,6 +51,12 @@ var funcs = template.FuncMap{
 		}
 		return "за занятие"
 	},
+	"absenceKind": func(k string) string {
+		if l, ok := model.AbsenceKindLabels[k]; ok {
+			return l
+		}
+		return k
+	},
 	"deref": func(p *string) string {
 		if p == nil {
 			return ""
@@ -122,6 +128,7 @@ func parseTemplates() map[string]*template.Template {
 		"enrollments.html",
 		"enrollment_form.html",
 		"stats.html",
+		"trainers.html",
 	}
 	m := map[string]*template.Template{}
 	for _, p := range pages {

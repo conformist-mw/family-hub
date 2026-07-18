@@ -1,0 +1,60 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Тренеры</h1>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+{{if not $d.Trainers}}
+<p class="empty">Тренеров пока нет. Тренер появляется, когда его вписывают в курс на вкладке <a href="/enrollments">Курсы</a>.</p>
+{{end}}
+
+{{range $d.Trainers}}
+{{$t := .Trainer}}
+<section class="slots" style="margin-bottom:22px">
+  <h2>{{$t.Name}}{{if not $t.Active}} <span class="muted">(в архиве)</span>{{end}}</h2>
+
+  {{if .Current}}
+  <ul class="slot-list">
+    {{range .Current}}
+    <li>
+      <span>
+        🏖 {{dateRu .DateFrom}} — {{dateRu .DateTo}}
+        <span class="muted">· {{absenceKind .Kind}}{{if .Comment}} · {{.Comment}}{{end}}</span>
+      </span>
+      <form method="post" action="/trainers/{{$t.ID}}/absences/{{.ID}}/delete">
+        <button class="btn small danger" type="submit">×</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">Отсутствий не запланировано — напоминания идут как обычно.</p>
+  {{end}}
+
+  <form class="slot-add" method="post" action="/trainers/{{$t.ID}}/absences">
+    <input type="date" name="date_from" required title="С (включительно)">
+    <input type="date" name="date_to" required title="По (включительно)">
+    <select name="kind">
+      {{range $d.Kinds}}<option value="{{.Code}}">{{.Label}}</option>{{end}}
+    </select>
+    <input name="comment" placeholder="комментарий" autocomplete="off">
+    <button class="btn primary" type="submit">Добавить</button>
+  </form>
+
+  {{if .Past}}
+  <ul class="slot-list" style="opacity:.55;margin-top:10px">
+    {{range .Past}}
+    <li>
+      <span>{{dateRu .DateFrom}} — {{dateRu .DateTo}} <span class="muted">· {{absenceKind .Kind}}{{if .Comment}} · {{.Comment}}{{end}}</span></span>
+      <form method="post" action="/trainers/{{$t.ID}}/absences/{{.ID}}/delete">
+        <button class="btn small danger" type="submit">×</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+{{end}}
+{{end}}

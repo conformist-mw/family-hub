@@ -21,6 +21,12 @@ func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	now := time.Now()
+	absences, err := a.Store.UpcomingAbsences(now.Format("2006-01-02"))
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Write(ics.Render(slots, time.Local, time.Now()))
+	w.Write(ics.Render(slots, absences, time.Local, now))
 }

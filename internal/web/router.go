@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"lessons/internal/model"
 	"lessons/internal/store"
 )
 
@@ -50,6 +51,10 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 
 	mux.HandleFunc("GET /stats", a.handleStats)
 
+	mux.HandleFunc("GET /trainers", a.handleTrainers)
+	mux.HandleFunc("POST /trainers/{id}/absences", a.handleAbsenceCreate)
+	mux.HandleFunc("POST /trainers/{id}/absences/{absenceId}/delete", a.handleAbsenceDelete)
+
 	mux.HandleFunc("GET /enrollments", a.handleEnrollments)
 	mux.HandleFunc("GET /enrollments/new", a.handleEnrollmentNew)
 	mux.HandleFunc("POST /enrollments", a.handleEnrollmentCreate)
@@ -62,13 +67,23 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	return mux
 }
 
+type dashboardData struct {
+	Balances []model.Balance
+	Absences map[int64]*model.TrainerAbsence // enrollment id → absence covering today
+}
+
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	balances, err := a.Store.Balances()
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "dashboard.html", "Баланс", "dashboard", balances)
+	absences, err := a.Store.ActiveAbsenceByEnrollment(today())
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "dashboard.html", "Баланс", "dashboard", dashboardData{Balances: balances, Absences: absences})
 }
 
 func (a *App) serverError(w http.ResponseWriter, err error) {

@@ -24,9 +24,17 @@ to look when picking it back up after a break.
 - **`regular_slots`** — weekly schedule of a course (weekday + time). Used
   by the bot to drive evening reminders.
 - **`visits`** — one attendance event: `date`, `status`
-  (`done` / `rescheduled` / `cancelled` / `skipped`), `comment`.
+  (`done` / `rescheduled` / `cancelled` / `skipped`), `comment`. One visit
+  per enrollment per date, enforced by a UNIQUE index.
 - **`payments`** — money in. Either prepaid lessons (`lessons_paid`) or a
   monthly pass (`covers_from` + `covers_until`).
+- **`trainers`** + **`trainer_absences`** — who teaches a course
+  (`enrollments.trainer_id`, nullable) and their date-range absences
+  (vacation / sick / other, both bounds inclusive). While an absence covers
+  today, the bot stays silent for that trainer's enrollments and the ICS
+  feed drops their occurrences — the enrollment itself stays active. A
+  trainer is created on the fly from the enrollment form's free-text field;
+  absences are managed on `/trainers`.
 
 The schema reflects deliberate choices after a model review (see
 `review/model_review.md`): no separate `activities` dictionary, no
@@ -60,7 +68,9 @@ data/          # local SQLite (gitignored)
   - `/` — balance dashboard
   - `/visits`, `/visits/new`, `/visits/{id}/edit`, …
   - `/payments`, `/payments/new`, …
-  - `/enrollments`, `/enrollments/{id}/edit` (price, threshold, schedule)
+  - `/enrollments`, `/enrollments/{id}/edit` (price, threshold, schedule,
+    trainer)
+  - `/trainers` — trainers with their absences; add/delete an absence
   - `/stats` — totals (month/year/all time) and CSS bar charts by month,
     by person, by course
   - `/static/…`, `/healthz`
@@ -110,7 +120,10 @@ data/          # local SQLite (gitignored)
   weekday it sends a message to `TELEGRAM_NOTIFY_CHAT`, with the same
   four inline buttons. One reminder per enrollment per day; visits
   already recorded for today are skipped. Sent-state is in-memory, so a
-  mid-day restart re-sends still-unanswered reminders.
+  mid-day restart re-sends still-unanswered reminders. Enrollments whose
+  trainer has an absence covering today are filtered out in SQL
+  (`SlotsForWeekday`), which silences both the reminder and the
+  empty-balance warning for the whole absence.
 - The scheduler also sends a buttonless **empty-balance warning**
   `TELEGRAM_PRELESSON_LEAD_MIN` minutes (default `120`, `<0` disables)
   before a slot when nothing paid covers the lesson: zero/negative
@@ -222,6 +235,6 @@ Not yet built; will be picked off as the project is used.
   rush — planned with the k3s move.
 - **SQLite backup.** No scheduled backup yet. The file lives only on
   the VPS volume.
-- **Pauses vs archive.** Currently a course is `active=1|0`. The model
-  review proposed an explicit `paused` state for summer breaks; deferred
-  until it actually matters.
+- ~~**Pauses vs archive.**~~ Solved by trainer absences: a date-range
+  absence mutes reminders while the course stays active. A course-level
+  pause independent of the trainer hasn't been needed so far.

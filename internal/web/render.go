@@ -129,6 +129,7 @@ func parseTemplates() map[string]*template.Template {
 		"enrollment_form.html",
 		"stats.html",
 		"trainers.html",
+		"audit.html",
 	}
 	m := map[string]*template.Template{}
 	for _, p := range pages {

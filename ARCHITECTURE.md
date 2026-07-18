@@ -53,6 +53,7 @@ internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
   store/       # repository layer (one file per concern)
+  audit/       # pure reconciliation logic: ledger, forecast, text rendering
   web/         # http handlers, templates, static
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   importer/    # Excel reader used by cmd/import
@@ -70,6 +71,14 @@ data/          # local SQLite (gitignored)
   - `/payments`, `/payments/new`, …
   - `/enrollments`, `/enrollments/{id}/edit` (price, threshold, schedule,
     trainer)
+  - `/enrollments/{id}/audit` — reconciliation ("сверка") for one course:
+    a visits+payments ledger with a running balance over a period (since
+    last payment / this month / all time / custom), a forecast of upcoming
+    lessons (grey; unpaid ones flagged with the top-up amount; trainer
+    absences excluded), copy-as-text, and "send to group" via the bot
+    (`POST .../audit/send`). Pure logic lives in `internal/audit`; the bot
+    is reached through the small `web.Notifier` interface, so `internal/web`
+    never imports telebot and the button hides when the bot is off.
   - `/trainers` — trainers with their absences; add/delete an absence
   - `/stats` — totals (month/year/all time) and CSS bar charts by month,
     by person, by course

@@ -33,11 +33,13 @@
     <div class="card-stats">
       <span>осталось <b>{{.Remaining}}</b></span>
       <span class="muted">в этом месяце: {{.DoneThisMonth}}</span>
+      <a class="muted" href="/enrollments/{{.ID}}/audit">сверка</a>
     </div>
     {{else}}
     <div class="card-stats">
       <span>оплачено до <b>{{if .CoveredNow}}{{dateRu .CoversUntil}}{{else}}—{{end}}</b></span>
       <span class="muted">в этом месяце: {{.DoneThisMonth}}</span>
+      <a class="muted" href="/enrollments/{{.ID}}/audit">сверка</a>
     </div>
     {{end}}
   </div>

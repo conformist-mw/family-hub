@@ -58,7 +58,7 @@ internal/
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   importer/    # Excel reader used by cmd/import
 data/          # local SQLite (gitignored)
-Доп. занятия.xlsx  # the original source; bundled into the image as seed.xlsx
+Доп. занятия.xlsx  # the original source; gitignored+dockerignored (personal data), local only
 ```
 
 ## Web
@@ -92,14 +92,14 @@ data/          # local SQLite (gitignored)
 
 ## Importer
 
-- `cmd/import` is a separate binary. Reads the bundled `seed.xlsx`,
+- `cmd/import` is a separate binary. Reads the local Excel (`-src`),
   fixes a known typo status (`отмненео` → `cancelled`) and a mis-keyed
   date, and writes into the same SQLite file.
 - Local re-import: `go run ./cmd/import` — wipes `visits` + `payments`,
   upserts `enrollments` based on the `current` sheet.
-- Production seed: the Ansible role runs the importer **only on the
-  first deploy** (gated by the absence of `lessons.db`). After that the
-  prod database is the source of truth.
+- Production seed: none — the image carries no spreadsheet (personal
+  data). The prod database is the source of truth; a fresh install
+  starts empty or is seeded once by hand (see DEPLOY.md).
 
 ## Bot
 
@@ -215,9 +215,10 @@ data/          # local SQLite (gitignored)
   from the dashboard but stays on the courses list and keeps history.
 - **Manage schedule**: same screen — add weekday/time slots; the bot
   scheduler reads from there.
-- **Re-seed prod from Excel** (destructive, rarely): delete
-  `~/server_data/lessons/lessons.db` on the VPS and redeploy — the
-  Ansible role will run the importer again.
+- **Re-seed prod from Excel** (destructive, rarely): copy the local
+  Excel to the VPS and run the bundled importer against the data volume
+  by hand (command in DEPLOY.md); the image and the role no longer ship
+  or run the seed.
 - **Rotate a secret**: `sops --set` (or `sops edit`), then
   `just deploy-hetzner-tag lessons`. The bot re-registers the webhook
   on startup, so a path rotation propagates to Telegram automatically.

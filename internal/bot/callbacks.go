@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"lessons/internal/model"
+	"lessons/internal/store"
 )
 
 // onReminderTap handles the evening-reminder buttons.
@@ -30,6 +32,12 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 		return c.Edit(reminderFinalText(c.Message().Text, "уже отмечено"), &tele.ReplyMarkup{})
 	}
 	visitID, err := b.store.CreateVisit(eid, date, status, "")
+	if errors.Is(err, store.ErrVisitExists) {
+		// Lost a double-tap race: another handler inserted between our
+		// existence check and this insert. Same outcome as "already marked".
+		_ = c.Respond(&tele.CallbackResponse{Text: "Уже отмечено"})
+		return c.Edit(reminderFinalText(c.Message().Text, "уже отмечено"), &tele.ReplyMarkup{})
+	}
 	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось записать"})
@@ -183,11 +191,19 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не найден"})
 		return nil
 	}
-	if exists, _ := b.store.VisitExistsForDate(eid, date); exists {
+	exists, err := b.store.VisitExistsForDate(eid, date)
+	if err != nil {
+		b.logger.Error("bot: visit-exists", "err", err)
+	}
+	if exists {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Уже есть запись на эту дату"})
 		return c.Edit("Запись на эту дату уже есть.", &tele.ReplyMarkup{})
 	}
 	visitID, err := b.store.CreateVisit(eid, date, status, "")
+	if errors.Is(err, store.ErrVisitExists) {
+		_ = c.Respond(&tele.CallbackResponse{Text: "Уже есть запись на эту дату"})
+		return c.Edit("Запись на эту дату уже есть.", &tele.ReplyMarkup{})
+	}
 	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось"})

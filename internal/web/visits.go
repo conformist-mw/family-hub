@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -155,6 +156,10 @@ func (a *App) handleVisitCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := a.Store.CreateVisit(v.EnrollmentID, v.Date, v.Status, v.Comment); err != nil {
+		if errors.Is(err, store.ErrVisitExists) {
+			a.renderVisitFormError(w, v, false, err.Error())
+			return
+		}
 		a.serverError(w, err)
 		return
 	}
@@ -195,6 +200,10 @@ func (a *App) handleVisitUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.Store.UpdateVisit(id, v.EnrollmentID, v.Date, v.Status, v.Comment); err != nil {
+		if errors.Is(err, store.ErrVisitExists) {
+			a.renderVisitFormError(w, v, true, err.Error())
+			return
+		}
 		a.serverError(w, err)
 		return
 	}

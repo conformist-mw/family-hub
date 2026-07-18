@@ -6,10 +6,12 @@ func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	q := `
 		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
+		       e.trainer_id, COALESCE(t.name, ''),
 		       (SELECT COUNT(*) FROM regular_slots s
 		        WHERE s.enrollment_id = e.id AND s.active = 1) AS slot_count
 		FROM enrollments e
-		JOIN persons p ON p.id = e.person_id`
+		JOIN persons p ON p.id = e.person_id
+		LEFT JOIN trainers t ON t.id = e.trainer_id`
 	if activeOnly {
 		q += " WHERE e.active = 1"
 	}
@@ -25,6 +27,7 @@ func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 		var e model.Enrollment
 		if err := rows.Scan(&e.ID, &e.PersonID, &e.Person, &e.Name, &e.Description,
 			&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes,
+			&e.TrainerID, &e.Trainer,
 			&e.SlotCount); err != nil {
 			return nil, err
 		}
@@ -64,12 +67,15 @@ func (s *Store) GetEnrollment(id int64) (model.Enrollment, error) {
 	var e model.Enrollment
 	err := s.db.QueryRow(`
 		SELECT e.id, e.person_id, p.name, e.name, e.description,
-		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
+		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
+		       e.trainer_id, COALESCE(t.name, '')
 		FROM enrollments e
 		JOIN persons p ON p.id = e.person_id
+		LEFT JOIN trainers t ON t.id = e.trainer_id
 		WHERE e.id = ?`, id).Scan(
 		&e.ID, &e.PersonID, &e.Person, &e.Name, &e.Description,
-		&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes)
+		&e.BillingType, &e.CurrentPrice, &e.LowThreshold, &e.Active, &e.Notes,
+		&e.TrainerID, &e.Trainer)
 	return e, err
 }
 

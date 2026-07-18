@@ -27,27 +27,27 @@ func (s *Store) getOrCreatePerson(name string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) CreateEnrollment(personName, name, description, billingType string, price float64, lowThreshold int, notes string) (int64, error) {
+func (s *Store) CreateEnrollment(personName, name, description, billingType string, price float64, lowThreshold int, notes string, trainerID *int64) (int64, error) {
 	personID, err := s.getOrCreatePerson(personName)
 	if err != nil {
 		return 0, err
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO enrollments (person_id, name, description, billing_type, current_price, low_threshold, notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		personID, strings.TrimSpace(name), description, billingType, price, lowThreshold, notes)
+		INSERT INTO enrollments (person_id, name, description, billing_type, current_price, low_threshold, notes, trainer_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		personID, strings.TrimSpace(name), description, billingType, price, lowThreshold, notes, trainerID)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdateEnrollment(id int64, name, description, billingType string, price float64, lowThreshold int, active bool, notes string) error {
+func (s *Store) UpdateEnrollment(id int64, name, description, billingType string, price float64, lowThreshold int, active bool, notes string, trainerID *int64) error {
 	_, err := s.db.Exec(`
 		UPDATE enrollments
-		SET name=?, description=?, billing_type=?, current_price=?, low_threshold=?, active=?, notes=?
+		SET name=?, description=?, billing_type=?, current_price=?, low_threshold=?, active=?, notes=?, trainer_id=?
 		WHERE id=?`,
-		strings.TrimSpace(name), description, billingType, price, lowThreshold, active, notes, id)
+		strings.TrimSpace(name), description, billingType, price, lowThreshold, active, notes, trainerID, id)
 	return err
 }
 

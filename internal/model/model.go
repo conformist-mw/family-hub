@@ -13,6 +13,10 @@ const (
 
 	KindChild = "child"
 	KindAdult = "adult"
+
+	AbsenceVacation = "vacation"
+	AbsenceSick     = "sick"
+	AbsenceOther    = "other"
 )
 
 var StatusLabels = map[string]string{
@@ -20,6 +24,12 @@ var StatusLabels = map[string]string{
 	StatusRescheduled: "перенесено",
 	StatusCancelled:   "отменено",
 	StatusSkipped:     "пропущено",
+}
+
+var AbsenceKindLabels = map[string]string{
+	AbsenceVacation: "отпуск",
+	AbsenceSick:     "болезнь",
+	AbsenceOther:    "другое",
 }
 
 var WeekdayLabels = [7]string{"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
@@ -43,7 +53,29 @@ type Enrollment struct {
 	LowThreshold int
 	Active       bool
 	Notes        string
-	SlotCount    int // weekly reminder slots; only populated by ListEnrollments
+	SlotCount    int    // weekly reminder slots; only populated by ListEnrollments
+	TrainerID    *int64 // nil — no trainer attached
+	Trainer      string // joined trainer name, read-only
+}
+
+type Trainer struct {
+	ID     int64
+	Name   string
+	Notes  string
+	Active bool
+}
+
+// TrainerAbsence is a date range (both ends inclusive) during which the
+// trainer's enrollments get no bot reminders and their lessons drop out of
+// the ICS feed. Kind is informational: vacation | sick | other.
+type TrainerAbsence struct {
+	ID        int64
+	TrainerID int64
+	Trainer   string // joined name, read-only
+	DateFrom  string
+	DateTo    string
+	Kind      string
+	Comment   string
 }
 
 type Slot struct {

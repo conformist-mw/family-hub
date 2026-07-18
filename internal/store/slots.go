@@ -10,7 +10,11 @@ type SlotWithEnrollment struct {
 	Enrollment model.Enrollment
 }
 
-func (s *Store) SlotsForWeekday(weekday int) ([]SlotWithEnrollment, error) {
+// SlotsForWeekday filters out enrollments whose trainer is absent on the
+// given date — that one condition silences both the post-slot reminder and
+// the pre-slot balance warning. Enrollments without a trainer never match
+// the subquery and are never muted.
+func (s *Store) SlotsForWeekday(weekday int, date string) ([]SlotWithEnrollment, error) {
 	rows, err := s.db.Query(`
 		SELECT s.id, s.enrollment_id, s.weekday, s.time, s.active,
 		       e.id, e.person_id, p.name, e.name, e.description,
@@ -19,7 +23,12 @@ func (s *Store) SlotsForWeekday(weekday int) ([]SlotWithEnrollment, error) {
 		JOIN enrollments e ON e.id = s.enrollment_id
 		JOIN persons p     ON p.id = e.person_id
 		WHERE s.active = 1 AND e.active = 1 AND s.weekday = ?
-		ORDER BY s.time, p.name, e.name`, weekday)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM trainer_absences a
+		      WHERE a.trainer_id = e.trainer_id
+		        AND ? BETWEEN a.date_from AND a.date_to
+		  )
+		ORDER BY s.time, p.name, e.name`, weekday, date)
 	if err != nil {
 		return nil, err
 	}
@@ -42,12 +51,15 @@ func (s *Store) SlotsForWeekday(weekday int) ([]SlotWithEnrollment, error) {
 }
 
 // AllActiveSlots returns every active slot (across all weekdays) with its
-// enrollment attached — the source for the ICS calendar feed.
+// enrollment attached — the source for the ICS calendar feed. The
+// enrollment carries its trainer id so the feed can match slots against
+// trainer absences.
 func (s *Store) AllActiveSlots() ([]SlotWithEnrollment, error) {
 	rows, err := s.db.Query(`
 		SELECT s.id, s.enrollment_id, s.weekday, s.time, s.duration_min, s.active,
 		       e.id, e.person_id, p.name, e.name, e.description,
-		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
+		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
+		       e.trainer_id
 		FROM regular_slots s
 		JOIN enrollments e ON e.id = s.enrollment_id
 		JOIN persons p     ON p.id = e.person_id
@@ -66,10 +78,36 @@ func (s *Store) AllActiveSlots() ([]SlotWithEnrollment, error) {
 			&x.Enrollment.Name, &x.Enrollment.Description,
 			&x.Enrollment.BillingType, &x.Enrollment.CurrentPrice,
 			&x.Enrollment.LowThreshold, &x.Enrollment.Active, &x.Enrollment.Notes,
+			&x.Enrollment.TrainerID,
 		); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// UpcomingAbsences returns absences of active trainers that have not fully
+// passed as of the given date — the ICS feed renders them as all-day events
+// and punches EXDATE holes into the affected lesson recurrences.
+func (s *Store) UpcomingAbsences(date string) ([]model.TrainerAbsence, error) {
+	rows, err := s.db.Query(`
+		SELECT a.id, a.trainer_id, t.name, a.date_from, a.date_to, a.kind, a.comment
+		FROM trainer_absences a
+		JOIN trainers t ON t.id = a.trainer_id
+		WHERE t.active = 1 AND a.date_to >= ?
+		ORDER BY a.date_from, a.id`, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.TrainerAbsence
+	for rows.Next() {
+		var a model.TrainerAbsence
+		if err := rows.Scan(&a.ID, &a.TrainerID, &a.Trainer, &a.DateFrom, &a.DateTo, &a.Kind, &a.Comment); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
 	}
 	return out, rows.Err()
 }

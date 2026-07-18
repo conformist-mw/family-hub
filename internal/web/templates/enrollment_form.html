@@ -31,8 +31,16 @@
   </label>
 
   <label>
-    Описание <span class="muted">(чтобы отличать одинаковые — тренер, группа, зал)</span>
+    Описание <span class="muted">(чтобы отличать одинаковые — группа, зал)</span>
     <input name="description" value="{{$e.Description}}" autocomplete="off">
+  </label>
+
+  <label>
+    Тренер <span class="muted">(пусто — без тренера; отпуска — на вкладке Тренеры)</span>
+    <input name="trainer" list="trainers-list" value="{{$e.Trainer}}" autocomplete="off">
+    <datalist id="trainers-list">
+      {{range $d.Trainers}}<option value="{{.Name}}">{{end}}
+    </datalist>
   </label>
 
   <label>

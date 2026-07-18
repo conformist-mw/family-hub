@@ -62,7 +62,7 @@ func (b *Bot) RunScheduler(ctx context.Context) {
 func (b *Bot) sendDueReminders(now time.Time, reminded, warned map[int64]bool) {
 	weekday := int(now.Weekday())
 	today := now.Format("2006-01-02")
-	slots, err := b.store.SlotsForWeekday(weekday)
+	slots, err := b.store.SlotsForWeekday(weekday, today)
 	if err != nil {
 		b.logger.Error("bot: reminders query", "err", err)
 		return

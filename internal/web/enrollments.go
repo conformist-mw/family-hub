@@ -33,6 +33,7 @@ type enrollmentFormData struct {
 	Billing    []billingOption
 	Persons    []model.Person
 	ClassNames []string
+	Trainers   []model.Trainer
 	Slots      []model.Slot
 	Weekdays   []weekdayOption
 	IsEdit     bool
@@ -74,11 +75,13 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
 	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
 	notes := normalizeName(r.FormValue("notes"))
+	trainer := normalizeName(r.FormValue("trainer"))
 
 	formData := enrollmentFormData{
 		Enrollment: model.Enrollment{
 			Person: person, Name: name, Description: description, BillingType: billing,
 			CurrentPrice: price, LowThreshold: low, Notes: notes, Active: true,
+			Trainer: trainer,
 		},
 	}
 	if person == "" || name == "" {
@@ -96,7 +99,12 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
-	if _, err := a.Store.CreateEnrollment(person, name, description, billing, price, low, notes); err != nil {
+	trainerID, err := a.trainerIDFromForm(trainer)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	if _, err := a.Store.CreateEnrollment(person, name, description, billing, price, low, notes, trainerID); err != nil {
 		a.serverError(w, err)
 		return
 	}
@@ -135,6 +143,7 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
 	active := r.FormValue("active") == "on"
 	notes := normalizeName(r.FormValue("notes"))
+	trainer := normalizeName(r.FormValue("trainer"))
 
 	if name == "" || !isValidBilling(billing) || price < 0 {
 		enr, _ := a.Store.GetEnrollment(id)
@@ -145,7 +154,12 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := a.Store.UpdateEnrollment(id, name, description, billing, price, low, active, notes); err != nil {
+	trainerID, err := a.trainerIDFromForm(trainer)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	if err := a.Store.UpdateEnrollment(id, name, description, billing, price, low, active, notes, trainerID); err != nil {
 		a.serverError(w, err)
 		return
 	}
@@ -207,6 +221,8 @@ func (a *App) handleSlotDelete(w http.ResponseWriter, r *http.Request) {
 func (a *App) renderEnrollmentForm(w http.ResponseWriter, data enrollmentFormData) {
 	data.Billing = billingOptions
 	data.Weekdays = weekdayOptions()
+	trainers, _ := a.Store.ListTrainers()
+	data.Trainers = trainers
 	if !data.IsEdit {
 		persons, _ := a.Store.ListPersons()
 		names, _ := a.Store.DistinctClassNames()
@@ -214,6 +230,19 @@ func (a *App) renderEnrollmentForm(w http.ResponseWriter, data enrollmentFormDat
 		data.ClassNames = names
 	}
 	a.render(w, "enrollment_form.html", "Курс", "enrollments", data)
+}
+
+// trainerIDFromForm resolves the free-text trainer field: empty means no
+// trainer (nil), anything else is found or created by name.
+func (a *App) trainerIDFromForm(name string) (*int64, error) {
+	if name == "" {
+		return nil, nil
+	}
+	id, err := a.Store.FindOrCreateTrainer(name)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func isValidBilling(b string) bool {

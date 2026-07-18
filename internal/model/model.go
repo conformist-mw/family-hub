@@ -116,6 +116,10 @@ func (b Balance) State() string {
 	}
 }
 
+// ParseDate parses a stored "YYYY-MM-DD" into midnight in the local zone.
+// Local matters: balance/coverage code compares these against local "today"
+// (see store.coverageFromToday) — parsing in UTC made the first day of a paid
+// period read as unpaid in any zone east of UTC.
 func ParseDate(s string) (time.Time, error) {
-	return time.Parse("2006-01-02", s)
+	return time.ParseInLocation("2006-01-02", s, time.Local)
 }

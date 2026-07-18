@@ -112,9 +112,13 @@ func sameOriginPost(r *http.Request) bool {
 	return u.Host == r.Host
 }
 
+const dashboardPayments = 8
+
 type dashboardData struct {
 	Balances []model.Balance
 	Absences map[int64]*model.TrainerAbsence // enrollment id → absence covering today
+	Schedule map[int64]string                // enrollment id → "Пн 18:00 · Чт 18:00"
+	Payments []model.Payment                 // most recent, for the table under the cards
 }
 
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +132,34 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "dashboard.html", "Баланс", "dashboard", dashboardData{Balances: balances, Absences: absences})
+	slots, err := a.Store.AllActiveSlots()
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	// Slots arrive ordered Sunday-first (Go weekday codes); the card line
+	// should read Monday-first, so take weekdays 1..6 and then 0.
+	schedule := make(map[int64]string, len(balances))
+	for _, wd := range []int{1, 2, 3, 4, 5, 6, 0} {
+		for _, s := range slots {
+			if s.Slot.Weekday != wd {
+				continue
+			}
+			line := model.WeekdayLabels[wd] + " " + s.Slot.Time
+			if cur := schedule[s.Enrollment.ID]; cur != "" {
+				line = cur + " · " + line
+			}
+			schedule[s.Enrollment.ID] = line
+		}
+	}
+	payments, err := a.Store.ListPayments(store.PaymentFilter{Limit: dashboardPayments})
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "dashboard.html", "Баланс", "dashboard", dashboardData{
+		Balances: balances, Absences: absences, Schedule: schedule, Payments: payments,
+	})
 }
 
 func (a *App) serverError(w http.ResponseWriter, err error) {

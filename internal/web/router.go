@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"lessons/internal/model"
 	"lessons/internal/store"
@@ -68,7 +69,47 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("GET /enrollments/{id}/audit", a.handleAudit)
 	mux.HandleFunc("POST /enrollments/{id}/audit/send", a.handleAuditSend)
 
-	return mux
+	return csrfGuard(webhookPath, logger, mux)
+}
+
+// csrfGuard rejects cross-site POSTs. Auth is an oauth2-proxy cookie, so
+// until now a malicious page could ride it with a form POST (mitigated only
+// by the browser's default SameSite=Lax — accidental, not designed). Modern
+// browsers stamp Sec-Fetch-Site on every request; older ones send Origin on
+// cross-origin POSTs. Requests with neither header (curl, Telegram) pass —
+// CSRF is a browser attack, and the Telegram webhook (skipped explicitly)
+// carries its own secret-token check.
+func csrfGuard(webhookPath string, logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && (webhookPath == "" || r.URL.Path != webhookPath) && !sameOriginPost(r) {
+			logger.Warn("web: cross-site POST rejected", "path", r.URL.Path,
+				"origin", r.Header.Get("Origin"), "sec_fetch_site", r.Header.Get("Sec-Fetch-Site"))
+			http.Error(w, "запрос отклонён (cross-site)", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func sameOriginPost(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin", "none": // own pages / direct address-bar navigation
+		return true
+	case "":
+		// No fetch metadata (older browser or non-browser client) — fall
+		// back to the Origin header below.
+	default: // "cross-site" or "same-site" (another subdomain) — reject both
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return u.Host == r.Host
 }
 
 type dashboardData struct {

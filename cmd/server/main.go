@@ -69,12 +69,15 @@ func main() {
 			ReminderDelayMin: reminderDelay,
 			PreLessonLeadMin: preLessonLead,
 		}
+		// No deferred Stop(): telebot's Stop() handshakes with the Start()
+		// loop, which webhook mode never runs and polling mode has already
+		// stopped via ctx by the time defers fire — either way it deadlocks
+		// and Docker escalates to SIGKILL. RunPolling owns its own stop.
 		lessonsBot, err = bot.New(cfg, store.New(database), logger)
 		if err != nil {
 			logger.Error("bot init", "err", err)
 			os.Exit(1)
 		}
-		defer lessonsBot.Stop()
 
 		if lessonsBot.WebhookMode() {
 			webhookHandler = lessonsBot.WebhookHandler()

@@ -110,7 +110,10 @@ func (b *Bot) WebhookPath() string {
 }
 
 // RunPolling starts long-polling in the foreground and returns when ctx is
-// cancelled or the bot is stopped.
+// cancelled. It is the only place telebot's Stop() may be called: Stop()
+// handshakes over an unbuffered channel that only the Start() loop drains,
+// so calling it in webhook mode (no Start loop) or a second time after the
+// loop exited blocks forever.
 func (b *Bot) RunPolling(ctx context.Context) {
 	go func() {
 		<-ctx.Done()
@@ -118,12 +121,6 @@ func (b *Bot) RunPolling(ctx context.Context) {
 	}()
 	b.logger.Info("bot: starting polling")
 	b.b.Start()
-}
-
-func (b *Bot) Stop() {
-	if b.b != nil {
-		b.b.Stop()
-	}
 }
 
 // RegisterWebhook tells Telegram to deliver updates to our public URL.

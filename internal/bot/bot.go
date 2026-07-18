@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -56,6 +57,14 @@ func ParseChatIDs(raw string, logger *slog.Logger) []int64 {
 }
 
 func New(cfg Config, st *store.Store, logger *slog.Logger) (*Bot, error) {
+	// In webhook mode the secret header is the auth layer in front of
+	// ProcessUpdate: authMiddleware trusts the chat id from the update body,
+	// so without the secret anyone who learns the (secret) path could forge
+	// updates from an allowlisted chat. Refuse to start rather than run
+	// silently unprotected — prod always has it via SOPS.
+	if cfg.WebhookURL != "" && cfg.WebhookSecret == "" {
+		return nil, fmt.Errorf("webhook mode requires TELEGRAM_WEBHOOK_SECRET")
+	}
 	pref := tele.Settings{Token: cfg.Token}
 	// Use long polling only when no webhook URL is configured — otherwise we
 	// process updates via the HTTP handler and do not need a poller.

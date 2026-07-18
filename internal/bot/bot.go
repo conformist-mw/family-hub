@@ -12,6 +12,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"lessons/internal/audit"
 	"lessons/internal/store"
 )
 
@@ -121,6 +122,18 @@ func (b *Bot) RunPolling(ctx context.Context) {
 	}()
 	b.logger.Info("bot: starting polling")
 	b.b.Start()
+}
+
+// NotifyText posts plain text to the notify chat, split into ≤4000-char
+// chunks (Telegram caps messages at 4096). Implements web.Notifier for the
+// audit page's "send to group" button.
+func (b *Bot) NotifyText(text string) error {
+	for _, chunk := range audit.SplitMessage(text, 4000) {
+		if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), chunk); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RegisterWebhook tells Telegram to deliver updates to our public URL.

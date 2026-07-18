@@ -50,6 +50,10 @@ func main() {
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
 	var webhookPath string
+	// Typed as the interface and assigned only when the bot can actually
+	// send: a nil *bot.Bot stuffed into an interface would be non-nil and
+	// the send button would render against a dead bot.
+	var notifier web.Notifier
 	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
 		notifyChat, _ := strconv.ParseInt(os.Getenv("TELEGRAM_NOTIFY_CHAT"), 10, 64)
 		reminderDelay := 60
@@ -91,13 +95,16 @@ func main() {
 			go lessonsBot.RunPolling(ctx)
 		}
 		go lessonsBot.RunScheduler(ctx)
+		if notifyChat != 0 {
+			notifier = lessonsBot
+		}
 	} else {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
 	}
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           web.NewRouter(database, logger, webhookPath, webhookHandler),
+		Handler:           web.NewRouter(database, logger, webhookPath, webhookHandler, notifier),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

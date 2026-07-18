@@ -164,3 +164,26 @@ label.checkbox input { width: auto; }
   td { border: none; padding: 5px 0; display: flex; justify-content: space-between; gap: 12px; }
   td::before { content: attr(data-label); color: var(--muted); font-size: 13px; }
 }
+
+/* audit page */
+.chip-link { font-size: 13px; padding: 7px 12px; border: 1px solid var(--line); background: #fff; border-radius: 999px; text-decoration: none; color: inherit; }
+.chip-link.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.audit-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.audit-head h2 { margin: 0 0 2px; font-size: 18px; }
+.audit-summary { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0; font-size: 14px; }
+.audit-forecast { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 14px; }
+.audit-topup { color: #991b1b; }
+table.ledger { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.ledger td { padding: 6px 8px; border-top: 1px solid var(--line); }
+.ledger-date { white-space: nowrap; color: var(--muted); width: 1%; }
+.ledger-bal { text-align: right; color: var(--muted); width: 1%; }
+tr.ledger-payment { background: #f0fdf4; }
+tr.ledger-future { opacity: .55; }
+tr.ledger-future.uncovered { opacity: .8; background: #fef2f2; color: #991b1b; }
+
+/* screenshot mode: leave only the audit card */
+body.screenshot .topbar, body.screenshot .no-screenshot { display: none; }
+@media print {
+  .topbar, .no-screenshot { display: none; }
+  .audit-card { border: none; padding: 0; }
+}

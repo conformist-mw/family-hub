@@ -21,7 +21,7 @@
         {{if gt .SlotCount 0}}{{.SlotCount}}/нед{{else if .Active}}<span class="warn-pill">нет напоминаний</span>{{else}}—{{end}}
       </td>
       <td data-label="Статус">{{if .Active}}активен{{else}}архив{{end}}</td>
-      <td data-label=""><a class="btn small" href="/enrollments/{{.ID}}/edit">✎</a></td>
+      <td data-label=""><a class="btn small" href="/enrollments/{{.ID}}/audit" title="Сверка">Σ</a> <a class="btn small" href="/enrollments/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
     <tr><td colspan="8" class="empty">Курсов нет.</td></tr>

@@ -14,14 +14,16 @@ type App struct {
 	DB        *sql.DB
 	Store     *store.Store
 	Logger    *slog.Logger
+	Notifier  Notifier // nil — bot disabled, send-to-group hidden
 	templates map[string]*template.Template
 }
 
-func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler) http.Handler {
+func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler, notifier Notifier) http.Handler {
 	a := &App{
 		DB:        db,
 		Store:     store.New(db),
 		Logger:    logger,
+		Notifier:  notifier,
 		templates: parseTemplates(),
 	}
 	mux := http.NewServeMux()
@@ -63,6 +65,8 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /enrollments/{id}/delete", a.handleEnrollmentDelete)
 	mux.HandleFunc("POST /enrollments/{id}/slots", a.handleSlotCreate)
 	mux.HandleFunc("POST /enrollments/{id}/slots/{slotId}/delete", a.handleSlotDelete)
+	mux.HandleFunc("GET /enrollments/{id}/audit", a.handleAudit)
+	mux.HandleFunc("POST /enrollments/{id}/audit/send", a.handleAuditSend)
 
 	return mux
 }

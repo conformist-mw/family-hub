@@ -1,0 +1,118 @@
+{{define "content"}}
+{{$d := .Data}}
+{{$e := $d.E}}
+<div class="page-head no-screenshot">
+  <h1>Сверка</h1>
+</div>
+
+{{if $d.Error}}<div class="flash no-screenshot" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+{{if $d.Sent}}<div class="flash no-screenshot">Отправлено в группу.</div>{{end}}
+
+<div class="pick-chips no-screenshot">
+  <a class="chip-link {{if eq $d.Range "last_payment"}}active{{end}}" href="/enrollments/{{$e.ID}}/audit">с оплаты</a>
+  <a class="chip-link {{if eq $d.Range "month"}}active{{end}}" href="/enrollments/{{$e.ID}}/audit?range=month">месяц</a>
+  <a class="chip-link {{if eq $d.Range "all"}}active{{end}}" href="/enrollments/{{$e.ID}}/audit?range=all">всё</a>
+</div>
+<form class="slot-add no-screenshot" method="get" action="/enrollments/{{$e.ID}}/audit" style="margin-bottom:14px">
+  <input type="hidden" name="range" value="custom">
+  <input type="date" name="from" value="{{$d.From}}" required>
+  <input type="date" name="to" value="{{$d.To}}" required>
+  <button class="btn" type="submit">Показать</button>
+</form>
+
+<section class="audit-card">
+  <div class="audit-head">
+    <h2>{{$e.Person}} · {{classLabel $e.Name $e.Description}}</h2>
+    <div class="muted">{{if $e.Trainer}}тренер: {{$e.Trainer}} · {{end}}{{$d.PeriodLabel}}</div>
+  </div>
+
+  <div class="audit-summary">
+    {{range $d.Statuses}}{{$n := index $d.Summary.ByStatus .Code}}{{if $n}}<span><b>{{$n}}</b> {{.Label}}</span>{{end}}{{end}}
+    {{if or $d.Summary.PaidLessons $d.Summary.PaidAmount}}
+      <span>оплачено: {{if $d.PerLesson}}<b>{{$d.Summary.PaidLessons}}</b> зан. · {{end}}<b>{{money $d.Summary.PaidAmount}}</b></span>
+    {{end}}
+    {{if $d.PerLesson}}
+      <span>остаток: {{$d.Summary.Opening}} → <b>{{$d.Summary.Closing}}</b></span>
+    {{end}}
+  </div>
+
+  {{if $d.Forecast.Rows}}
+  <div class="audit-forecast">
+    {{if $d.Forecast.PaidThrough}}<div>оплаченного хватит до <b>{{dateRu $d.Forecast.PaidThrough}}</b></div>{{end}}
+    {{if $d.Forecast.TopUpCount}}
+    <div class="audit-topup">доплатить: <b>{{$d.Forecast.TopUpCount}} {{if $d.PerLesson}}зан.{{else}}мес.{{end}} × {{money $e.CurrentPrice}} = {{money $d.Forecast.TopUpAmount}}</b>
+      {{if $d.Forecast.Debt}}<span class="muted">(долг {{$d.Forecast.Debt}} + вперёд {{$d.Forecast.Uncovered}})</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  <table class="ledger">
+    <tbody>
+      {{range $d.Rows}}
+      <tr class="{{if eq .Kind "payment"}}ledger-payment{{end}}">
+        <td class="ledger-date">{{dateRu .Date}}</td>
+        <td>
+          {{if eq .Kind "payment"}}
+            {{if .Lessons}}оплата <b>+{{.Lessons}}</b> ({{money .Amount}}){{else if .Covers}}абонемент до {{dateRu .Covers}} ({{money .Amount}}){{else}}оплата ({{money .Amount}}){{end}}
+          {{else}}
+            <span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span>
+          {{end}}
+          {{if .Comment}}<span class="muted"> — {{.Comment}}</span>{{end}}
+        </td>
+        <td class="ledger-bal">{{if $d.PerLesson}}{{.Balance}}{{end}}</td>
+      </tr>
+      {{end}}
+      {{range $d.Forecast.Rows}}
+      <tr class="ledger-future{{if not .Covered}} uncovered{{end}}">
+        <td class="ledger-date">{{dateRu .Date}}</td>
+        <td>по расписанию{{if not .Covered}} · не оплачено{{end}}</td>
+        <td class="ledger-bal"></td>
+      </tr>
+      {{end}}
+      {{if and (not $d.Rows) (not $d.Forecast.Rows)}}
+      <tr><td colspan="3" class="muted">За период ничего не было.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+
+<div class="form-actions no-screenshot" style="margin-top:14px">
+  <button class="btn primary" type="button" id="audit-copy">Скопировать текст</button>
+  {{if $d.CanSend}}
+  <form method="post" action="/enrollments/{{$e.ID}}/audit/send">
+    <input type="hidden" name="range" value="{{$d.Range}}">
+    {{if eq $d.Range "custom"}}
+    <input type="hidden" name="from" value="{{$d.From}}">
+    <input type="hidden" name="to" value="{{$d.To}}">
+    {{end}}
+    <button class="btn" type="submit">Отправить в группу</button>
+  </form>
+  {{end}}
+  <button class="btn" type="button" id="audit-shot">Для скрина</button>
+</div>
+
+<textarea id="audit-text" readonly style="position:absolute;left:-9999px;top:0">{{$d.Text}}</textarea>
+
+<script>
+document.getElementById('audit-copy').addEventListener('click', function () {
+  var ta = document.getElementById('audit-text');
+  var done = function () {
+    var b = document.getElementById('audit-copy');
+    b.textContent = 'Скопировано ✓';
+    setTimeout(function () { b.textContent = 'Скопировать текст'; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(done);
+  } else {
+    ta.style.left = '0'; ta.select();
+    document.execCommand('copy');
+    ta.style.left = '-9999px';
+    done();
+  }
+});
+document.getElementById('audit-shot').addEventListener('click', function () {
+  document.body.classList.toggle('screenshot');
+});
+</script>
+{{end}}

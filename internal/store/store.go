@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"math"
 	"sort"
 	"time"
 
@@ -134,7 +135,9 @@ func coverageFromToday(periods []period, today time.Time) (bool, string, int) {
 			cover = &end
 		}
 	}
-	days := int(cover.Sub(today).Hours() / 24)
+	// Round, not truncate: both bounds are local midnights, but a DST
+	// transition inside the span makes one "day" 23 or 25 hours long.
+	days := int(math.Round(cover.Sub(today).Hours() / 24))
 	return true, cover.Format("2006-01-02"), days
 }
 

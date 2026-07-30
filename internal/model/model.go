@@ -117,8 +117,6 @@ type Payment struct {
 type Balance struct {
 	Enrollment
 	Paid          int    // sum of lessons_paid (per_lesson)
-	LastPack      int    // lessons_paid of the most recent payment (per_lesson), 0 if none
-	LastPackDate  string // date of that payment, "" if none
 	Done          int    // count of done visits (all time)
 	Remaining     int    // Paid - Done (per_lesson)
 	DoneThisMonth int    // done visits since the start of the current month

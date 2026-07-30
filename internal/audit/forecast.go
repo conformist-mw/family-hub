@@ -98,6 +98,52 @@ func BuildForecast(e model.Enrollment, slots []model.Slot, absences []model.Trai
 	return f
 }
 
+// Pack is one payment's unspent remainder — the shape the balance line shows:
+// "Left из Size — до Through".
+type Pack struct {
+	Date    string // the payment's date
+	Size    int    // lessons_paid
+	Left    int    // still unspent
+	Through string // date its last unspent lesson falls on; "" if past the horizon
+}
+
+// RemainingPacks splits the paid-but-unspent lessons across the payments that
+// funded them. Lessons are spent in payment order, so `done` drains the oldest
+// packs first and what survives is the stock, listed in the order it will be
+// spent. The upcoming dates (see UpcomingDates) are handed out in that same
+// order; a pack whose last lesson falls past the end of dates gets no Through
+// rather than a wrong one.
+//
+// payments must be ascending by date. Monthly payments carry no lesson count
+// and are skipped, as are the zero/negative ones — neither is a stock of
+// lessons. Nothing survives a debt: `done` past the total leaves no packs.
+func RemainingPacks(payments []model.Payment, done int, dates []string) []Pack {
+	var out []Pack
+	used := 0
+	for _, p := range payments {
+		if p.LessonsPaid == nil || *p.LessonsPaid <= 0 {
+			continue
+		}
+		size := int(*p.LessonsPaid)
+		left := size
+		if done > 0 {
+			if done >= left {
+				done -= left
+				continue
+			}
+			left -= done
+			done = 0
+		}
+		pk := Pack{Date: p.Date, Size: size, Left: left}
+		if used+left <= len(dates) {
+			pk.Through = dates[used+left-1]
+		}
+		used += left
+		out = append(out, pk)
+	}
+	return out
+}
+
 // UpcomingDates returns the next n scheduled lesson dates for the slots,
 // walking forward from today — or tomorrow when today already has a visit
 // recorded, mirroring BuildForecast — and skipping trainer absences.

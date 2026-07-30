@@ -144,15 +144,24 @@ data/          # local SQLite (gitignored)
   `Balance.State()`, "Абонемент до …, осталось N дн." for monthly, and for
   per-lesson the same fragment `/balance` uses (`paidFragment`) so the two
   surfaces can't drift apart.
-- That fragment reads "осталось X из Y — до DD.MM": Y is the most recent
-  pack size and appears **only** while everything left fits inside it.
-  Paying ahead with lessons still on the balance is normal, and then the
-  remainder spans several packs — "X из Y" would be a lie, so the line
-  switches to "осталось X — до DD.MM · последняя оплата Y с DD.MM", where
-  the second date is when the newest payment starts being spent (lessons
-  are consumed in payment order). Both dates come from walking the active
-  slots via `audit.UpcomingDates`, minus trainer absences; a schedule that
-  runs past the two-year horizon drops the date rather than guessing.
+- That fragment breaks the remainder down by the payments that funded it
+  (`audit.RemainingPacks`): lessons are spent in payment order, so the done
+  count drains the oldest packs first and what survives is the stock. One
+  surviving pack — the everyday case — reads "осталось 2 из 8 — до 04.08".
+  Paying ahead while lessons remain is normal, and then the stock spans
+  several payments, so each gets its own line under the total:
+
+  ```
+  осталось 16
+  · 1 из 13 — до 31.07
+  · 15 из 15 — до 04.09
+  ```
+
+  The dates come from walking the active slots minus trainer absences
+  (`audit.UpcomingDates`); a pack whose lessons run past the two-year
+  horizon shows no date rather than a guessed one. The lines carry no
+  month-to-date counter: paid packs don't align with calendar months, and
+  the number only distracted from the question the line answers.
 
 ## Deployment
 

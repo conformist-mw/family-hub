@@ -3,85 +3,90 @@ package bot
 import (
 	"testing"
 
+	"lessons/internal/audit"
 	"lessons/internal/model"
 )
 
-func perLesson(remaining, lastPack int) model.Balance {
-	b := model.Balance{Paid: remaining, LastPack: lastPack, Remaining: remaining}
+func perLesson(remaining int) model.Balance {
+	b := model.Balance{Remaining: remaining}
 	b.BillingType = model.BillingPerLesson
 	b.LowThreshold = 2
 	return b
 }
 
-// The regression this whole line exists for: a top-up made while the previous
-// pack still had lessons must not be rendered as "11 из 8".
-func TestPaidFragmentPrepaidOverlap(t *testing.T) {
-	bal := perLesson(11, 8)
-	dates := []string{
-		"2026-08-01", "2026-08-04", "2026-08-06", // 3 carried over
-		"2026-08-08", "2026-08-11", "2026-08-13", "2026-08-15",
-		"2026-08-18", "2026-08-20", "2026-08-22", "2026-08-25",
+func TestPaidFragmentSinglePack(t *testing.T) {
+	bal := perLesson(2)
+	packs := []audit.Pack{{Date: "2026-07-18", Size: 8, Left: 2, Through: "2026-08-04"}}
+	if got, want := paidFragment(bal, packs), "2 из 8 — до 04.08"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
-	out := newPaidOutlook(bal, dates)
-	if out.CarriedOver != 3 {
-		t.Fatalf("carried over: got %d, want 3", out.CarriedOver)
+}
+
+// The case this line exists for: a top-up made while lessons remained. One
+// "X из Y" would have to pick a pack and lie, so each gets its own line.
+func TestPaidFragmentPrepaidSpansPacks(t *testing.T) {
+	bal := perLesson(16)
+	packs := []audit.Pack{
+		{Date: "2026-06-24", Size: 13, Left: 1, Through: "2026-07-27"},
+		{Date: "2026-07-26", Size: 15, Left: 15, Through: "2026-09-04"},
 	}
-	got := paidFragment(bal, out)
-	want := "11 — до 25.08 · последняя оплата 8 с 08.08"
+	got := paidFragment(bal, packs)
+	want := "16\n· 1 из 13 — до 27.07\n· 15 из 15 — до 04.09"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestPaidFragmentWithinLastPack(t *testing.T) {
-	bal := perLesson(2, 8)
-	out := newPaidOutlook(bal, []string{"2026-08-01", "2026-08-04"})
-	if out.CarriedOver != 0 || out.LastPackFrom != "" {
-		t.Fatalf("unexpected outlook: %+v", out)
-	}
-	got := paidFragment(bal, out)
-	if want := "2 из 8 — до 04.08"; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-// A schedule that ran past the forecast horizon leaves "through" unset: no
-// date at all beats a date that is too early.
+// A pack whose lessons run past the forecast horizon shows no date: none beats
+// one that is too early.
 func TestPaidFragmentUnknownHorizon(t *testing.T) {
-	bal := perLesson(5, 8)
-	out := newPaidOutlook(bal, []string{"2026-08-01", "2026-08-04"})
-	if out.Through != "" {
-		t.Fatalf("through: got %q, want empty", out.Through)
-	}
-	if got, want := paidFragment(bal, out), "5 из 8"; got != want {
+	bal := perLesson(5)
+	packs := []audit.Pack{{Date: "2026-07-18", Size: 8, Left: 5}}
+	if got, want := paidFragment(bal, packs), "5 из 8"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestPaidFragmentDebt(t *testing.T) {
-	bal := perLesson(-2, 8)
-	out := newPaidOutlook(bal, nil)
-	if got, want := paidFragment(bal, out), "-2"; got != want {
-		t.Errorf("got %q, want %q", got, want)
+// No breakdown available (debt, or a store failure) — the bare number stands in.
+func TestPaidFragmentFallsBackToNumber(t *testing.T) {
+	if got, want := paidFragment(perLesson(-2), nil), "-2"; got != want {
+		t.Errorf("debt: got %q, want %q", got, want)
+	}
+	if got, want := paidFragment(perLesson(3), nil), "3"; got != want {
+		t.Errorf("no packs: got %q, want %q", got, want)
 	}
 }
 
 func TestBalanceStatusLineMarkers(t *testing.T) {
+	pack := func(left, size int) []audit.Pack {
+		return []audit.Pack{{Date: "2026-07-18", Size: size, Left: left, Through: "2026-08-04"}}
+	}
 	cases := []struct {
-		name string
-		bal  model.Balance
-		want string
+		name  string
+		bal   model.Balance
+		packs []audit.Pack
+		want  string
 	}{
-		{"ok", perLesson(11, 8), "🟢 Осталось оплаченных: 11"},
-		{"low", perLesson(2, 8), "🟡 Осталось оплаченных: 2 из 8"},
-		{"empty", perLesson(0, 8), "🔴 Нет оплаченных занятий"},
+		{"ok", perLesson(8), pack(8, 8), "🟢 Осталось оплаченных: 8 из 8 — до 04.08"},
+		{"low", perLesson(2), pack(2, 8), "🟡 Осталось оплаченных: 2 из 8 — до 04.08"},
+		{"empty", perLesson(0), nil, "🔴 Нет оплаченных занятий"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := balanceStatusLine(c.bal, newPaidOutlook(c.bal, nil))
-			if got != c.want {
+			if got := balanceStatusLine(c.bal, c.packs); got != c.want {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestFormatBalanceLineDropsMonthCounter(t *testing.T) {
+	bal := perLesson(2)
+	bal.Person, bal.Name, bal.DoneThisMonth = "Демид", "Гимнастика", 13
+	packs := []audit.Pack{{Date: "2026-07-18", Size: 8, Left: 2, Through: "2026-08-04"}}
+	got := formatBalanceLine(bal, packs)
+	want := "⚠️ Демид — Гимнастика: осталось 2 из 8 — до 04.08"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

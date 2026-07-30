@@ -141,9 +141,18 @@ data/          # local SQLite (gitignored)
   once per enrollment per day.
 - After a lesson is marked via inline buttons (reminder or `/add`), the
   final message carries a one-line balance: 🟢/🟡/🔴 per
-  `Balance.State()`, "Осталось оплаченных: X из Y" for per-lesson
-  (Y is the most recent pack size, not the all-time total),
-  "Абонемент до …, осталось N дн." for monthly.
+  `Balance.State()`, "Абонемент до …, осталось N дн." for monthly, and for
+  per-lesson the same fragment `/balance` uses (`paidFragment`) so the two
+  surfaces can't drift apart.
+- That fragment reads "осталось X из Y — до DD.MM": Y is the most recent
+  pack size and appears **only** while everything left fits inside it.
+  Paying ahead with lessons still on the balance is normal, and then the
+  remainder spans several packs — "X из Y" would be a lie, so the line
+  switches to "осталось X — до DD.MM · последняя оплата Y с DD.MM", where
+  the second date is when the newest payment starts being spent (lessons
+  are consumed in payment order). Both dates come from walking the active
+  slots via `audit.UpcomingDates`, minus trainer absences; a schedule that
+  runs past the two-year horizon drops the date rather than guessing.
 
 ## Deployment
 

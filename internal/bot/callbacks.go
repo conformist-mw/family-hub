@@ -329,3 +329,13 @@ func dateRu(s string) string {
 	}
 	return t.Format("02.01.2006")
 }
+
+// dateRuShort drops the year: the balance line only ever points at dates a
+// few weeks out, and the full form crowded the message.
+func dateRuShort(s string) string {
+	t, err := model.ParseDate(s)
+	if err != nil {
+		return s
+	}
+	return t.Format("02.01")
+}

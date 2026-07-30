@@ -98,6 +98,47 @@ func BuildForecast(e model.Enrollment, slots []model.Slot, absences []model.Trai
 	return f
 }
 
+// UpcomingDates returns the next n scheduled lesson dates for the slots,
+// walking forward from today — or tomorrow when today already has a visit
+// recorded, mirroring BuildForecast — and skipping trainer absences.
+//
+// Fewer than n dates come back when the two-year horizon runs out, so a
+// caller that needs "the n-th lesson from now" must check the length: a
+// truncated walk means the answer is unknown, not later.
+func UpcomingDates(slots []model.Slot, absences []model.TrainerAbsence,
+	today string, hasVisitToday bool, n int) []string {
+
+	if n <= 0 || len(slots) == 0 {
+		return nil
+	}
+	start, err := model.ParseDate(today)
+	if err != nil {
+		return nil
+	}
+	if hasVisitToday {
+		start = start.AddDate(0, 0, 1)
+	}
+
+	weekdays := map[int]bool{}
+	for _, sl := range slots {
+		weekdays[sl.Weekday] = true
+	}
+
+	out := make([]string, 0, n)
+	horizon := start.AddDate(2, 0, 0)
+	for d := start; !d.After(horizon) && len(out) < n; d = d.AddDate(0, 0, 1) {
+		if !weekdays[int(d.Weekday())] {
+			continue
+		}
+		date := d.Format("2006-01-02")
+		if absentOn(date, absences) {
+			continue
+		}
+		out = append(out, date)
+	}
+	return out
+}
+
 func absentOn(date string, absences []model.TrainerAbsence) bool {
 	for _, a := range absences {
 		if a.DateFrom <= date && date <= a.DateTo {

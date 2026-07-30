@@ -2,12 +2,15 @@ package bot
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	tele "gopkg.in/telebot.v3"
 
+	"lessons/internal/audit"
 	"lessons/internal/model"
 )
 
@@ -57,12 +60,12 @@ func (b *Bot) cmdBalance(c tele.Context) error {
 	var lines []string
 	lines = append(lines, "*Баланс*")
 	for _, bal := range balances {
-		lines = append(lines, formatBalanceLine(bal))
+		lines = append(lines, formatBalanceLine(bal, b.loadPaidOutlook(bal)))
 	}
 	return c.Send(strings.Join(lines, "\n"), tele.ModeMarkdown)
 }
 
-func formatBalanceLine(bal model.Balance) string {
+func formatBalanceLine(bal model.Balance, out paidOutlook) string {
 	mark := "·"
 	switch bal.State() {
 	case "low":
@@ -81,14 +84,69 @@ func formatBalanceLine(bal model.Balance) string {
 			return fmt.Sprintf("%s %s — %s: %d дн.", mark, bal.Person, label, bal.DaysLeft)
 		}
 	}
-	return fmt.Sprintf("%s %s — %s: осталось %d (в этом месяце %d)",
-		mark, bal.Person, label, bal.Remaining, bal.DoneThisMonth)
+	return fmt.Sprintf("%s %s — %s: осталось %s (в этом месяце %d)",
+		mark, bal.Person, label, paidFragment(bal, out), bal.DoneThisMonth)
+}
+
+// paidOutlook is the schedule-aware half of the per-lesson balance: how far
+// the paid lessons stretch, and — when a top-up landed while the previous
+// pack still had lessons in it — when the newest payment starts being spent.
+// Lessons are consumed in payment order, so the newest pack is always the
+// last one to be used.
+type paidOutlook struct {
+	CarriedOver  int    // lessons left from payments older than the last one
+	Through      string // date the last paid lesson falls on; "" if past the horizon
+	LastPackFrom string // date the last payment starts being spent; "" if it already is
+}
+
+// newPaidOutlook is the pure part: dates are the upcoming lesson dates, at
+// most Remaining of them. A short list means the schedule ran past the
+// forecast horizon, and then "through" stays unknown rather than wrong.
+func newPaidOutlook(bal model.Balance, dates []string) paidOutlook {
+	var o paidOutlook
+	if bal.BillingType == model.BillingMonthly || bal.Remaining <= 0 {
+		return o
+	}
+	if o.CarriedOver = bal.Remaining - bal.LastPack; o.CarriedOver < 0 {
+		o.CarriedOver = 0
+	}
+	if len(dates) == bal.Remaining {
+		o.Through = dates[len(dates)-1]
+	}
+	if o.CarriedOver > 0 && o.CarriedOver < len(dates) {
+		o.LastPackFrom = dates[o.CarriedOver]
+	}
+	return o
+}
+
+// paidFragment renders the remaining lessons for both the digest and the
+// post-marking line, so the two can't drift apart again.
+//
+// "из N" appears only when everything left fits inside the last payment —
+// paying ahead while lessons remain is normal, and then the remainder spans
+// several packs and "3 из 8" would be a lie. That case shows the newest
+// pack separately instead, with the date it kicks in.
+func paidFragment(bal model.Balance, out paidOutlook) string {
+	if bal.Remaining <= 0 {
+		return strconv.Itoa(bal.Remaining)
+	}
+	s := strconv.Itoa(bal.Remaining)
+	if out.CarriedOver == 0 && bal.LastPack > 0 {
+		s += fmt.Sprintf(" из %d", bal.LastPack)
+	}
+	if out.Through != "" {
+		s += " — до " + dateRuShort(out.Through)
+	}
+	if out.CarriedOver > 0 && bal.LastPack > 0 && out.LastPackFrom != "" {
+		s += fmt.Sprintf(" · последняя оплата %d с %s", bal.LastPack, dateRuShort(out.LastPackFrom))
+	}
+	return s
 }
 
 // balanceStatusLine renders the one-line paid-balance summary appended to a
 // Telegram message right after a lesson is marked. The traffic-light marker
 // follows Balance.State so it agrees with the dashboard badge.
-func balanceStatusLine(bal model.Balance) string {
+func balanceStatusLine(bal model.Balance, out paidOutlook) string {
 	mark := "🟢"
 	switch bal.State() {
 	case "low":
@@ -108,12 +166,7 @@ func balanceStatusLine(bal model.Balance) string {
 	if bal.State() == "empty" {
 		return mark + " " + capitalizeFirst(emptyBalanceText(bal))
 	}
-	// "из N" is the size of the most recent pack — "how much of the last
-	// payment is left". Dropped when no payment has been recorded yet.
-	if bal.LastPack == 0 {
-		return fmt.Sprintf("%s Осталось оплаченных: %d", mark, bal.Remaining)
-	}
-	return fmt.Sprintf("%s Осталось оплаченных: %d из %d", mark, bal.Remaining, bal.LastPack)
+	return fmt.Sprintf("%s Осталось оплаченных: %s", mark, paidFragment(bal, out))
 }
 
 // balanceLineFor loads and formats the balance line for an enrollment. It
@@ -125,7 +178,33 @@ func (b *Bot) balanceLineFor(eid int64) string {
 		b.logger.Error("bot: balance line", "err", err, "eid", eid)
 		return ""
 	}
-	return balanceStatusLine(bal)
+	return balanceStatusLine(bal, b.loadPaidOutlook(bal))
+}
+
+// loadPaidOutlook walks the enrollment's schedule far enough to place every
+// remaining paid lesson on a date. Any failure degrades to a zero outlook —
+// the line then reads like it did before dates existed, which beats losing it.
+func (b *Bot) loadPaidOutlook(bal model.Balance) paidOutlook {
+	if bal.BillingType == model.BillingMonthly || bal.Remaining <= 0 {
+		return paidOutlook{}
+	}
+	slots, err := b.store.ListSlots(bal.ID)
+	if err != nil {
+		b.logger.Error("bot: outlook slots", "err", err, "eid", bal.ID)
+		return paidOutlook{}
+	}
+	absences, err := b.store.AbsencesForEnrollment(bal.ID)
+	if err != nil {
+		b.logger.Error("bot: outlook absences", "err", err, "eid", bal.ID)
+		return paidOutlook{}
+	}
+	today := time.Now().Format("2006-01-02")
+	hasToday, err := b.store.VisitExistsForDate(bal.ID, today)
+	if err != nil {
+		b.logger.Error("bot: outlook visit-exists", "err", err, "eid", bal.ID)
+		return paidOutlook{}
+	}
+	return newPaidOutlook(bal, audit.UpcomingDates(slots, absences, today, hasToday, bal.Remaining))
 }
 
 func (b *Bot) cmdStats(c tele.Context) error {

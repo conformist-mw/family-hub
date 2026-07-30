@@ -6,10 +6,10 @@ import "lessons/internal/model"
 // pure functions in internal/audit need, fetched in one place. Bounds are
 // inclusive; an empty from/to means unbounded on that side.
 type AuditData struct {
-	Visits         []model.Visit   // ascending by date
-	Payments       []model.Payment // ascending by date
-	OpeningBalance int             // per-lesson lessons paid − done strictly before from; 0 when from is empty
-	Slots          []model.Slot    // the enrollment's active weekly slots (forecast source)
+	Visits         []model.Visit          // ascending by date
+	Payments       []model.Payment        // ascending by date
+	OpeningBalance int                    // per-lesson lessons paid − done strictly before from; 0 when from is empty
+	Slots          []model.Slot           // the enrollment's active weekly slots (forecast source)
 	Absences       []model.TrainerAbsence // all absences of the enrollment's trainer; nil without a trainer
 }
 
@@ -105,25 +105,8 @@ func (s *Store) AuditData(enrollmentID int64, from, to string) (AuditData, error
 		return d, err
 	}
 
-	arows, err := s.db.Query(`
-		SELECT a.id, a.trainer_id, t.name, a.date_from, a.date_to, a.kind, a.comment
-		FROM trainer_absences a
-		JOIN trainers t   ON t.id = a.trainer_id
-		JOIN enrollments e ON e.trainer_id = a.trainer_id
-		WHERE e.id = ?
-		ORDER BY a.date_from, a.id`, enrollmentID)
-	if err != nil {
-		return d, err
-	}
-	defer arows.Close()
-	for arows.Next() {
-		var a model.TrainerAbsence
-		if err := arows.Scan(&a.ID, &a.TrainerID, &a.Trainer, &a.DateFrom, &a.DateTo, &a.Kind, &a.Comment); err != nil {
-			return d, err
-		}
-		d.Absences = append(d.Absences, a)
-	}
-	return d, arows.Err()
+	d.Absences, err = s.AbsencesForEnrollment(enrollmentID)
+	return d, err
 }
 
 // LastPaymentDate returns the date of the enrollment's most recent payment,

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	"familyhub/internal/bot"
 	"familyhub/internal/db"
+	"familyhub/internal/parse"
 	"familyhub/internal/store"
 	"familyhub/internal/web"
 )
@@ -64,20 +66,40 @@ func main() {
 		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_PRELESSON_LEAD_MIN")); err == nil {
 			preLessonLead = v
 		}
+		// Free-text capture is optional: without a Gemini key the bot runs with
+		// a nil parser and everything except capture keeps working.
+		var parser *parse.Parser
+		if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+			modelName := os.Getenv("GEMINI_MODEL")
+			if modelName == "" {
+				modelName = "gemini-flash-lite-latest"
+			}
+			parser, err = parse.New(ctx, apiKey, modelName, time.Local, splitCSV(os.Getenv("VISIT_PEOPLE")))
+			if err != nil {
+				logger.Error("parser init", "err", err)
+				os.Exit(1)
+			}
+		}
+
 		cfg := bot.Config{
-			Token:            token,
-			WebhookURL:       os.Getenv("TELEGRAM_WEBHOOK_URL"),
-			WebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
-			AllowedChats:     bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
-			NotifyChat:       notifyChat,
-			ReminderDelayMin: reminderDelay,
-			PreLessonLeadMin: preLessonLead,
+			Token:                token,
+			WebhookURL:           os.Getenv("TELEGRAM_WEBHOOK_URL"),
+			WebhookSecret:        os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+			AllowedChats:         bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
+			NotifyChat:           notifyChat,
+			ReminderDelayMin:     reminderDelay,
+			PreLessonLeadMin:     preLessonLead,
+			Loc:                  time.Local, // TZ comes from the container env
+			NotificationsEnabled: parseBool(os.Getenv("NOTIFICATIONS_ENABLED")),
+			DailyDigestTime:      os.Getenv("DAILY_DIGEST_TIME"),
+			WeeklyDigestDOW:      parseDOW(os.Getenv("WEEKLY_DIGEST_DOW")),
+			WeeklyDigestTime:     os.Getenv("WEEKLY_DIGEST_TIME"),
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already
 		// stopped via ctx by the time defers fire — either way it deadlocks
 		// and Docker escalates to SIGKILL. RunPolling owns its own stop.
-		lessonsBot, err = bot.New(cfg, store.New(database), logger)
+		lessonsBot, err = bot.New(cfg, store.New(database), parser, logger)
 		if err != nil {
 			logger.Error("bot init", "err", err)
 			os.Exit(1)
@@ -94,7 +116,11 @@ func main() {
 		} else {
 			go lessonsBot.RunPolling(ctx)
 		}
+		// Two independent tickers: lesson reminders (always on) and appointment
+		// digests (gated by NOTIFICATIONS_ENABLED — HA owns those summaries in
+		// prod, so it stays off there).
 		go lessonsBot.RunScheduler(ctx)
+		go lessonsBot.RunDigests(ctx)
 		if notifyChat != 0 {
 			notifier = lessonsBot
 		}
@@ -124,4 +150,41 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown", "err", err)
 	}
+}
+
+// parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.
+func parseDOW(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return -1
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 6 {
+		return -1
+	}
+	return n
+}
+
+// parseBool reports whether s is a truthy value (1/t/true/yes/on, any case).
+// Anything else — including empty/unset — is false, so the appointment digests
+// stay opt-in.
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// splitCSV parses a comma-separated list, dropping empty entries — the people
+// hint list the parser uses to normalize "who".
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

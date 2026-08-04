@@ -14,14 +14,14 @@ import (
 // done; meant to run in its own goroutine alongside polling/webhook.
 func (b *Bot) RunDigests(ctx context.Context) {
 	if !b.cfg.NotificationsEnabled {
-		b.logger.Info("bot: scheduler disabled (NOTIFICATIONS_ENABLED not set)")
+		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set)")
 		return
 	}
 	if b.cfg.NotifyChat == 0 {
-		b.logger.Info("bot: scheduler disabled (no notify chat)")
+		b.logger.Info("bot: digests disabled (no notify chat)")
 		return
 	}
-	b.logger.Info("bot: scheduler started",
+	b.logger.Info("bot: digests started",
 		"notify_chat", b.cfg.NotifyChat,
 		"daily", b.cfg.DailyDigestTime,
 		"weekly_dow", b.cfg.WeeklyDigestDOW,

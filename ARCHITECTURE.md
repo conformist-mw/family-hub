@@ -11,6 +11,7 @@ to look when picking it back up after a break.
 - `pressly/goose` migrations, embedded into the binary
 - `xuri/excelize/v2` for the one-shot Excel import
 - `gopkg.in/telebot.v3` for the Telegram bot
+- `google.golang.org/genai` (Gemini) to parse appointments out of free text
 - `joho/godotenv` to load `.env` in local development
 
 ## Domain model
@@ -35,6 +36,15 @@ to look when picking it back up after a break.
   feed drops their occurrences — the enrollment itself stays active. A
   trainer is created on the fly from the enrollment form's free-text field;
   absences are managed on `/trainers`.
+- **`appointments`** — one-off events, the second domain of the app
+  (orthodontist, manicure, doctors). `title`, `person` (free text, not a FK to
+  `persons`: it can be a guest or "обоє"), `location`, `starts_at` and optional
+  `ends_at` as naive local `2006-01-02T15:04`, `status`
+  (`planned` / `done` / `cancelled`), `note`, and `raw` — the message the parse
+  came from. `ha_uid`/`ha_synced_at` are an unused outbox for a future push
+  exporter; `deleted_at` is a soft delete, so the row survives long enough for
+  such an exporter to issue a calendar delete. Nothing links appointments to
+  enrollments — they are deliberately independent.
 
 The schema reflects deliberate choices after a model review (see
 `review/model_review.md`): no separate `activities` dictionary, no
@@ -56,6 +66,8 @@ internal/
   audit/       # pure reconciliation logic: ledger, forecast, text rendering
   web/         # http handlers, templates, static
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
+  parse/       # Gemini client: free text -> appointments (and a bare datetime)
+  ics/         # the single VCALENDAR feed HA polls
   importer/    # Excel reader used by cmd/import
 data/          # local SQLite (gitignored)
 Доп. занятия.xlsx  # the original source; gitignored+dockerignored (personal data), local only
@@ -68,6 +80,10 @@ data/          # local SQLite (gitignored)
 - Routes (see `internal/web/router.go`):
   - `/` — balance dashboard
   - `/visits`, `/visits/new`, `/visits/{id}/edit`, …
+  - `/appointments`, `/appointments/new`, `/appointments/{id}/edit`,
+    `POST /appointments/{id}/delete` (soft) — the hands-on side of what the bot
+    captures: the list puts upcoming first and dims the past, the form owns
+    location/note/status which free-text capture never sets
   - `/payments`, `/payments/new`, …
   - `/enrollments`, `/enrollments/{id}/edit` (price, threshold, schedule,
     trainer)
@@ -82,6 +98,12 @@ data/          # local SQLite (gitignored)
   - `/trainers` — trainers with their absences; add/delete an absence
   - `/stats` — totals (month/year/all time) and CSS bar charts by month,
     by person, by course
+  - `/calendar.ics` — one feed for HA's Remote Calendar: weekly RRULE events
+    per lesson slot (with EXDATE holes for trainer absences), all-day absence
+    events, and one VEVENT per appointment (from 30 days back, non-cancelled;
+    UIDs are `slot-N` / `absence-N` / `appointment-N`, all suffixed `@lessons`
+    — HA keys on the uid, so the suffix must not change). Token-guarded via
+    `ICS_TOKEN`.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.
@@ -107,13 +129,14 @@ data/          # local SQLite (gitignored)
 - Two transport modes:
   - **Long polling** when `TELEGRAM_WEBHOOK_URL` is empty (local dev).
   - **Webhook** when `TELEGRAM_WEBHOOK_URL` is set (production).
-- Webhook path is a **secret** held in SOPS (`lessons_webhook_path`),
+- Webhook path is a **secret** held in SOPS (`family_hub_webhook_path`),
   composed into both `TELEGRAM_WEBHOOK_URL` and the Traefik
   `PathPrefix` of the bypass router. Telegram's
   `X-Telegram-Bot-Api-Secret-Token` header is the second layer.
 - Allowlist via `TELEGRAM_ALLOWED_CHATS` (comma-separated chat IDs).
   Unknown chats receive a short "доступ запрещён".
-- Commands: `/start`, `/help`, `/balance`, `/stats`, `/add`.
+- Commands: `/start`, `/help`, `/balance`, `/stats`, `/add` (lessons) and
+  `/visit`, `/week`, `/list` (appointments). The "/" menu is set on startup.
 - `/add` is an inline three-step flow (course chips → date chips →
   status buttons). The state is encoded into callback data; each tap
   edits the same message to advance.
@@ -123,6 +146,26 @@ data/          # local SQLite (gitignored)
   comment; "Другое" leaves the comment empty for later editing in the
   web UI. The chosen reason is saved as the visit comment and shown in
   the final message ("… · отменено · заболел").
+- **Appointment capture** is the free-text path: text → Gemini
+  (`internal/parse`) → confirmation card → save. It only runs in private chats
+  (`onText` bails out in groups, where every message is other people's
+  chatter), so **`/visit <text>` is the only capture path in the family
+  group** — do not remove it. A same-time collision offers "update the existing
+  one" instead of silently adding a second row. Pending cards
+  (`internal/bot/pending.go`) and armed field edits
+  (`internal/bot/awaiting.go`) are in-memory with eviction: a restart drops
+  them, the user just re-sends.
+- `/list` is one self-editing message: a calendar week at a time, tap a number
+  for the card → edit / cancel, all state encoded in the callback data. Text
+  edits (reschedule, rename, change who) are private-chat only, because in a
+  group the "next message" could be anyone's.
+- Without `GEMINI_API_KEY` the parser is nil: `/visit` and free-text capture
+  are not registered, everything else (including `/week`, `/list`, cancel and
+  the lessons half) works.
+- Two independent tickers run as separate goroutines: `RunScheduler` for
+  lesson reminders (below) and `RunDigests` (`internal/bot/digests.go`) for the
+  appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
+  prod — HA owns those summaries) and a configured notify chat.
 - The **scheduler** (`internal/bot/scheduler.go`) is a once-a-minute
   ticker. `TELEGRAM_REMINDER_DELAY_MIN` minutes (default `60`, container
   TZ is `Europe/Kyiv`) after each active `regular_slot` matching today's
@@ -148,25 +191,31 @@ data/          # local SQLite (gitignored)
 ## Deployment
 
 - Image built on the dev machine (Mac arm64), pushed to Docker Hub
-  `olegsmedyuk/lessons:latest`. Hetzner is arm64 too, so no cross-build.
-- Ansible role `roles/lessons` lives in `~/dev/dotfiles`, included from
+  `olegsmedyuk/family-hub:latest`. Hetzner is arm64 too, so no cross-build.
+- Ansible role `roles/family-hub` lives in `~/dev/dotfiles`, included from
   `hetzner.yml`. Deploy with:
 
   ```sh
   cd ~/dev/dotfiles
-  just deploy-hetzner-tag lessons
+  just deploy-hetzner-tag family-hub
   ```
 
   Use `just`, not raw `ansible-playbook` — `just` loads the `.env` that
   carries the BWS access token used by other roles.
 - Container runs as `1000:1000`, mounts `~/server_data/lessons` for the
-  SQLite file.
-- Two Traefik routers on the same host:
-  - `lessons` — `Host(lessons.conformist.name)` →
-    `auth-chain@file` middleware (oauth2-proxy in front).
-  - `lessons-bot` — same host plus `PathPrefix(<webhook path>)` →
+  SQLite file (still `lessons.db` — the path predates the rename and changing
+  it buys nothing).
+- Three Traefik routers on the same host, which answers to both
+  `family.conformist.name` and (transitionally) `lessons.conformist.name`:
+  - the app router → `auth-chain@file` middleware (oauth2-proxy in front).
+  - the bot router — host plus `PathPrefix(<webhook path>)` →
     `no-auth-chain@file`, so Telegram can POST without going through
     oauth. The path is loaded from SOPS, so the repo never reveals it.
+  - the ICS router — host plus `PathPrefix(/calendar.ics)` →
+    `no-auth-chain@file`, guarded by `ICS_TOKEN` instead, so HA can poll.
+    On the compound routers the host alternation must stay parenthesized:
+    `(Host(a) || Host(b)) && PathPrefix(...)` — `||` binds looser than `&&`,
+    and an unparenthesized rule would expose the whole app without auth.
 - No GitHub Actions. Master on GitHub is upstream history; deploy is a
   local Ansible run.
 
@@ -175,17 +224,18 @@ data/          # local SQLite (gitignored)
 - SOPS + age. Private key at
   `~/Library/Application Support/sops/age/keys.txt` (macOS default; sops
   auto-detects). Public recipient lives in `dotfiles/.sops.yaml`.
-- Encrypted file: `dotfiles/roles/lessons/vars/secrets.sops.yaml`.
+- Encrypted file: `dotfiles/roles/family-hub/vars/secrets.sops.yaml`.
   Loaded into the play by `community.sops.load_vars` at the top of the
   role.
 - Keys currently used:
-  - `lessons_bot_token`
-  - `lessons_webhook_path`
-  - `lessons_webhook_secret`
-  - `lessons_allowed_chats`
-  - `lessons_notify_chat`
-  - `lessons_reminder_hour` (optional override)
-- Edit a value: `cd ~/dev/dotfiles && sops edit roles/lessons/vars/secrets.sops.yaml`.
+  - `family_hub_bot_token`
+  - `family_hub_webhook_path`
+  - `family_hub_webhook_secret`
+  - `family_hub_allowed_chats`
+  - `family_hub_notify_chat`
+  - `family_hub_gemini_api_key`
+  - `family_hub_reminder_hour` (optional override)
+- Edit a value: `cd ~/dev/dotfiles && sops edit roles/family-hub/vars/secrets.sops.yaml`.
 - Rotate without echoing: `sops --set '["key"] "value"' …`.
 - The rest of the dotfiles still uses Bitwarden Secrets Manager. Full
   migration is planned together with the k3s move
@@ -193,10 +243,12 @@ data/          # local SQLite (gitignored)
 
 ## Local development
 
-- `.env` at repo root (gitignored):
+- `.env` at repo root (gitignored); `.env.example` documents every variable.
+  The minimum is:
 
   ```
   TELEGRAM_BOT_TOKEN=<dev bot token>
+  GEMINI_API_KEY=<key>          # only needed to test free-text capture
   ```
 
 - `go run ./cmd/server` — boots web on `:8080` plus a polling bot.
@@ -220,13 +272,19 @@ data/          # local SQLite (gitignored)
   by hand (command in DEPLOY.md); the image and the role no longer ship
   or run the seed.
 - **Rotate a secret**: `sops --set` (or `sops edit`), then
-  `just deploy-hetzner-tag lessons`. The bot re-registers the webhook
+  `just deploy-hetzner-tag family-hub`. The bot re-registers the webhook
   on startup, so a path rotation propagates to Telegram automatically.
 
 ## Backlog
 
 Not yet built; will be picked off as the project is used.
 
+- **Ukrainian translation.** The lesson half of the UI and the bot is still
+  Russian; the appointment pages are Ukrainian. Lands as its own PR right
+  after the merge — pure strings, status codes and DB values stay English.
+- **Reminders.** "Записати щось", "передати щось", one-offs without a time.
+  Not appointments: half of them have no start at all, so they get their own
+  table and bot flow rather than a stretched `appointments`.
 - **Bot — morning low-balance check.** A second daily push: courses with
   `remaining <= low_threshold` get listed in `TELEGRAM_NOTIFY_CHAT`
   around 08:00 Kyiv. Avoids "we ran out of paid lessons" surprises.

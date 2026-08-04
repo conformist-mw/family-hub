@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -44,6 +45,13 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("GET /visits/{id}/edit", a.handleVisitEdit)
 	mux.HandleFunc("POST /visits/{id}", a.handleVisitUpdate)
 	mux.HandleFunc("POST /visits/{id}/delete", a.handleVisitDelete)
+
+	mux.HandleFunc("GET /appointments", a.handleAppointments)
+	mux.HandleFunc("GET /appointments/new", a.handleAppointmentNew)
+	mux.HandleFunc("POST /appointments", a.handleAppointmentCreate)
+	mux.HandleFunc("GET /appointments/{id}/edit", a.handleAppointmentEdit)
+	mux.HandleFunc("POST /appointments/{id}", a.handleAppointmentUpdate)
+	mux.HandleFunc("POST /appointments/{id}/delete", a.handleAppointmentDelete)
 
 	mux.HandleFunc("GET /payments", a.handlePayments)
 	mux.HandleFunc("GET /payments/new", a.handlePaymentNew)
@@ -112,13 +120,17 @@ func sameOriginPost(r *http.Request) bool {
 	return u.Host == r.Host
 }
 
-const dashboardPayments = 8
+const (
+	dashboardPayments     = 8
+	dashboardAppointments = 5
+)
 
 type dashboardData struct {
-	Balances []model.Balance
-	Absences map[int64]*model.TrainerAbsence // enrollment id → absence covering today
-	Schedule map[int64]string                // enrollment id → "Пн 18:00 · Чт 18:00"
-	Payments []model.Payment                 // most recent, for the table under the cards
+	Balances     []model.Balance
+	Absences     map[int64]*model.TrainerAbsence // enrollment id → absence covering today
+	Schedule     map[int64]string                // enrollment id → "Пн 18:00 · Чт 18:00"
+	Payments     []model.Payment                 // most recent, for the table under the cards
+	Appointments []model.Appointment             // next few, beside the payments table
 }
 
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -157,8 +169,15 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	appointments, err := a.Store.UpcomingAppointments(
+		time.Now().Format(model.LocalDatetime), dashboardAppointments)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	a.render(w, "dashboard.html", "Баланс", "dashboard", dashboardData{
-		Balances: balances, Absences: absences, Schedule: schedule, Payments: payments,
+		Balances: balances, Absences: absences, Schedule: schedule,
+		Payments: payments, Appointments: appointments,
 	})
 }
 

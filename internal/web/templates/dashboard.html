@@ -40,26 +40,50 @@
   {{end}}
 </div>
 
-{{if $d.Payments}}
-<section class="dash-payments">
-  <div class="dash-payments-head">
-    <h2>Последние оплаты</h2>
-    <a href="/payments">все →</a>
-  </div>
-  <table class="dash-table">
-    <tbody>
-      {{range $d.Payments}}
-      <tr>
-        <td class="dash-date">{{dateRu .Date}}</td>
-        <td>{{.Person}} · {{classLabel .Class .ClassDesc}}</td>
-        <td class="dash-what">
-          {{if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateRu (deref .CoversUntil)}}{{end}}
-        </td>
-        <td class="dash-amount">{{money .Amount}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table>
-</section>
-{{end}}
+<div class="dash-columns">
+  {{if $d.Payments}}
+  <section class="dash-payments">
+    <div class="dash-payments-head">
+      <h2>Последние оплаты</h2>
+      <a href="/payments">все →</a>
+    </div>
+    <table class="dash-table">
+      <tbody>
+        {{range $d.Payments}}
+        <tr>
+          <td class="dash-date">{{dateRu .Date}}</td>
+          <td>{{.Person}} · {{classLabel .Class .ClassDesc}}</td>
+          <td class="dash-what">
+            {{if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateRu (deref .CoversUntil)}}{{end}}
+          </td>
+          <td class="dash-amount">{{money .Amount}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  {{end}}
+
+  <section class="dash-payments">
+    <div class="dash-payments-head">
+      <h2>Найближчі записи</h2>
+      <a href="/appointments">всі →</a>
+    </div>
+    {{if $d.Appointments}}
+    <table class="dash-table">
+      <tbody>
+        {{range $d.Appointments}}
+        <tr>
+          <td class="dash-date">{{apptWhen .StartsAt}}</td>
+          <td>{{.Title}}</td>
+          <td class="dash-what">{{.Person}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="empty">Записів немає.</p>
+    {{end}}
+  </section>
+</div>
 {{end}}

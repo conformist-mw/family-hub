@@ -1,0 +1,37 @@
+{{define "content"}}
+{{$d := .Data}}
+{{$now := $d.Now}}
+<div class="page-head">
+  <h1>Записи</h1>
+  <a class="btn primary" href="/appointments/new">+ Запис</a>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Коли</th><th>Що</th><th>Хто</th><th>Де</th><th>Статус</th><th>Нотатка</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range $d.Appointments}}
+    <tr {{if lt .StartsAt $now}}class="appt-past"{{end}}>
+      <td data-label="Коли">{{apptWhen .StartsAt}}{{if .EndsAt}}–{{apptTime .EndsAt}}{{end}}</td>
+      <td data-label="Що">{{.Title}}</td>
+      <td data-label="Хто">{{.Person}}</td>
+      <td data-label="Де">{{.Location}}</td>
+      <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{apptStatusLabel .Status}}</span></td>
+      <td data-label="Нотатка">{{.Note}}</td>
+      <td data-label=""><a class="btn small" href="/appointments/{{.ID}}/edit">✎</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7" class="empty">Записів немає.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+
+{{if or $d.PrevURL $d.NextURL}}
+<div class="pager">
+  {{if $d.PrevURL}}<a class="btn small" href="{{$d.PrevURL}}">← Назад</a>{{else}}<span></span>{{end}}
+  <span class="muted">стор. {{$d.Page}}</span>
+  {{if $d.NextURL}}<a class="btn small" href="{{$d.NextURL}}">Далі →</a>{{else}}<span></span>{{end}}
+</div>
+{{end}}
+{{end}}

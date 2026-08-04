@@ -1,0 +1,81 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{if $d.IsEdit}}Запис{{else}}Новий запис{{end}}</h1>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post" action="{{if $d.IsEdit}}/appointments/{{$d.Appointment.ID}}{{else}}/appointments{{end}}">
+  <label>
+    Назва
+    <input type="text" name="title" value="{{$d.Appointment.Title}}" placeholder="Ортодонт" required autofocus>
+  </label>
+
+  <label>
+    Хто
+    <input type="text" name="person" value="{{$d.Appointment.Person}}" list="appt-persons" placeholder="необов’язково">
+    <datalist id="appt-persons">
+      {{range $d.Persons}}<option value="{{.Name}}"></option>{{end}}
+    </datalist>
+  </label>
+
+  <label>
+    Дата
+    <input type="date" name="date" id="appt-date" value="{{$d.Date}}" required>
+    <div class="date-quick">
+      <button type="button" data-date="{{$d.Today}}">сьогодні</button>
+    </div>
+  </label>
+
+  <div class="field-row">
+    <label>
+      Початок
+      <input type="time" name="time" value="{{$d.Time}}" required>
+    </label>
+    <label>
+      Кінець
+      <input type="time" name="end_time" value="{{apptTime $d.Appointment.EndsAt}}">
+    </label>
+  </div>
+
+  <label>
+    Де
+    <input type="text" name="location" value="{{$d.Appointment.Location}}" placeholder="необов’язково">
+  </label>
+
+  <label>
+    Статус
+    <select name="status" required>
+      {{range $d.Statuses}}
+      <option value="{{.Code}}" {{if eq .Code $d.Appointment.Status}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  <label>
+    Нотатка
+    <textarea name="note" placeholder="необов’язково">{{$d.Appointment.Note}}</textarea>
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/appointments">Скасувати</a>
+  </div>
+</form>
+
+{{if $d.IsEdit}}
+{{with $d.Appointment.Raw}}<p class="muted" style="margin-top:14px">Із повідомлення: «{{.}}»</p>{{end}}
+<form method="post" action="/appointments/{{$d.Appointment.ID}}/delete" onsubmit="return confirm('Видалити запис?')" style="margin-top:14px">
+  <button class="btn danger" type="submit">Видалити запис</button>
+</form>
+{{end}}
+
+<script>
+  document.querySelectorAll('.date-quick button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.getElementById('appt-date').value = b.dataset.date;
+    });
+  });
+</script>
+{{end}}

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 type kindOption struct {

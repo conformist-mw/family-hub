@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 func (s *Store) ListTrainers() ([]model.Trainer, error) {

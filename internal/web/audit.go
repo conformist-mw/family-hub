@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"lessons/internal/audit"
-	"lessons/internal/model"
+	"familyhub/internal/audit"
+	"familyhub/internal/model"
 )
 
 // Notifier posts a plain-text message to the family group. The bot

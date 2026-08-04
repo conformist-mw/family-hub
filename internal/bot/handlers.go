@@ -8,7 +8,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 // capitalizeFirst upper-cases the first rune of s, leaving the rest intact. It
@@ -30,7 +30,7 @@ func (b *Bot) cmdStart(c tele.Context) error {
 		"user", user.Username,
 	)
 	msg := fmt.Sprintf(
-		"Привет! Это трекер занятий.\nChat id: %d\n\nКоманды: /balance — баланс по курсам, /stats — потрачено, /help — справка.",
+		"Привет! Это трекер занятий и семейных записей.\nChat id: %d\n\nКоманды: /balance — баланс по курсам, /stats — потрачено, /visit — записать визит, /list — записи по неделям, /help — справка.",
 		chat.ID,
 	)
 	return c.Send(msg)
@@ -38,10 +38,19 @@ func (b *Bot) cmdStart(c tele.Context) error {
 
 func (b *Bot) cmdHelp(c tele.Context) error {
 	return c.Send(strings.Join([]string{
+		"Занятия:",
 		"/add — отметить занятие через кнопки (курс → дата → статус)",
 		"/balance — остаток занятий и абонементов по каждому курсу",
 		"/stats — потрачено в этом месяце / году / за всё время",
+		"",
+		"Записи (врачи, мастера, разовые визиты):",
+		"/visit — записать: /visit завтра 15:00 педикюр (можно несколько строк)",
+		"/week — что на ближайшую неделю",
+		"/list — записи по неделям: перенести, поправить, отменить",
+		"",
 		"/start — приветствие, показывает chat id",
+		"",
+		"В личке со мной запись можно писать и без /visit — просто текстом.",
 	}, "\n"))
 }
 

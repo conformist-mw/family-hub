@@ -200,3 +200,12 @@ table.dash-table td { padding: 7px 10px; border-top: 1px solid var(--line); }
 .dash-date { white-space: nowrap; color: var(--muted); width: 1%; }
 .dash-what { white-space: nowrap; color: var(--muted); }
 .dash-amount { text-align: right; white-space: nowrap; font-weight: 600; width: 1%; }
+
+/* dashboard: payments and upcoming appointments side by side */
+.dash-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+@media (max-width: 720px) { .dash-columns { grid-template-columns: 1fr; gap: 0; } }
+
+/* appointments */
+.status-planned { background: #e0f2fe; color: #075985; }
+tr.appt-past { opacity: .55; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

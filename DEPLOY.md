@@ -1,9 +1,9 @@
 # Deploy runbook
 
 How to ship a code change to production. The flow is: **build image → push to
-Docker Hub → deploy via dotfiles Ansible role**. Slots/data live in the prod
-SQLite DB and are *not* shipped this way — they are entered through the web UI
-on prod.
+Docker Hub → deploy via dotfiles Ansible role**. Data (courses, visits,
+payments, appointments) lives in the prod SQLite DB and is *not* shipped this
+way — it is entered through the web UI or the bot on prod.
 
 ## Prerequisites (one-time)
 
@@ -20,15 +20,15 @@ on prod.
 
 ```sh
 # 1. Build the image (run from this repo root). Tag matches
-#    roles/lessons/defaults/main.yml -> lessons_image.
-docker build -t olegsmedyuk/lessons:latest .
+#    roles/family-hub/defaults/main.yml -> family_hub_image.
+docker build -t olegsmedyuk/family-hub:latest .
 
 # 2. Push to Docker Hub.
-docker push olegsmedyuk/lessons:latest
+docker push olegsmedyuk/family-hub:latest
 
 # 3. Deploy. The role pulls :latest and recreates the container.
 cd ~/dev/dotfiles
-just deploy-hetzner-tag lessons
+just deploy-hetzner-tag family-hub
 ```
 
 ## Notes
@@ -39,19 +39,26 @@ just deploy-hetzner-tag lessons
   fresh install, copy the local Excel to the host and run the bundled
   importer against it once:
   `docker run --rm -v <dir>:/data -v "$PWD/Доп. занятия.xlsx":/seed.xlsx \
-   --entrypoint /app/import olegsmedyuk/lessons:latest -src /seed.xlsx -db /data/lessons.db`
+   --entrypoint /app/import olegsmedyuk/family-hub:latest -src /seed.xlsx -db /data/lessons.db`
 - Migrations (`goose`) run automatically on container start.
-- Prod env (token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
-  `TELEGRAM_REMINDER_DELAY_MIN`, `TZ=Europe/Kyiv`) comes from the role +
-  `roles/lessons/vars/secrets.sops.yaml`. Reminders only fire on prod because
-  `TELEGRAM_NOTIFY_CHAT` is unset locally.
+- Prod env (bot token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
+  `TELEGRAM_REMINDER_DELAY_MIN`, `GEMINI_API_KEY`, `VISIT_PEOPLE`,
+  `TZ=Europe/Kyiv`) comes from the role +
+  `roles/family-hub/vars/secrets.sops.yaml`. Reminders only fire on prod
+  because `TELEGRAM_NOTIFY_CHAT` is unset locally.
+- The appointment digests stay off in prod (`NOTIFICATIONS_ENABLED` unset):
+  Home Assistant sends those summaries from the ICS feed.
+- The DB file is still `lessons.db` inside `~/server_data/lessons` — renaming
+  it buys nothing and every runbook path points there.
 
 ## Verify after deploy
 
 ```sh
 # On the VPS (or via your usual ssh shortcut):
-docker logs --tail=50 lessons        # expect "listening", "scheduler started"
+docker logs --tail=50 family-hub     # expect "listening", "scheduler started"
 ```
 
 A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_min=60`
-on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing.
+on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
+appointment digest ticker logs `bot: digests disabled (NOTIFICATIONS_ENABLED
+not set)` — that line is expected in prod.

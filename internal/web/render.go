@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 //go:embed templates/*.html
@@ -50,6 +50,28 @@ var funcs = template.FuncMap{
 			return "абонемент"
 		}
 		return "за занятие"
+	},
+	"apptStatusLabel": func(s string) string {
+		if l, ok := model.ApptStatusLabels[s]; ok {
+			return l
+		}
+		return s
+	},
+	// apptWhen renders a stored LocalDatetime as "07.08, 19:06"; apptTime is
+	// just the "19:06" half (end times, where the date is implied).
+	"apptWhen": func(s string) string {
+		t, err := time.ParseInLocation(model.LocalDatetime, s, time.Local)
+		if err != nil {
+			return s
+		}
+		return t.Format("02.01.2006, 15:04")
+	},
+	"apptTime": func(s string) string {
+		t, err := time.ParseInLocation(model.LocalDatetime, s, time.Local)
+		if err != nil {
+			return ""
+		}
+		return t.Format("15:04")
 	},
 	"absenceKind": func(k string) string {
 		if l, ok := model.AbsenceKindLabels[k]; ok {
@@ -129,6 +151,8 @@ func parseTemplates() map[string]*template.Template {
 		"dashboard.html",
 		"visits.html",
 		"visit_form.html",
+		"appointments.html",
+		"appointment_form.html",
 		"payments.html",
 		"payment_form.html",
 		"enrollments.html",

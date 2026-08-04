@@ -1,7 +1,8 @@
-// Package ics renders the recurring lesson schedule as an RFC 5545 VCALENDAR
-// feed for Home Assistant's Remote Calendar to poll — a forward-looking
-// summary of what's expected each week. Each active slot becomes one weekly
-// recurring event (RRULE); duration comes from the slot.
+// Package ics renders the family schedule as an RFC 5545 VCALENDAR feed for
+// Home Assistant's Remote Calendar to poll — a forward-looking summary of
+// what's expected. Each active lesson slot becomes one weekly recurring event
+// (RRULE, duration from the slot), trainer absences punch EXDATE holes and
+// render as all-day events, and one-off appointments become plain VEVENTs.
 package ics
 
 import (
@@ -25,11 +26,13 @@ var absenceSummaryPrefix = map[string]string{
 	model.AbsenceOther:    "Отсутствие",
 }
 
-// Render builds the VCALENDAR body. loc places the stored "HH:MM" slot times;
-// now anchors each recurrence at its next occurrence and stamps DTSTAMP.
-// Absences of a slot's trainer punch EXDATE holes into the recurrence and
-// additionally render as one all-day VEVENT each.
-func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, loc *time.Location, now time.Time) []byte {
+// Render builds the VCALENDAR body. loc places the stored wall-clock times
+// (slot "HH:MM", appointment starts_at); now anchors each recurrence at its
+// next occurrence and stamps DTSTAMP. Absences of a slot's trainer punch
+// EXDATE holes into the recurrence and additionally render as one all-day
+// VEVENT each. Appointments are rendered as-is — filtering (deleted,
+// cancelled, too far in the past) belongs to the caller's query.
+func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, appointments []model.Appointment, loc *time.Location, now time.Time) []byte {
 	var b strings.Builder
 	writeLine(&b, "BEGIN:VCALENDAR")
 	writeLine(&b, "VERSION:2.0")
@@ -91,8 +94,47 @@ func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, l
 		writeLine(&b, "END:VEVENT")
 	}
 
+	for _, a := range appointments {
+		start, err := a.Start(loc)
+		if err != nil {
+			continue // unparseable start — skip rather than emit a broken VEVENT
+		}
+		end := start.Add(time.Hour) // no explicit end: assume an hour
+		if a.EndsAt != "" {
+			if e, err := time.ParseInLocation(model.LocalDatetime, a.EndsAt, loc); err == nil {
+				end = e
+			}
+		}
+
+		writeLine(&b, "BEGIN:VEVENT")
+		// Same @lessons suffix as the slot/absence uids above: HA keys events
+		// on the uid, so changing the suffix would make it delete and recreate
+		// every event for a string no user ever sees.
+		writeLine(&b, "UID:appointment-"+fmt.Sprint(a.ID)+"@lessons")
+		writeLine(&b, "DTSTAMP:"+stamp)
+		writeLine(&b, "DTSTART:"+start.UTC().Format(utcStamp))
+		writeLine(&b, "DTEND:"+end.UTC().Format(utcStamp))
+		writeLine(&b, "SUMMARY:"+escape(appointmentSummary(a)))
+		if a.Location != "" {
+			writeLine(&b, "LOCATION:"+escape(a.Location))
+		}
+		if a.Raw != "" {
+			writeLine(&b, "DESCRIPTION:"+escape(a.Raw))
+		}
+		writeLine(&b, "END:VEVENT")
+	}
+
 	writeLine(&b, "END:VCALENDAR")
 	return []byte(b.String())
+}
+
+// appointmentSummary is "Ортодонт · Демид", or just the title. Named apart from
+// summary (the lesson one) — same shape, different domain, one package.
+func appointmentSummary(a model.Appointment) string {
+	if a.Person != "" {
+		return a.Title + " · " + a.Person
+	}
+	return a.Title
 }
 
 // excludedDates returns EXDATE values for the recurrence anchored at start

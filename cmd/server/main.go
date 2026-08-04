@@ -74,10 +74,13 @@ func main() {
 			if modelName == "" {
 				modelName = "gemini-flash-lite-latest"
 			}
+			// A broken parser must not take the whole app down: lessons
+			// reminders, the web UI and the ICS feed HA polls do not need it.
+			// Capture degrades to "not registered", exactly as with no key.
 			parser, err = parse.New(ctx, apiKey, modelName, time.Local, splitCSV(os.Getenv("VISIT_PEOPLE")))
 			if err != nil {
-				logger.Error("parser init", "err", err)
-				os.Exit(1)
+				logger.Error("parser init failed, continuing without free-text capture", "err", err)
+				parser = nil
 			}
 		}
 

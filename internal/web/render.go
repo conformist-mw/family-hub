@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 //go:embed templates/*.html

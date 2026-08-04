@@ -1,6 +1,6 @@
 package store
 
-import "lessons/internal/model"
+import "familyhub/internal/model"
 
 // AuditData is the raw material for the reconciliation page: everything the
 // pure functions in internal/audit need, fetched in one place. Bounds are

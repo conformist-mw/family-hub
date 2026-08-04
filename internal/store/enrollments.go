@@ -1,6 +1,6 @@
 package store
 
-import "lessons/internal/model"
+import "familyhub/internal/model"
 
 func (s *Store) ListEnrollments(activeOnly bool) ([]model.Enrollment, error) {
 	q := `

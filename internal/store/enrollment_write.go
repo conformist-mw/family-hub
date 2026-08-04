@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 var ErrEnrollmentHasData = errors.New("у курса есть занятия или оплаты — заархивируй вместо удаления")

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 type Store struct {

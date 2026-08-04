@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"lessons/internal/model"
-	"lessons/internal/store"
+	"familyhub/internal/model"
+	"familyhub/internal/store"
 )
 
 const utcStamp = "20060102T150405Z"

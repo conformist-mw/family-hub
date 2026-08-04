@@ -14,10 +14,10 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"lessons/internal/bot"
-	"lessons/internal/db"
-	"lessons/internal/store"
-	"lessons/internal/web"
+	"familyhub/internal/bot"
+	"familyhub/internal/db"
+	"familyhub/internal/store"
+	"familyhub/internal/web"
 )
 
 func main() {

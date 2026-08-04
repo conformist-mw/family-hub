@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 type PaymentFilter struct {

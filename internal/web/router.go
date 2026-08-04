@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"lessons/internal/model"
-	"lessons/internal/store"
+	"familyhub/internal/model"
+	"familyhub/internal/store"
 )
 
 type App struct {

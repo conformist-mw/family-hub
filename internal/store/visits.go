@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 // ErrVisitExists reports an insert/update that would put a second visit on

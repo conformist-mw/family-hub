@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"lessons/internal/ics"
+	"familyhub/internal/ics"
 )
 
 // handleCalendarICS serves the recurring lesson schedule as an ICS feed for

@@ -1,6 +1,6 @@
 package store
 
-import "lessons/internal/model"
+import "familyhub/internal/model"
 
 // SlotsForWeekday returns active slots for the given weekday with the
 // enrollment they belong to attached. The slot list is what the evening

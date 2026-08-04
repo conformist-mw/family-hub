@@ -3,7 +3,7 @@ package audit
 import (
 	"time"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 // Forecast is the future part of the audit: scheduled lessons up to the

@@ -13,8 +13,8 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"lessons/internal/audit"
-	"lessons/internal/store"
+	"familyhub/internal/audit"
+	"familyhub/internal/store"
 )
 
 type Config struct {

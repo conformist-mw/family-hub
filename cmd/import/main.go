@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"lessons/internal/db"
-	"lessons/internal/importer"
+	"familyhub/internal/db"
+	"familyhub/internal/importer"
 )
 
 func main() {

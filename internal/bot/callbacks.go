@@ -9,8 +9,8 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"lessons/internal/model"
-	"lessons/internal/store"
+	"familyhub/internal/model"
+	"familyhub/internal/store"
 )
 
 // onReminderTap handles the evening-reminder buttons.

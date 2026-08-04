@@ -8,7 +8,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 // capitalizeFirst upper-cases the first rune of s, leaving the rest intact. It

@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"lessons/internal/model"
-	"lessons/internal/store"
+	"familyhub/internal/model"
+	"familyhub/internal/store"
 )
 
 type paymentsListData struct {

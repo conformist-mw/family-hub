@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"lessons/internal/model"
+	"familyhub/internal/model"
 )
 
 // statusGlyphs mirror the bot's reminder buttons.

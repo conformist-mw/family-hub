@@ -7,8 +7,8 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"lessons/internal/model"
-	"lessons/internal/store"
+	"familyhub/internal/model"
+	"familyhub/internal/store"
 )
 
 // RunScheduler ticks once a minute and sends a reminder for each of today's

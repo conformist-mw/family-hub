@@ -136,7 +136,7 @@ func (b *Bot) costReply(c tele.Context) (bool, error) {
 	a.Cost = &amount
 	if _, err := b.b.Edit(
 		tele.StoredMessage{MessageID: strconv.Itoa(msg.ReplyTo.ID), ChatID: msg.Chat.ID},
-		b.formatAppt(a)+"\n\n💸 "+money(amount), &tele.ReplyMarkup{}, tele.ModeHTML,
+		b.formatAppt(a), &tele.ReplyMarkup{}, tele.ModeHTML,
 	); err != nil {
 		b.logger.Warn("bot: edit cost prompt", "err", err, "id", a.ID)
 	}

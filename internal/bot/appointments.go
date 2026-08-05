@@ -211,7 +211,16 @@ func (b *Bot) formatAppt(a model.Appointment) string {
 	if a.Person != "" {
 		who = " · " + a.Person
 	}
-	return fmt.Sprintf("📌 <b>%s</b> — %s%s", a.Title, b.whenLabel(a), who)
+	return fmt.Sprintf("📌 <b>%s</b> — %s%s%s", a.Title, b.whenLabel(a), who, costSuffix(a))
+}
+
+// costSuffix renders a recorded amount, including 0 ("free" was a decision
+// somebody made, so it is worth showing). Nothing when unrecorded.
+func costSuffix(a model.Appointment) string {
+	if a.Cost == nil {
+		return ""
+	}
+	return " · " + money(*a.Cost)
 }
 
 func (b *Bot) formatList(items []model.Appointment) string {

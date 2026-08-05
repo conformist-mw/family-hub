@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ type parsedItem struct {
 	Title      string `json:"title"`
 	Person     string `json:"person"`
 	Start      string `json:"start"`
+	Cost       string `json:"cost"` // string, not number: "" carries "no price in the text"
 	Confidence string `json:"confidence"`
 	Raw        string `json:"raw"`
 }
@@ -50,10 +52,14 @@ var responseSchema = &genai.Schema{
 			"title":      {Type: genai.TypeString},
 			"person":     {Type: genai.TypeString},
 			"start":      {Type: genai.TypeString, Description: "ISO 8601 local datetime, e.g. 2026-07-08T11:30"},
+			"cost":       {Type: genai.TypeString, Description: "price in UAH if the text states one, digits only (e.g. 800); empty string if it does not"},
 			"confidence": {Type: genai.TypeString, Enum: []string{"high", "low"}},
 			"raw":        {Type: genai.TypeString},
 		},
-		Required: []string{"title", "person", "start", "confidence", "raw"},
+		// cost is required so the model always answers about it — with "" when
+		// there is no price. A number type would have to invent a 0 instead,
+		// and 0 means "free" in the schema.
+		Required: []string{"title", "person", "start", "cost", "confidence", "raw"},
 	},
 }
 
@@ -92,16 +98,19 @@ func (p *Parser) Parse(ctx context.Context, text string, now time.Time) ([]Parse
 			// whole message; the user sees fewer parsed items and can retry.
 			continue
 		}
-		out = append(out, Parsed{
-			Appointment: model.Appointment{
-				Title:    strings.TrimSpace(it.Title),
-				Person:   strings.TrimSpace(it.Person),
-				StartsAt: start.Format(model.LocalDatetime),
-				Status:   model.ApptStatusPlanned,
-				Raw:      it.Raw,
-			},
-			Confidence: it.Confidence,
-		})
+		appt := model.Appointment{
+			Title:    strings.TrimSpace(it.Title),
+			Person:   strings.TrimSpace(it.Person),
+			StartsAt: start.Format(model.LocalDatetime),
+			Status:   model.ApptStatusPlanned,
+			Raw:      it.Raw,
+		}
+		// A price only lands when the model actually read one. Leaving Cost nil
+		// is not a loss: the bot asks about it an hour after the visit.
+		if cost, ok := parseCost(it.Cost); ok {
+			appt.Cost = &cost
+		}
+		out = append(out, Parsed{Appointment: appt, Confidence: it.Confidence})
 	}
 	return out, nil
 }
@@ -169,6 +178,8 @@ func (p *Parser) systemPrompt(now time.Time) string {
 	} else {
 		b.WriteString("person оставляй как в тексте (например: я, Олєжа, обоє, дьома).\n")
 	}
+	b.WriteString("cost — цена в гривнах, ТОЛЬКО если она явно есть в тексте ")
+	b.WriteString("(«педикюр 800», «1200 грн»); если цены нет — пустая строка, не выдумывай. ")
 	b.WriteString("confidence=low, если дата/время/суть неоднозначны. ")
 	b.WriteString("Верни массив в порядке появления. Если визитов нет — пустой массив.")
 	return b.String()
@@ -177,6 +188,22 @@ func (p *Parser) systemPrompt(now time.Time) string {
 var weekdaysRU = [7]string{"воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"}
 
 func weekdayRU(w time.Weekday) string { return weekdaysRU[int(w)] }
+
+// parseCost reads the model's cost field. It is deliberately strict: anything
+// that is not a plain non-negative number is treated as "no price", because a
+// wrong amount is worse than an absent one — the bot will ask later anyway.
+func parseCost(s string) (float64, bool) {
+	s = strings.TrimSpace(strings.ReplaceAll(s, " ", ""))
+	s = strings.ReplaceAll(s, ",", ".")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v, true
+}
 
 // normalizeStart accepts the few shapes the model may emit and reduces them to
 // a local time in loc.

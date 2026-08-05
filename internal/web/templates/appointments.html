@@ -8,7 +8,7 @@
 
 <table>
   <thead>
-    <tr><th>Коли</th><th>Що</th><th>Хто</th><th>Де</th><th>Статус</th><th>Нотатка</th><th></th></tr>
+    <tr><th>Коли</th><th>Що</th><th>Хто</th><th>Де</th><th>Статус</th><th>Сума</th><th>Нотатка</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Appointments}}
@@ -18,11 +18,12 @@
       <td data-label="Хто">{{.Person}}</td>
       <td data-label="Де">{{.Location}}</td>
       <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{apptStatusLabel .Status}}</span></td>
+      <td data-label="Сума" class="appt-cost">{{costLabel .Cost}}</td>
       <td data-label="Нотатка">{{.Note}}</td>
       <td data-label=""><a class="btn small" href="/appointments/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
-    <tr><td colspan="7" class="empty">Записів немає.</td></tr>
+    <tr><td colspan="8" class="empty">Записів немає.</td></tr>
     {{end}}
   </tbody>
 </table>

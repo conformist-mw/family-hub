@@ -51,6 +51,17 @@ var funcs = template.FuncMap{
 		}
 		return "за занятие"
 	},
+	// costLabel renders an optional amount: "" when nothing was recorded, so
+	// the column stays visually empty rather than showing a fake 0 ₴.
+	"costLabel": func(c *float64) string {
+		if c == nil {
+			return ""
+		}
+		if *c == math.Trunc(*c) {
+			return fmt.Sprintf("%.0f ₴", *c)
+		}
+		return fmt.Sprintf("%.2f ₴", *c)
+	},
 	"apptStatusLabel": func(s string) string {
 		if l, ok := model.ApptStatusLabels[s]; ok {
 			return l

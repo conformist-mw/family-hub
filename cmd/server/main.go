@@ -66,6 +66,10 @@ func main() {
 		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_PRELESSON_LEAD_MIN")); err == nil {
 			preLessonLead = v
 		}
+		costPromptDelay := 60
+		if v, err := strconv.Atoi(os.Getenv("APPOINTMENT_COST_PROMPT_MIN")); err == nil {
+			costPromptDelay = v
+		}
 		// Free-text capture is optional: without a Gemini key the bot runs with
 		// a nil parser and everything except capture keeps working.
 		var parser *parse.Parser
@@ -92,6 +96,7 @@ func main() {
 			NotifyChat:           notifyChat,
 			ReminderDelayMin:     reminderDelay,
 			PreLessonLeadMin:     preLessonLead,
+			CostPromptDelayMin:   costPromptDelay,
 			Loc:                  time.Local, // TZ comes from the container env
 			NotificationsEnabled: parseBool(os.Getenv("NOTIFICATIONS_ENABLED")),
 			DailyDigestTime:      os.Getenv("DAILY_DIGEST_TIME"),
@@ -124,6 +129,7 @@ func main() {
 		// prod, so it stays off there).
 		go lessonsBot.RunScheduler(ctx)
 		go lessonsBot.RunDigests(ctx)
+		go lessonsBot.RunCostPrompts(ctx)
 		if notifyChat != 0 {
 			notifier = lessonsBot
 		}

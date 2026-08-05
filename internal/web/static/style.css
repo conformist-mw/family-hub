@@ -209,3 +209,4 @@ table.dash-table td { padding: 7px 10px; border-top: 1px solid var(--line); }
 .status-planned { background: #e0f2fe; color: #075985; }
 tr.appt-past { opacity: .55; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.appt-cost { text-align: right; white-space: nowrap; }

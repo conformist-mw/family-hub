@@ -61,4 +61,5 @@ docker logs --tail=50 family-hub     # expect "listening", "scheduler started"
 A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_min=60`
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
 appointment digest ticker logs `bot: digests disabled (NOTIFICATIONS_ENABLED
-not set)` — that line is expected in prod.
+not set)` — that line is expected in prod. The cost-prompt ticker should log
+`bot: cost prompts started cost_prompt_delay_min=60`.

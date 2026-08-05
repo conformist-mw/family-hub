@@ -41,7 +41,9 @@ to look when picking it back up after a break.
   `persons`: it can be a guest or "обоє"), `location`, `starts_at` and optional
   `ends_at` as naive local `2006-01-02T15:04`, `status`
   (`planned` / `done` / `cancelled`), `note`, and `raw` — the message the parse
-  came from. `ha_uid`/`ha_synced_at` are an unused outbox for a future push
+  came from. `cost` is optional money — NULL means nobody wrote it down, `0`
+  means it was free — and `cost_prompt_msg_id` is the notify-chat message that
+  asked for it (see Bot). `ha_uid`/`ha_synced_at` are an unused outbox for a future push
   exporter; `deleted_at` is a soft delete, so the row survives long enough for
   such an exporter to issue a calendar delete. Nothing links appointments to
   enrollments — they are deliberately independent.
@@ -83,7 +85,8 @@ data/          # local SQLite (gitignored)
   - `/appointments`, `/appointments/new`, `/appointments/{id}/edit`,
     `POST /appointments/{id}/delete` (soft) — the hands-on side of what the bot
     captures: the list puts upcoming first and dims the past, the form owns
-    location/note/status which free-text capture never sets
+    location/note/status/cost which free-text capture never sets — including
+    filling in an amount long after the visit
   - `/payments`, `/payments/new`, …
   - `/enrollments`, `/enrollments/{id}/edit` (price, threshold, schedule,
     trainer)
@@ -162,10 +165,24 @@ data/          # local SQLite (gitignored)
 - Without `GEMINI_API_KEY` the parser is nil: `/visit` and free-text capture
   are not registered, everything else (including `/week`, `/list`, cancel and
   the lessons half) works.
-- Two independent tickers run as separate goroutines: `RunScheduler` for
-  lesson reminders (below) and `RunDigests` (`internal/bot/digests.go`) for the
+- **Cost prompts** (`internal/bot/costprompts.go`): `APPOINTMENT_COST_PROMPT_MIN`
+  minutes (default `60`, `<0` disables) after an appointment starts, the bot
+  asks in the notify chat what it cost. The amount arrives as a **reply** to
+  that message — deliberately not the button-armed "your next message is the
+  value" flow the field edits use, because that one is private-chat only (in a
+  group the next message can be anyone's), while a reply names its target and
+  is delivered to bots even with group privacy mode on. The prompt→appointment
+  link lives in `appointments.cost_prompt_msg_id`, not in memory: deploys are
+  frequent and the prompt message outlives the process. That column doubles as
+  the already-asked flag, so a restart cannot ask twice. The sweep only reaches
+  24h back (`costPromptLookback`) — without that bound, the first tick after
+  the feature shipped would have asked about every appointment in the history.
+  `✗ Без суми` closes the prompt leaving `cost` NULL.
+- Three independent tickers run as separate goroutines: `RunScheduler` for
+  lesson reminders (below), `RunDigests` (`internal/bot/digests.go`) for the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
-  prod — HA owns those summaries) and a configured notify chat.
+  prod — HA owns those summaries), and `RunCostPrompts` for the above. All
+  three need a configured notify chat.
 - The **scheduler** (`internal/bot/scheduler.go`) is a once-a-minute
   ticker. `TELEGRAM_REMINDER_DELAY_MIN` minutes (default `60`, container
   TZ is `Europe/Kyiv`) after each active `regular_slot` matching today's

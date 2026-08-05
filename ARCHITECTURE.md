@@ -206,10 +206,23 @@ data/          # local SQLite (gitignored)
   `[slot−lead, slot)` window — never after the lesson has started — and
   once per enrollment per day.
 - After a lesson is marked via inline buttons (reminder or `/add`), the
-  final message carries a one-line balance: 🟢/🟡/🔴 per
-  `Balance.State()`, "Осталось оплаченных: X из Y" for per-lesson
-  (Y is the most recent pack size, not the all-time total),
-  "Абонемент до …, осталось N дн." for monthly.
+  final message carries a one-line balance: 🟢/🟡/🔴 per `Balance.State()`,
+  the paid stock for per-lesson, "Абонемент до …, залишилось N дн." for monthly.
+- The **paid stock** (`paidFragment`, shared by `/balance` and that
+  post-marking line) reads "3 з 4 — до 10.08": lessons left out of the pack
+  that funded them, and the date the last of them falls on. The denominator is
+  the *pack* size — `audit.RemainingPacks` spends `done` against payments
+  oldest-first — not "the most recent payment". That distinction is the whole
+  point: a pack size stays put for the pack's life, so a count drifting against
+  it is visible, whereas the old "most recent payment" denominator changed the
+  moment money was paid ahead and produced things like "16 из 15".
+- Paying ahead while lessons remain is normal, so the stock can span several
+  payments; then each pack gets its own line under the total and the untouched
+  ones are labelled `передплата`. Dates come from `audit.UpcomingDates`, a walk
+  over the active slots minus trainer absences with a two-year horizon — a pack
+  whose last lesson falls past the horizon (or an enrollment with no slots at
+  all) simply shows no date instead of a guessed one. Any lookup failure
+  degrades to the bare remainder rather than dropping the balance.
 
 ## Deployment
 

@@ -322,6 +322,16 @@ func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
 	return c.Edit(text, &tele.ReplyMarkup{})
 }
 
+// dateDayMonth drops the year: the balance line only ever points at dates a
+// few weeks out, and the full form crowded the message.
+func dateDayMonth(s string) string {
+	t, err := model.ParseDate(s)
+	if err != nil {
+		return s
+	}
+	return t.Format("02.01")
+}
+
 func dateShort(s string) string {
 	t, err := model.ParseDate(s)
 	if err != nil {

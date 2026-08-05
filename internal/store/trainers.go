@@ -73,10 +73,10 @@ func (s *Store) ListAllAbsences() ([]model.TrainerAbsence, error) {
 
 func (s *Store) CreateAbsence(trainerID int64, from, to, kind, comment string) error {
 	if from > to {
-		return fmt.Errorf("период отсутствия: начало позже конца")
+		return fmt.Errorf("період відсутності: початок пізніше кінця")
 	}
 	if _, ok := model.AbsenceKindLabels[kind]; !ok {
-		return fmt.Errorf("неизвестный тип отсутствия %q", kind)
+		return fmt.Errorf("невідомий тип відсутності %q", kind)
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO trainer_absences (trainer_id, date_from, date_to, kind, comment)

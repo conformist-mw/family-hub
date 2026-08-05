@@ -92,7 +92,7 @@ func csrfGuard(webhookPath string, logger *slog.Logger, next http.Handler) http.
 		if r.Method == http.MethodPost && (webhookPath == "" || r.URL.Path != webhookPath) && !sameOriginPost(r) {
 			logger.Warn("web: cross-site POST rejected", "path", r.URL.Path,
 				"origin", r.Header.Get("Origin"), "sec_fetch_site", r.Header.Get("Sec-Fetch-Site"))
-			http.Error(w, "запрос отклонён (cross-site)", http.StatusForbidden)
+			http.Error(w, "запит відхилено (cross-site)", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -183,5 +183,5 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) serverError(w http.ResponseWriter, err error) {
 	a.Logger.Error("server error", "err", err)
-	http.Error(w, "внутренняя ошибка", http.StatusInternalServerError)
+	http.Error(w, "внутрішня помилка", http.StatusInternalServerError)
 }

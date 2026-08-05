@@ -13,9 +13,9 @@ type kindOption struct {
 }
 
 var kindOptions = []kindOption{
-	{model.AbsenceVacation, "отпуск"},
-	{model.AbsenceSick, "болезнь"},
-	{model.AbsenceOther, "другое"},
+	{model.AbsenceVacation, "відпустка"},
+	{model.AbsenceSick, "хвороба"},
+	{model.AbsenceOther, "інше"},
 }
 
 type trainerWithAbsences struct {
@@ -63,7 +63,7 @@ func (a *App) renderTrainers(w http.ResponseWriter, errMsg string) {
 		}
 		data.Trainers = append(data.Trainers, x)
 	}
-	a.render(w, "trainers.html", "Тренеры", "trainers", data)
+	a.render(w, "trainers.html", "Тренери", "trainers", data)
 }
 
 func (a *App) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
@@ -77,11 +77,11 @@ func (a *App) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 	kind := r.FormValue("kind")
 	comment := normalizeName(r.FormValue("comment"))
 	if _, err := model.ParseDate(from); err != nil {
-		a.renderTrainers(w, "укажи корректные даты")
+		a.renderTrainers(w, "вкажи коректні дати")
 		return
 	}
 	if _, err := model.ParseDate(to); err != nil {
-		a.renderTrainers(w, "укажи корректные даты")
+		a.renderTrainers(w, "вкажи коректні дати")
 		return
 	}
 	if err := a.Store.CreateAbsence(trainerID, from, to, kind, comment); err != nil {

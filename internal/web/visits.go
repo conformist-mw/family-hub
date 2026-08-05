@@ -44,7 +44,7 @@ type statusOption struct {
 var statusOptions = []statusOption{
 	{model.StatusDone, "проведено"},
 	{model.StatusRescheduled, "перенесено"},
-	{model.StatusCancelled, "отменено"},
+	{model.StatusCancelled, "скасовано"},
 	{model.StatusSkipped, "пропущено"},
 }
 
@@ -97,7 +97,7 @@ func (a *App) handleVisits(w http.ResponseWriter, r *http.Request) {
 	if hasNext {
 		data.NextURL = pageURL("/visits", vals, page+1)
 	}
-	a.render(w, "visits.html", "Занятия", "visits", data)
+	a.render(w, "visits.html", "Заняття", "visits", data)
 }
 
 type visitFormData struct {
@@ -137,7 +137,7 @@ func (a *App) handleVisitNew(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "visit_form.html", "Новое занятие", "visits", visitFormData{
+	a.render(w, "visit_form.html", "Нове заняття", "visits", visitFormData{
 		Visit:       model.Visit{Date: today(), Status: model.StatusDone},
 		Enrollments: enrollments,
 		Frequent:    a.frequentEnrollments(),
@@ -178,7 +178,7 @@ func (a *App) handleVisitEdit(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "visit_form.html", "Занятие", "visits", visitFormData{
+	a.render(w, "visit_form.html", "Заняття", "visits", visitFormData{
 		Visit:       v,
 		Enrollments: enrollments,
 		Frequent:    a.frequentEnrollments(),
@@ -221,7 +221,7 @@ func (a *App) handleVisitDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) parseVisitForm(r *http.Request) (model.Visit, string) {
 	if err := r.ParseForm(); err != nil {
-		return model.Visit{}, "не удалось разобрать форму"
+		return model.Visit{}, "не вдалося розібрати форму"
 	}
 	enrollmentID, _ := strconv.ParseInt(r.FormValue("enrollment_id"), 10, 64)
 	v := model.Visit{
@@ -231,13 +231,13 @@ func (a *App) parseVisitForm(r *http.Request) (model.Visit, string) {
 		Comment:      normalizeName(r.FormValue("comment")),
 	}
 	if v.EnrollmentID == 0 {
-		return v, "выбери курс"
+		return v, "вибери курс"
 	}
 	if _, err := model.ParseDate(v.Date); err != nil {
-		return v, "укажи корректную дату"
+		return v, "вкажи коректну дату"
 	}
 	if !isValidStatus(v.Status) {
-		return v, "выбери статус"
+		return v, "вибери статус"
 	}
 	return v, ""
 }
@@ -245,7 +245,7 @@ func (a *App) parseVisitForm(r *http.Request) (model.Visit, string) {
 func (a *App) renderVisitFormError(w http.ResponseWriter, v model.Visit, isEdit bool, msg string) {
 	enrollments, _ := a.Store.ListEnrollments(false)
 	w.WriteHeader(http.StatusUnprocessableEntity)
-	a.render(w, "visit_form.html", "Занятие", "visits", visitFormData{
+	a.render(w, "visit_form.html", "Заняття", "visits", visitFormData{
 		Visit:       v,
 		Enrollments: enrollments,
 		Frequent:    a.frequentEnrollments(),

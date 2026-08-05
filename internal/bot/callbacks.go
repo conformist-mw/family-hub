@@ -18,29 +18,29 @@ import (
 func (b *Bot) onReminderTap(c tele.Context) error {
 	eid, date, status, err := parseReminderData(c.Data())
 	if err != nil {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Неверные данные"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Невірні дані"})
 		return nil
 	}
 	exists, err := b.store.VisitExistsForDate(eid, date)
 	if err != nil {
 		b.logger.Error("bot: visit-exists", "err", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Ошибка"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Помилка"})
 		return nil
 	}
 	if exists {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Уже отмечено"})
-		return c.Edit(reminderFinalText(c.Message().Text, "уже отмечено"), &tele.ReplyMarkup{})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Вже відмічено"})
+		return c.Edit(reminderFinalText(c.Message().Text, "вже відмічено"), &tele.ReplyMarkup{})
 	}
 	visitID, err := b.store.CreateVisit(eid, date, status, "")
 	if errors.Is(err, store.ErrVisitExists) {
 		// Lost a double-tap race: another handler inserted between our
 		// existence check and this insert. Same outcome as "already marked".
-		_ = c.Respond(&tele.CallbackResponse{Text: "Уже отмечено"})
-		return c.Edit(reminderFinalText(c.Message().Text, "уже отмечено"), &tele.ReplyMarkup{})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Вже відмічено"})
+		return c.Edit(reminderFinalText(c.Message().Text, "вже відмічено"), &tele.ReplyMarkup{})
 	}
 	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось записать"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося записати"})
 		return nil
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
@@ -55,10 +55,10 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 }
 
 // reminderFinalText turns the reminder question into its final state: the
-// "— было?" tail is replaced with the chosen outcome so the answered message
+// "— було?" tail is replaced with the chosen outcome so the answered message
 // reads as a statement, not a question.
 func reminderFinalText(question, outcome string) string {
-	return strings.TrimSuffix(question, " — было?") + " — " + outcome
+	return strings.TrimSuffix(question, " — було?") + " — " + outcome
 }
 
 func parseReminderData(data string) (int64, string, string, error) {
@@ -83,10 +83,10 @@ func parseReminderData(data string) (int64, string, string, error) {
 func (b *Bot) cmdAdd(c tele.Context) error {
 	courses, err := b.store.FrequentActiveEnrollments(8)
 	if err != nil {
-		return c.Send("Не удалось получить курсы.")
+		return c.Send("Не вдалося отримати курси.")
 	}
 	if len(courses) == 0 {
-		return c.Send("Активных курсов нет.")
+		return c.Send("Активних курсів немає.")
 	}
 	m := &tele.ReplyMarkup{}
 	var rows []tele.Row
@@ -98,9 +98,9 @@ func (b *Bot) cmdAdd(c tele.Context) error {
 			rows = append(rows, m.Row(btn1))
 		}
 	}
-	rows = append(rows, m.Row(m.Data("Отмена", "add_cancel", "")))
+	rows = append(rows, m.Row(m.Data("Скасувати", "add_cancel", "")))
 	m.Inline(rows...)
-	return c.Send("Какой курс?", m)
+	return c.Send("Який курс?", m)
 }
 
 func courseBtn(m *tele.ReplyMarkup, e model.Enrollment) tele.Btn {
@@ -118,7 +118,7 @@ func (b *Bot) onAddCourse(c tele.Context) error {
 	}
 	e, err := b.store.GetEnrollment(eid)
 	if err != nil {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не найден"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не знайдено"})
 		return nil
 	}
 
@@ -130,14 +130,14 @@ func (b *Bot) onAddCourse(c tele.Context) error {
 	m := &tele.ReplyMarkup{}
 	m.Inline(
 		m.Row(
-			m.Data("Сегодня", "add_date", strconv.FormatInt(eid, 10)+":"+today),
-			m.Data("Вчера", "add_date", strconv.FormatInt(eid, 10)+":"+yesterday),
-			m.Data("Позавчера", "add_date", strconv.FormatInt(eid, 10)+":"+before),
+			m.Data("Сьогодні", "add_date", strconv.FormatInt(eid, 10)+":"+today),
+			m.Data("Вчора", "add_date", strconv.FormatInt(eid, 10)+":"+yesterday),
+			m.Data("Позавчора", "add_date", strconv.FormatInt(eid, 10)+":"+before),
 		),
-		m.Row(m.Data("Отмена", "add_cancel", "")),
+		m.Row(m.Data("Скасувати", "add_cancel", "")),
 	)
 	_ = c.Respond(&tele.CallbackResponse{})
-	return c.Edit(fmt.Sprintf("%s · %s\nКогда?", e.Person, e.Name), m)
+	return c.Edit(fmt.Sprintf("%s · %s\nКоли?", e.Person, e.Name), m)
 }
 
 // onAddDate: date picked → ask for status.
@@ -157,7 +157,7 @@ func (b *Bot) onAddDate(c tele.Context) error {
 
 	e, err := b.store.GetEnrollment(eid)
 	if err != nil {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не найден"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не знайдено"})
 		return nil
 	}
 
@@ -169,13 +169,13 @@ func (b *Bot) onAddDate(c tele.Context) error {
 			m.Data("→ Перенесли", "add_status", prefix+model.StatusRescheduled),
 		),
 		m.Row(
-			m.Data("✗ Отменили", "add_status", prefix+model.StatusCancelled),
+			m.Data("✗ Скасували", "add_status", prefix+model.StatusCancelled),
 			m.Data("⤵ Пропустили", "add_status", prefix+model.StatusSkipped),
 		),
-		m.Row(m.Data("Отмена", "add_cancel", "")),
+		m.Row(m.Data("Скасувати", "add_cancel", "")),
 	)
 	_ = c.Respond(&tele.CallbackResponse{})
-	return c.Edit(fmt.Sprintf("%s · %s\n%s — как прошло?", e.Person, e.Name, dateRu(date)), m)
+	return c.Edit(fmt.Sprintf("%s · %s\n%s — як пройшло?", e.Person, e.Name, dateShort(date)), m)
 }
 
 // onAddStatus: status picked → create visit.
@@ -188,7 +188,7 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 	}
 	e, err := b.store.GetEnrollment(eid)
 	if err != nil {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не найден"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Курс не знайдено"})
 		return nil
 	}
 	exists, err := b.store.VisitExistsForDate(eid, date)
@@ -196,27 +196,27 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 		b.logger.Error("bot: visit-exists", "err", err)
 	}
 	if exists {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Уже есть запись на эту дату"})
-		return c.Edit("Запись на эту дату уже есть.", &tele.ReplyMarkup{})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Запис на цю дату вже є"})
+		return c.Edit("Запис на цю дату вже є.", &tele.ReplyMarkup{})
 	}
 	visitID, err := b.store.CreateVisit(eid, date, status, "")
 	if errors.Is(err, store.ErrVisitExists) {
-		_ = c.Respond(&tele.CallbackResponse{Text: "Уже есть запись на эту дату"})
-		return c.Edit("Запись на эту дату уже есть.", &tele.ReplyMarkup{})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Запис на цю дату вже є"})
+		return c.Edit("Запис на цю дату вже є.", &tele.ReplyMarkup{})
 	}
 	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось"})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
 		return nil
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
 	if status != model.StatusDone {
 		header := fmt.Sprintf("%s · %s · %s · %s",
-			e.Person, e.Name, dateRu(date), model.StatusLabels[status])
+			e.Person, e.Name, dateShort(date), model.StatusLabels[status])
 		return b.askReason(c, visitID, header)
 	}
 	text := fmt.Sprintf("Записано: %s · %s · %s · %s",
-		e.Person, e.Name, dateRu(date), model.StatusLabels[status])
+		e.Person, e.Name, dateShort(date), model.StatusLabels[status])
 	if line := b.balanceLineFor(eid); line != "" {
 		text += "\n" + line
 	}
@@ -225,10 +225,10 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 
 func (b *Bot) onAddCancel(c tele.Context) error {
 	_ = c.Respond(&tele.CallbackResponse{})
-	return c.Edit("Отменено.", &tele.ReplyMarkup{})
+	return c.Edit("Скасовано.", &tele.ReplyMarkup{})
 }
 
-// reasonOther marks the "Другое" reason button: the visit stays without a
+// reasonOther marks the "Інше" reason button: the visit stays without a
 // comment so the exact reason can be typed later in the web UI.
 const reasonOther = "x"
 
@@ -245,7 +245,7 @@ func (b *Bot) askReason(c tele.Context, visitID int64, header string) error {
 		b.logger.Error("bot: frequent comments", "err", err)
 	}
 	if len(reasons) == 0 {
-		// Nothing to suggest yet — finish as if "Другое" was chosen.
+		// Nothing to suggest yet — finish as if "Інше" was chosen.
 		return b.finishVisit(c, visitID, "")
 	}
 	m := &tele.ReplyMarkup{}
@@ -259,13 +259,13 @@ func (b *Bot) askReason(c tele.Context, visitID int64, header string) error {
 			rows = append(rows, m.Row(btn1))
 		}
 	}
-	rows = append(rows, m.Row(m.Data("Другое", "vis_reason", id+":"+reasonOther)))
+	rows = append(rows, m.Row(m.Data("Інше", "vis_reason", id+":"+reasonOther)))
 	m.Inline(rows...)
-	return c.Edit(header+"\nПочему?", m)
+	return c.Edit(header+"\nЧому?", m)
 }
 
 // onReasonTap handles the reason buttons.
-// Data: "<visit_id>:<reason_index>" or "<visit_id>:x" for "Другое".
+// Data: "<visit_id>:<reason_index>" or "<visit_id>:x" for "Інше".
 func (b *Bot) onReasonTap(c tele.Context) error {
 	parts := strings.SplitN(c.Data(), ":", 2)
 	if len(parts) != 2 {
@@ -280,7 +280,7 @@ func (b *Bot) onReasonTap(c tele.Context) error {
 
 	// Resolve the index against a fresh frequent-comments list. The list may
 	// have shifted since the buttons were rendered; a stale index degrades to
-	// "без комментария" rather than failing the flow.
+	// "без комментаря" rather than failing the flow.
 	reason := ""
 	if parts[1] != reasonOther {
 		if idx, err := strconv.Atoi(parts[1]); err == nil {
@@ -298,7 +298,7 @@ func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
 	if reason != "" {
 		if err := b.store.SetVisitComment(visitID, reason); err != nil {
 			b.logger.Error("bot: set visit comment", "err", err, "visit", visitID)
-			_ = c.Respond(&tele.CallbackResponse{Text: "Не удалось сохранить причину"})
+			_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося зберегти причину"})
 			return nil
 		}
 	}
@@ -306,23 +306,23 @@ func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
 	if err != nil {
 		// The visit was deleted (e.g. via the web UI) between the two steps.
 		b.logger.Error("bot: get visit", "err", err, "visit", visitID)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Запись не найдена"})
-		return c.Edit("Запись не найдена — возможно, удалена.", &tele.ReplyMarkup{})
+		_ = c.Respond(&tele.CallbackResponse{Text: "Запис не знайдено"})
+		return c.Edit("Запис не знайдено — можливо, видалено.", &tele.ReplyMarkup{})
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
 	reasonText := reason
 	if reasonText == "" {
-		reasonText = "без комментария"
+		reasonText = "без комментаря"
 	}
 	text := fmt.Sprintf("Записано: %s · %s · %s · %s · %s",
-		v.Person, v.Class, dateRu(v.Date), model.StatusLabels[v.Status], reasonText)
+		v.Person, v.Class, dateShort(v.Date), model.StatusLabels[v.Status], reasonText)
 	if line := b.balanceLineFor(v.EnrollmentID); line != "" {
 		text += "\n" + line
 	}
 	return c.Edit(text, &tele.ReplyMarkup{})
 }
 
-func dateRu(s string) string {
+func dateShort(s string) string {
 	t, err := model.ParseDate(s)
 	if err != nil {
 		return s

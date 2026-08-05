@@ -149,7 +149,7 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 	}
 
 	e := sl.Enrollment
-	text := fmt.Sprintf("🔴 %s · %s сегодня в %s: %s", e.Person, e.Name, sl.Slot.Time, emptyBalanceText(bal))
+	text := fmt.Sprintf("🔴 %s · %s сьогодні у %s: %s", e.Person, e.Name, sl.Slot.Time, emptyBalanceText(bal))
 	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), text); err != nil {
 		b.logger.Error("bot: send balance warning", "err", err, "eid", eid)
 		return
@@ -159,9 +159,9 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 
 func emptyBalanceText(bal model.Balance) string {
 	if bal.BillingType == model.BillingMonthly {
-		return "нет активного абонемента"
+		return "немає активного абонемента"
 	}
-	return "нет оплаченных занятий"
+	return "немає оплачених занять"
 }
 
 // slotDue computes when the reminder for a "HH:MM" slot becomes due on the
@@ -191,7 +191,7 @@ func slotTimeToday(now time.Time, hhmm string) (time.Time, error) {
 }
 
 func (b *Bot) sendReminderFor(e model.Enrollment, sl model.Slot, date string) {
-	text := fmt.Sprintf("%s · %s в %s — было?", e.Person, e.Name, sl.Time)
+	text := fmt.Sprintf("%s · %s у %s — було?", e.Person, e.Name, sl.Time)
 
 	m := buildReminderMarkup(e.ID, date)
 	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), text, m); err != nil {
@@ -207,7 +207,7 @@ func buildReminderMarkup(enrollmentID int64, date string) *tele.ReplyMarkup {
 		m.Data("→ Перенесли", "rem_visit", prefix+":"+model.StatusRescheduled),
 	)
 	row2 := m.Row(
-		m.Data("✗ Отменили", "rem_visit", prefix+":"+model.StatusCancelled),
+		m.Data("✗ Скасували", "rem_visit", prefix+":"+model.StatusCancelled),
 		m.Data("⤵ Пропустили", "rem_visit", prefix+":"+model.StatusSkipped),
 	)
 	m.Inline(row1, row2)

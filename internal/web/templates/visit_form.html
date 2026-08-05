@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="page-head">
-  <h1>{{if $d.IsEdit}}Занятие{{else}}Новое занятие{{end}}</h1>
+  <h1>{{if $d.IsEdit}}Заняття{{else}}Нове заняття{{end}}</h1>
 </div>
 
 {{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
@@ -17,9 +17,9 @@
     </div>
     {{end}}
     <select name="enrollment_id" id="enrollment" required>
-      <option value="">— выбери —</option>
+      <option value="">— вибери —</option>
       {{range $d.Enrollments}}
-      <option value="{{.ID}}" {{if eq .ID $d.Visit.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}}{{if not .Active}} (архив){{end}}</option>
+      <option value="{{.ID}}" {{if eq .ID $d.Visit.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}}{{if not .Active}} (архів){{end}}</option>
       {{end}}
     </select>
   </label>
@@ -28,9 +28,9 @@
     Дата
     <input type="date" name="date" id="date" value="{{$d.Visit.Date}}" required>
     <div class="date-quick">
-      <button type="button" data-date="{{$d.Today}}">сегодня</button>
-      <button type="button" data-date="{{$d.Yesterday}}">вчера</button>
-      <button type="button" data-date="{{$d.Before}}">позавчера</button>
+      <button type="button" data-date="{{$d.Today}}">сьогодні</button>
+      <button type="button" data-date="{{$d.Yesterday}}">вчора</button>
+      <button type="button" data-date="{{$d.Before}}">позавчора</button>
     </div>
   </label>
 
@@ -44,7 +44,7 @@
   </label>
 
   <label>
-    Комментарий
+    Комментар
     {{if $d.Reasons}}
     <div class="pick-chips" id="reason-chips">
       {{range $d.Reasons}}
@@ -52,18 +52,18 @@
       {{end}}
     </div>
     {{end}}
-    <textarea name="comment" id="comment" placeholder="необязательно">{{$d.Visit.Comment}}</textarea>
+    <textarea name="comment" id="comment" placeholder="необов’язково">{{$d.Visit.Comment}}</textarea>
   </label>
 
   <div class="form-actions">
-    <button class="btn primary" type="submit">Сохранить</button>
-    <a class="btn" href="/visits">Отмена</a>
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/visits">Скасувати</a>
   </div>
 </form>
 
 {{if $d.IsEdit}}
-<form method="post" action="/visits/{{$d.Visit.ID}}/delete" onsubmit="return confirm('Удалить запись?')" style="margin-top:14px">
-  <button class="btn danger" type="submit">Удалить запись</button>
+<form method="post" action="/visits/{{$d.Visit.ID}}/delete" onsubmit="return confirm('Видалити запис?')" style="margin-top:14px">
+  <button class="btn danger" type="submit">Видалити запис</button>
 </form>
 {{end}}
 

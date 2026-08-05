@@ -15,8 +15,8 @@ type billingOption struct {
 }
 
 var billingOptions = []billingOption{
-	{model.BillingPerLesson, "за занятие"},
-	{model.BillingMonthly, "абонемент (помесячно)"},
+	{model.BillingPerLesson, "за заняття"},
+	{model.BillingMonthly, "абонемент (щомісяця)"},
 }
 
 func (a *App) handleEnrollments(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +25,7 @@ func (a *App) handleEnrollments(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "enrollments.html", "Курсы", "enrollments", enrollments)
+	a.render(w, "enrollments.html", "Курси", "enrollments", enrollments)
 }
 
 type enrollmentFormData struct {
@@ -85,17 +85,17 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if person == "" || name == "" {
-		formData.Error = "укажи человека и название занятия"
+		formData.Error = "вкажи людину і назву заняття"
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
 	if !isValidBilling(billing) {
-		formData.Error = "выбери тип оплаты"
+		formData.Error = "вибери тип оплати"
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
 	if price < 0 {
-		formData.Error = "цена не может быть отрицательной"
+		formData.Error = "ціна не може бути відʼємною"
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
@@ -150,7 +150,7 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 		slots, _ := a.Store.ListSlots(id)
 		a.renderEnrollmentForm(w, enrollmentFormData{
 			Enrollment: enr, Slots: slots, IsEdit: true,
-			Error: "проверь название, тип оплаты и цену",
+			Error: "перевір назву, тип оплати і ціну",
 		})
 		return
 	}

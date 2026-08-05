@@ -60,7 +60,7 @@ func (a *App) handlePayments(w http.ResponseWriter, r *http.Request) {
 	if hasNext {
 		data.NextURL = pageURL("/payments", vals, page+1)
 	}
-	a.render(w, "payments.html", "Оплаты", "payments", data)
+	a.render(w, "payments.html", "Оплати", "payments", data)
 }
 
 type paymentFormData struct {
@@ -77,7 +77,7 @@ func (a *App) handlePaymentNew(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "payment_form.html", "Новая оплата", "payments", paymentFormData{
+	a.render(w, "payment_form.html", "Нова оплата", "payments", paymentFormData{
 		Payment:     model.Payment{Date: today()},
 		Enrollments: enrollments,
 		Today:       today(),
@@ -143,7 +143,7 @@ func (a *App) handlePaymentDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) parsePaymentForm(r *http.Request) (model.Payment, string) {
 	if err := r.ParseForm(); err != nil {
-		return model.Payment{}, "не удалось разобрать форму"
+		return model.Payment{}, "не вдалося розібрати форму"
 	}
 	enrollmentID, _ := strconv.ParseInt(r.FormValue("enrollment_id"), 10, 64)
 	p := model.Payment{
@@ -152,20 +152,20 @@ func (a *App) parsePaymentForm(r *http.Request) (model.Payment, string) {
 		Comment:      normalizeName(r.FormValue("comment")),
 	}
 	if p.EnrollmentID == 0 {
-		return p, "выбери курс"
+		return p, "вибери курс"
 	}
 	if _, err := model.ParseDate(p.Date); err != nil {
-		return p, "укажи корректную дату оплаты"
+		return p, "вкажи коректну дату оплати"
 	}
 	amount, err := strconv.ParseFloat(r.FormValue("amount"), 64)
 	if err != nil || amount < 0 {
-		return p, "укажи корректную сумму"
+		return p, "вкажи коректну суму"
 	}
 	p.Amount = amount
 
 	enr, err := a.Store.GetEnrollment(enrollmentID)
 	if err != nil {
-		return p, "курс не найден"
+		return p, "курс не знайдено"
 	}
 
 	if enr.BillingType == model.BillingMonthly {
@@ -174,17 +174,17 @@ func (a *App) parsePaymentForm(r *http.Request) (model.Payment, string) {
 		fromT, errFrom := model.ParseDate(from)
 		untilT, errUntil := model.ParseDate(until)
 		if errFrom != nil || errUntil != nil {
-			return p, "укажи период абонемента (с / по)"
+			return p, "вкажи період абонемента (з / по)"
 		}
 		if untilT.Before(fromT) {
-			return p, "дата «по» раньше даты «с»"
+			return p, "дата «по» раніше дати «з»"
 		}
 		p.CoversFrom = &from
 		p.CoversUntil = &until
 	} else {
 		lessons, err := strconv.ParseInt(r.FormValue("lessons_paid"), 10, 64)
 		if err != nil || lessons <= 0 {
-			return p, "укажи количество оплаченных занятий"
+			return p, "вкажи кількість оплачених занять"
 		}
 		p.LessonsPaid = &lessons
 	}

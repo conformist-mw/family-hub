@@ -27,6 +27,10 @@ type Config struct {
 	ReminderDelayMin int   // minutes after a slot's time to ask about it; <0 disables
 	PreLessonLeadMin int   // minutes before a slot to warn about an empty balance; <0 disables
 
+	// CostPromptDelayMin is how long after an appointment starts the bot asks
+	// what it cost; <0 disables the prompt entirely.
+	CostPromptDelayMin int
+
 	// Loc places stored wall-clock times: slot "HH:MM", appointment
 	// starts_at, and the digest times below. It is time.Local in practice
 	// (the deploy sets TZ in the container); the appointment code takes it
@@ -143,6 +147,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: "lst_nav"}, bot.onNav)
 	tb.Handle(&tele.Btn{Unique: "lst_arm"}, bot.onArm)
 	tb.Handle(&tele.Btn{Unique: "lst_del"}, bot.onDel)
+	tb.Handle(&tele.Btn{Unique: "appt_cost"}, bot.onCostSkip)
 	tb.Handle(tele.OnText, bot.onText)
 
 	if parser != nil {

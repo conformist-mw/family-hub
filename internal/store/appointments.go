@@ -13,10 +13,10 @@ import (
 // CreateAppointment inserts one appointment and returns it with its id.
 func (s *Store) CreateAppointment(a model.Appointment) (model.Appointment, error) {
 	res, err := s.db.Exec(`
-		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw, cost)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Title, a.Person, a.Location, a.StartsAt, nullIfEmpty(a.EndsAt),
-		orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw)
+		orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw, a.Cost)
 	if err != nil {
 		return model.Appointment{}, err
 	}
@@ -37,8 +37,8 @@ func (s *Store) CreateAppointments(items []model.Appointment) ([]model.Appointme
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw, cost)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (s *Store) CreateAppointments(items []model.Appointment) ([]model.Appointme
 	ids := make([]int64, 0, len(items))
 	for _, a := range items {
 		res, err := stmt.Exec(a.Title, a.Person, a.Location, a.StartsAt, nullIfEmpty(a.EndsAt),
-			orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw)
+			orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw, a.Cost)
 		if err != nil {
 			return nil, err
 		}
@@ -188,10 +188,10 @@ func (s *Store) UpdateAppointment(a model.Appointment) error {
 	_, err := s.db.Exec(`
 		UPDATE appointments
 		SET title = ?, person = ?, location = ?, starts_at = ?, ends_at = ?,
-		    status = ?, note = ?, updated_at = `+appointmentNow+`
+		    status = ?, note = ?, cost = ?, updated_at = `+appointmentNow+`
 		WHERE id = ?`,
 		a.Title, a.Person, a.Location, a.StartsAt, nullIfEmpty(a.EndsAt),
-		orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.ID)
+		orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Cost, a.ID)
 	return err
 }
 
@@ -206,11 +206,48 @@ func (s *Store) SoftDeleteAppointment(id int64) error {
 	return err
 }
 
+// AppointmentsAwaitingCost returns appointments whose start is between
+// `notBefore` and `until` (LocalDatetime) that still have no cost and no
+// prompt sent. The lower bound matters: without it the first run after a
+// deploy would prompt for every appointment ever recorded.
+func (s *Store) AppointmentsAwaitingCost(notBefore, until string) ([]model.Appointment, error) {
+	return s.queryAppointments(appointmentCols+`
+		WHERE deleted_at IS NULL AND status != ?
+		  AND cost IS NULL AND cost_prompt_msg_id IS NULL
+		  AND starts_at >= ? AND starts_at <= ?
+		ORDER BY starts_at ASC`, model.ApptStatusCancelled, notBefore, until)
+}
+
+// AppointmentByCostPrompt finds the appointment a cost prompt belongs to, so a
+// reply to that message can be routed without any in-memory state.
+func (s *Store) AppointmentByCostPrompt(msgID int64) (model.Appointment, error) {
+	row := s.db.QueryRow(appointmentCols+`
+		WHERE cost_prompt_msg_id = ? AND deleted_at IS NULL`, msgID)
+	return scanAppointment(row)
+}
+
+// SetAppointmentCostPrompt records which message asked for the cost. It also
+// marks the appointment as already-asked, so the prompt is sent exactly once.
+func (s *Store) SetAppointmentCostPrompt(id, msgID int64) error {
+	_, err := s.db.Exec(`
+		UPDATE appointments SET cost_prompt_msg_id = ?, updated_at = `+appointmentNow+`
+		WHERE id = ?`, msgID, id)
+	return err
+}
+
+// SetAppointmentCost writes the amount (0 is valid — it was free).
+func (s *Store) SetAppointmentCost(id int64, cost float64) error {
+	_, err := s.db.Exec(`
+		UPDATE appointments SET cost = ?, updated_at = `+appointmentNow+`
+		WHERE id = ?`, cost, id)
+	return err
+}
+
 const appointmentNow = `strftime('%Y-%m-%dT%H:%M:%S','now','localtime')`
 
 const appointmentCols = `
 	SELECT id, title, person, location, starts_at,
-	       COALESCE(ends_at,''), status, note, raw,
+	       COALESCE(ends_at,''), status, note, raw, cost, cost_prompt_msg_id,
 	       COALESCE(ha_uid,''), COALESCE(ha_synced_at,''),
 	       created_at, updated_at, COALESCE(deleted_at,'')
 	FROM appointments`
@@ -239,7 +276,7 @@ type appointmentScanner interface {
 func scanAppointment(sc appointmentScanner) (model.Appointment, error) {
 	var a model.Appointment
 	err := sc.Scan(&a.ID, &a.Title, &a.Person, &a.Location, &a.StartsAt,
-		&a.EndsAt, &a.Status, &a.Note, &a.Raw,
+		&a.EndsAt, &a.Status, &a.Note, &a.Raw, &a.Cost, &a.CostPromptMsgID,
 		&a.HaUID, &a.HaSyncedAt, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
 	return a, err
 }

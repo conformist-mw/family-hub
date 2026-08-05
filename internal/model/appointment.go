@@ -25,20 +25,27 @@ const LocalDatetime = "2006-01-02T15:04"
 // It is the source of truth in SQLite and the unit exported to Home
 // Assistant's calendar.
 type Appointment struct {
-	ID         int64
-	Title      string
-	Person     string
-	Location   string
-	StartsAt   string // LocalDatetime
-	EndsAt     string // LocalDatetime, "" if none
-	Status     string
-	Note       string
-	Raw        string
-	HaUID      string
-	HaSyncedAt string
-	CreatedAt  string
-	UpdatedAt  string
-	DeletedAt  string
+	ID       int64
+	Title    string
+	Person   string
+	Location string
+	StartsAt string // LocalDatetime
+	EndsAt   string // LocalDatetime, "" if none
+	Status   string
+	Note     string
+	Raw      string
+	// Cost is nil when nothing was recorded; 0 means it was free. Both the web
+	// form and the bot's post-visit prompt write it.
+	Cost *float64
+	// CostPromptMsgID is the notify-chat message id of the "how much was it?"
+	// prompt. Replies to that message carry the amount, and a non-nil value
+	// means the prompt has already been sent.
+	CostPromptMsgID *int64
+	HaUID           string
+	HaSyncedAt      string
+	CreatedAt       string
+	UpdatedAt       string
+	DeletedAt       string
 }
 
 // Start parses StartsAt in loc. Callers that need to compare against "now"

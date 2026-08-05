@@ -46,6 +46,13 @@ func (b *Bot) onText(c tele.Context) error {
 	}
 	now := b.now()
 
+	// A reply to a cost prompt is checked first and works in any chat type: the
+	// reply names the appointment, so unlike the armed edits below there is no
+	// ambiguity about what a message in a busy group refers to.
+	if handled, err := b.costReply(c); handled {
+		return err
+	}
+
 	// If this user just tapped a field-edit button, their next message is the new
 	// value for that visit (time/title/who) — handled in any chat type.
 	if apptID, field, ok := b.awaiting.take(senderID(c), now); ok {

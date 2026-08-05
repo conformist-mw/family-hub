@@ -39,9 +39,6 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
 		       COALESCE((SELECT SUM(lessons_paid) FROM payments pm
 		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL),0) AS paid,
-		       COALESCE((SELECT pm.lessons_paid FROM payments pm
-		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL
-		                 ORDER BY pm.date DESC, pm.id DESC LIMIT 1),0) AS last_pack,
 		       (SELECT COUNT(*) FROM visits v
 		        WHERE v.enrollment_id=e.id AND v.status='done') AS done,
 		       (SELECT COUNT(*) FROM visits v
@@ -63,7 +60,7 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 		var b model.Balance
 		if err := rows.Scan(&b.ID, &b.PersonID, &b.Person, &b.Name, &b.Description,
 			&b.BillingType, &b.CurrentPrice, &b.LowThreshold, &b.Active, &b.Notes,
-			&b.Paid, &b.LastPack, &b.Done, &b.DoneThisMonth); err != nil {
+			&b.Paid, &b.Done, &b.DoneThisMonth); err != nil {
 			return nil, err
 		}
 		b.Remaining = b.Paid - b.Done

@@ -71,6 +71,32 @@ func (s *Store) ListAllAbsences() ([]model.TrainerAbsence, error) {
 	return out, rows.Err()
 }
 
+// AbsencesForEnrollment returns every absence of the enrollment's trainer,
+// ascending by period. Empty without a trainer — the walk then has no holes to
+// punch.
+func (s *Store) AbsencesForEnrollment(enrollmentID int64) ([]model.TrainerAbsence, error) {
+	rows, err := s.db.Query(`
+		SELECT a.id, a.trainer_id, t.name, a.date_from, a.date_to, a.kind, a.comment
+		FROM trainer_absences a
+		JOIN trainers t    ON t.id = a.trainer_id
+		JOIN enrollments e ON e.trainer_id = a.trainer_id
+		WHERE e.id = ?
+		ORDER BY a.date_from, a.id`, enrollmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.TrainerAbsence
+	for rows.Next() {
+		var a model.TrainerAbsence
+		if err := rows.Scan(&a.ID, &a.TrainerID, &a.Trainer, &a.DateFrom, &a.DateTo, &a.Kind, &a.Comment); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) CreateAbsence(trainerID int64, from, to, kind, comment string) error {
 	if from > to {
 		return fmt.Errorf("період відсутності: початок пізніше кінця")

@@ -98,6 +98,97 @@ func BuildForecast(e model.Enrollment, slots []model.Slot, absences []model.Trai
 	return f
 }
 
+// Pack is one payment's unspent remainder — the shape the balance line shows:
+// "Left з Size — до Through".
+type Pack struct {
+	Date    string // the payment's date
+	Size    int    // lessons_paid
+	Left    int    // still unspent
+	Through string // date its last unspent lesson falls on; "" if past the horizon
+}
+
+// RemainingPacks splits the paid-but-unspent lessons across the payments that
+// funded them. Lessons are spent in payment order, so `done` drains the oldest
+// packs first and what survives is the stock, listed in the order it will be
+// spent. The upcoming dates (see UpcomingDates) are handed out in that same
+// order; a pack whose last lesson falls past the end of dates gets no Through
+// rather than a wrong one.
+//
+// The pack size is the anchor the reader checks the count against: unlike "the
+// most recent payment", it does not move when a new payment lands, so a count
+// that drifts against it stands out.
+//
+// payments must be ascending by date. Monthly payments carry no lesson count
+// and are skipped, as are the zero/negative ones — neither is a stock of
+// lessons. Nothing survives a debt: `done` past the total leaves no packs.
+func RemainingPacks(payments []model.Payment, done int, dates []string) []Pack {
+	var out []Pack
+	used := 0
+	for _, p := range payments {
+		if p.LessonsPaid == nil || *p.LessonsPaid <= 0 {
+			continue
+		}
+		size := int(*p.LessonsPaid)
+		left := size
+		if done > 0 {
+			if done >= left {
+				done -= left
+				continue
+			}
+			left -= done
+			done = 0
+		}
+		pk := Pack{Date: p.Date, Size: size, Left: left}
+		if used+left <= len(dates) {
+			pk.Through = dates[used+left-1]
+		}
+		used += left
+		out = append(out, pk)
+	}
+	return out
+}
+
+// UpcomingDates returns the next n scheduled lesson dates for the slots,
+// walking forward from today — or tomorrow when today already has a visit
+// recorded, mirroring BuildForecast — and skipping trainer absences.
+//
+// Fewer than n dates come back when the two-year horizon runs out, so a
+// caller that needs "the n-th lesson from now" must check the length: a
+// truncated walk means the answer is unknown, not later.
+func UpcomingDates(slots []model.Slot, absences []model.TrainerAbsence,
+	today string, hasVisitToday bool, n int) []string {
+
+	if n <= 0 || len(slots) == 0 {
+		return nil
+	}
+	start, err := model.ParseDate(today)
+	if err != nil {
+		return nil
+	}
+	if hasVisitToday {
+		start = start.AddDate(0, 0, 1)
+	}
+
+	weekdays := map[int]bool{}
+	for _, sl := range slots {
+		weekdays[sl.Weekday] = true
+	}
+
+	out := make([]string, 0, n)
+	horizon := start.AddDate(2, 0, 0)
+	for d := start; !d.After(horizon) && len(out) < n; d = d.AddDate(0, 0, 1) {
+		if !weekdays[int(d.Weekday())] {
+			continue
+		}
+		date := d.Format("2006-01-02")
+		if absentOn(date, absences) {
+			continue
+		}
+		out = append(out, date)
+	}
+	return out
+}
+
 func absentOn(date string, absences []model.TrainerAbsence) bool {
 	for _, a := range absences {
 		if a.DateFrom <= date && date <= a.DateTo {

@@ -30,7 +30,7 @@ func (b *Bot) cmdStart(c tele.Context) error {
 		"user", user.Username,
 	)
 	msg := fmt.Sprintf(
-		"Привет! Это трекер занятий и семейных записей.\nChat id: %d\n\nКоманды: /balance — баланс по курсам, /stats — потрачено, /visit — записать визит, /list — записи по неделям, /help — справка.",
+		"Привіт! Це трекер занять і сімейних записів.\nChat id: %d\n\nКоманди: /balance — баланс по курсах, /stats — витрати, /visit — записати візит, /list — записи по тижнях, /help — довідка.",
 		chat.ID,
 	)
 	return c.Send(msg)
@@ -38,19 +38,19 @@ func (b *Bot) cmdStart(c tele.Context) error {
 
 func (b *Bot) cmdHelp(c tele.Context) error {
 	return c.Send(strings.Join([]string{
-		"Занятия:",
-		"/add — отметить занятие через кнопки (курс → дата → статус)",
-		"/balance — остаток занятий и абонементов по каждому курсу",
-		"/stats — потрачено в этом месяце / году / за всё время",
+		"Заняття:",
+		"/add — відмітити заняття кнопками (курс → дата → статус)",
+		"/balance — залишок занять і абонементів по кожному курсу",
+		"/stats — витрати за місяць / рік / весь час",
 		"",
-		"Записи (врачи, мастера, разовые визиты):",
-		"/visit — записать: /visit завтра 15:00 педикюр (можно несколько строк)",
-		"/week — что на ближайшую неделю",
-		"/list — записи по неделям: перенести, поправить, отменить",
+		"Записи (лікарі, майстри, разові візити):",
+		"/visit — записати: /visit завтра 15:00 педикюр (можна кілька рядків)",
+		"/week — що на найближчий тиждень",
+		"/list — записи по тижнях: перенести, виправити, скасувати",
 		"",
-		"/start — приветствие, показывает chat id",
+		"/start — привітання, показує chat id",
 		"",
-		"В личке со мной запись можно писать и без /visit — просто текстом.",
+		"У приватці зі мною запис можна писати й без /visit — просто текстом.",
 	}, "\n"))
 }
 
@@ -58,10 +58,10 @@ func (b *Bot) cmdBalance(c tele.Context) error {
 	balances, err := b.store.Balances()
 	if err != nil {
 		b.logger.Error("bot: balances", "err", err)
-		return c.Send("Не удалось получить баланс.")
+		return c.Send("Не вдалося отримати баланс.")
 	}
 	if len(balances) == 0 {
-		return c.Send("Активных курсов нет.")
+		return c.Send("Активних курсів немає.")
 	}
 	var lines []string
 	lines = append(lines, "*Баланс*")
@@ -85,12 +85,12 @@ func formatBalanceLine(bal model.Balance) string {
 	if bal.BillingType == model.BillingMonthly {
 		switch {
 		case !bal.CoveredNow:
-			return fmt.Sprintf("%s %s — %s: нет абонемента", mark, bal.Person, label)
+			return fmt.Sprintf("%s %s — %s: немає абонемента", mark, bal.Person, label)
 		default:
 			return fmt.Sprintf("%s %s — %s: %d дн.", mark, bal.Person, label, bal.DaysLeft)
 		}
 	}
-	return fmt.Sprintf("%s %s — %s: осталось %d (в этом месяце %d)",
+	return fmt.Sprintf("%s %s — %s: залишилось %d (цього місяця %d)",
 		mark, bal.Person, label, bal.Remaining, bal.DoneThisMonth)
 }
 
@@ -107,9 +107,9 @@ func balanceStatusLine(bal model.Balance) string {
 	}
 	if bal.BillingType == model.BillingMonthly {
 		if !bal.CoveredNow {
-			return mark + " Нет активного абонемента"
+			return mark + " Немає активного абонемента"
 		}
-		return fmt.Sprintf("%s Абонемент до %s, осталось %d дн.", mark, dateRu(bal.CoversUntil), bal.DaysLeft)
+		return fmt.Sprintf("%s Абонемент до %s, залишилось %d дн.", mark, dateShort(bal.CoversUntil), bal.DaysLeft)
 	}
 	// An empty balance reads as the pre-lesson warning's wording rather than
 	// a literal "0 из N", which looked odd. emptyBalanceText keeps both
@@ -120,9 +120,9 @@ func balanceStatusLine(bal model.Balance) string {
 	// "из N" is the size of the most recent pack — "how much of the last
 	// payment is left". Dropped when no payment has been recorded yet.
 	if bal.LastPack == 0 {
-		return fmt.Sprintf("%s Осталось оплаченных: %d", mark, bal.Remaining)
+		return fmt.Sprintf("%s Залишилось оплачених: %d", mark, bal.Remaining)
 	}
-	return fmt.Sprintf("%s Осталось оплаченных: %d из %d", mark, bal.Remaining, bal.LastPack)
+	return fmt.Sprintf("%s Залишилось оплачених: %d з %d", mark, bal.Remaining, bal.LastPack)
 }
 
 // balanceLineFor loads and formats the balance line for an enrollment. It
@@ -141,17 +141,17 @@ func (b *Bot) cmdStats(c tele.Context) error {
 	st, err := b.store.Stats()
 	if err != nil {
 		b.logger.Error("bot: stats", "err", err)
-		return c.Send("Не удалось получить статистику.")
+		return c.Send("Не вдалося отримати статистику.")
 	}
 	var lines []string
 	lines = append(lines,
-		"*Потрачено*",
-		fmt.Sprintf("в этом месяце: %s", money(st.TotalMonth)),
-		fmt.Sprintf("в этом году:   %s", money(st.TotalYear)),
-		fmt.Sprintf("за всё время:  %s", money(st.TotalAll)),
+		"*Витрати*",
+		fmt.Sprintf("цього місяця: %s", money(st.TotalMonth)),
+		fmt.Sprintf("цього року:   %s", money(st.TotalYear)),
+		fmt.Sprintf("за весь час:  %s", money(st.TotalAll)),
 	)
 	if len(st.ByCourse) > 0 {
-		lines = append(lines, "", "*Топ курсов (всего):*")
+		lines = append(lines, "", "*Топ курсів (усього):*")
 		top := st.ByCourse
 		if len(top) > 5 {
 			top = top[:5]

@@ -6,36 +6,36 @@
 
 <div class="stat-totals">
   <div class="stat-total">
-    <div class="stat-total-label">В этом месяце</div>
+    <div class="stat-total-label">Цього місяця</div>
     <div class="stat-total-value">{{money $s.TotalMonth}}</div>
   </div>
   <div class="stat-total">
-    <div class="stat-total-label">В этом году</div>
+    <div class="stat-total-label">Цього року</div>
     <div class="stat-total-value">{{money $s.TotalYear}}</div>
   </div>
   <div class="stat-total">
-    <div class="stat-total-label">За всё время</div>
+    <div class="stat-total-label">За весь час</div>
     <div class="stat-total-value">{{money $s.TotalAll}}</div>
   </div>
 </div>
 
 <section class="stat-block">
-  <h2>По месяцам</h2>
+  <h2>По місяцях</h2>
   <div class="bars">
     {{range $s.ByMonth}}
     <div class="bar-row">
-      <span class="bar-label">{{monthRu .Month}}</span>
+      <span class="bar-label">{{monthShort .Month}}</span>
       <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxMonth}}%"></span></span>
       <span class="bar-value">{{money .Amount}}</span>
     </div>
     {{else}}
-    <p class="empty">Нет оплат.</p>
+    <p class="empty">Оплат немає.</p>
     {{end}}
   </div>
 </section>
 
 <section class="stat-block">
-  <h2>По людям</h2>
+  <h2>По людях</h2>
   <div class="bars">
     {{range $s.ByPerson}}
     <div class="bar-row">
@@ -44,13 +44,13 @@
       <span class="bar-value">{{money .Amount}}</span>
     </div>
     {{else}}
-    <p class="empty">Нет оплат.</p>
+    <p class="empty">Оплат немає.</p>
     {{end}}
   </div>
 </section>
 
 <section class="stat-block">
-  <h2>По занятиям</h2>
+  <h2>По заняттях</h2>
   <div class="bars">
     {{range $s.ByCourse}}
     <div class="bar-row">
@@ -59,7 +59,7 @@
       <span class="bar-value">{{money .Amount}} <span class="muted">/ {{.Attended}}</span></span>
     </div>
     {{else}}
-    <p class="empty">Нет оплат.</p>
+    <p class="empty">Оплат немає.</p>
     {{end}}
   </div>
 </section>

@@ -21,9 +21,9 @@ var byDay = [7]string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
 
 // absenceSummaryPrefix maps an absence kind to the all-day event title.
 var absenceSummaryPrefix = map[string]string{
-	model.AbsenceVacation: "Отпуск",
-	model.AbsenceSick:     "Болезнь",
-	model.AbsenceOther:    "Отсутствие",
+	model.AbsenceVacation: "Відпустка",
+	model.AbsenceSick:     "Хвороба",
+	model.AbsenceOther:    "Відсутність",
 }
 
 // Render builds the VCALENDAR body. loc places the stored wall-clock times

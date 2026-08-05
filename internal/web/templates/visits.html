@@ -1,52 +1,52 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="page-head">
-  <h1>Занятия</h1>
-  <a class="btn primary" href="/visits/new">+ Занятие</a>
+  <h1>Заняття</h1>
+  <a class="btn primary" href="/visits/new">+ Заняття</a>
 </div>
 
 <form class="filters" method="get" action="/visits">
   <select name="person" onchange="this.form.submit()">
-    <option value="">Все</option>
+    <option value="">Усі</option>
     {{range $d.Persons}}
     <option value="{{.ID}}" {{if eq .ID $d.PersonID}}selected{{end}}>{{.Name}}</option>
     {{end}}
   </select>
   <select name="status" onchange="this.form.submit()">
-    <option value="">Все статусы</option>
+    <option value="">Усі статуси</option>
     {{range $d.Statuses}}
     <option value="{{.Code}}" {{if eq .Code $d.Status}}selected{{end}}>{{.Label}}</option>
     {{end}}
   </select>
-  <noscript><button class="btn small" type="submit">Фильтр</button></noscript>
+  <noscript><button class="btn small" type="submit">Фільтр</button></noscript>
 </form>
 
 <table>
   <thead>
-    <tr><th>Дата</th><th>Кто</th><th>Занятие</th><th>Статус</th><th>Комментарий</th><th>Добавлено</th><th></th></tr>
+    <tr><th>Дата</th><th>Хто</th><th>Заняття</th><th>Статус</th><th>Комментар</th><th>Додано</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Visits}}
     <tr>
-      <td data-label="Дата">{{dateRu .Date}}</td>
-      <td data-label="Кто">{{.Person}}</td>
-      <td data-label="Занятие">{{.Class}}</td>
+      <td data-label="Дата">{{dateShort .Date}}</td>
+      <td data-label="Хто">{{.Person}}</td>
+      <td data-label="Заняття">{{.Class}}</td>
       <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span></td>
-      <td data-label="Комментарий">{{.Comment}}</td>
-      <td data-label="Добавлено" class="muted">{{addedAt .Created}}</td>
+      <td data-label="Комментар">{{.Comment}}</td>
+      <td data-label="Додано" class="muted">{{addedAt .Created}}</td>
       <td data-label=""><a class="btn small" href="/visits/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
-    <tr><td colspan="7" class="empty">Записей нет.</td></tr>
+    <tr><td colspan="7" class="empty">Записів немає.</td></tr>
     {{end}}
   </tbody>
 </table>
 
 {{if or $d.PrevURL $d.NextURL}}
 <div class="pager">
-  {{if $d.PrevURL}}<a class="btn small" href="{{$d.PrevURL}}">← Новее</a>{{else}}<span></span>{{end}}
-  <span class="muted">стр. {{$d.Page}}</span>
-  {{if $d.NextURL}}<a class="btn small" href="{{$d.NextURL}}">Старее →</a>{{else}}<span></span>{{end}}
+  {{if $d.PrevURL}}<a class="btn small" href="{{$d.PrevURL}}">← Новіші</a>{{else}}<span></span>{{end}}
+  <span class="muted">стор. {{$d.Page}}</span>
+  {{if $d.NextURL}}<a class="btn small" href="{{$d.NextURL}}">Старіші →</a>{{else}}<span></span>{{end}}
 </div>
 {{end}}
 {{end}}

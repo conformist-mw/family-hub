@@ -19,7 +19,7 @@ var statusGlyphs = map[string]string{
 // the same data the page shows, so copy/send never diverge from the screen.
 type View struct {
 	Title       string // "Демид · Гимнастика"
-	PeriodLabel string // "с последней оплаты (12.06) по 18.07"
+	PeriodLabel string // "з останньої оплати (12.06) по 18.07"
 	BillingType string
 	Rows        []Row
 	Summary     Summary
@@ -31,14 +31,14 @@ type View struct {
 func RenderText(v View) string {
 	var b strings.Builder
 	b.WriteString(v.Title + "\n")
-	b.WriteString("Период: " + v.PeriodLabel + "\n\n")
+	b.WriteString("Період: " + v.PeriodLabel + "\n\n")
 
 	perLesson := v.BillingType != model.BillingMonthly
 	for _, r := range v.Rows {
-		b.WriteString(dateRu(r.Date) + "  " + rowText(r, perLesson) + "\n")
+		b.WriteString(dateShort(r.Date) + "  " + rowText(r, perLesson) + "\n")
 	}
 	for _, r := range v.Forecast.Rows {
-		b.WriteString(dateRu(r.Date) + "  " + rowText(r, perLesson) + "\n")
+		b.WriteString(dateShort(r.Date) + "  " + rowText(r, perLesson) + "\n")
 	}
 
 	b.WriteString("\n")
@@ -53,29 +53,29 @@ func RenderText(v View) string {
 	}
 	if v.Summary.PaidAmount > 0 || v.Summary.PaidLessons > 0 {
 		if perLesson {
-			b.WriteString(fmt.Sprintf("Оплачено за период: %d занятий (%s)\n", v.Summary.PaidLessons, money(v.Summary.PaidAmount)))
+			b.WriteString(fmt.Sprintf("Оплачено за період: %d занять (%s)\n", v.Summary.PaidLessons, money(v.Summary.PaidAmount)))
 		} else {
-			b.WriteString(fmt.Sprintf("Оплачено за период: %s\n", money(v.Summary.PaidAmount)))
+			b.WriteString(fmt.Sprintf("Оплачено за період: %s\n", money(v.Summary.PaidAmount)))
 		}
 	}
 	if perLesson {
-		b.WriteString(fmt.Sprintf("Остаток: %d (на начало периода: %d)\n", v.Summary.Closing, v.Summary.Opening))
+		b.WriteString(fmt.Sprintf("Залишок: %d (на початок періоду: %d)\n", v.Summary.Closing, v.Summary.Opening))
 	}
 
 	if len(v.Forecast.Rows) > 0 {
 		f := v.Forecast
 		b.WriteString("\n")
 		if f.PaidThrough != "" {
-			b.WriteString("Оплаченного хватит до " + dateRu(f.PaidThrough) + "\n")
+			b.WriteString("Оплаченого вистачить до " + dateShort(f.PaidThrough) + "\n")
 		}
 		if f.TopUpCount > 0 {
-			unit := "занятий"
+			unit := "занять"
 			if !perLesson {
-				unit = "мес."
+				unit = "міс."
 			}
-			line := fmt.Sprintf("Доплатить: %d %s × %s = %s", f.TopUpCount, unit, moneyInt(f.TopUpAmount/float64(f.TopUpCount)), money(f.TopUpAmount))
+			line := fmt.Sprintf("Доплатити: %d %s × %s = %s", f.TopUpCount, unit, moneyInt(f.TopUpAmount/float64(f.TopUpCount)), money(f.TopUpAmount))
 			if f.Debt > 0 {
-				line += fmt.Sprintf(" (долг %d + вперёд %d)", f.Debt, f.Uncovered)
+				line += fmt.Sprintf(" (борг %d + наперед %d)", f.Debt, f.Uncovered)
 			}
 			b.WriteString(line + "\n")
 		}
@@ -89,9 +89,9 @@ func rowText(r Row, perLesson bool) string {
 		var s string
 		switch {
 		case r.Lessons > 0:
-			s = fmt.Sprintf("оплата +%d занятий (%s)", r.Lessons, money(r.Amount))
+			s = fmt.Sprintf("оплата +%d занять (%s)", r.Lessons, money(r.Amount))
 		case r.Covers != "":
-			s = fmt.Sprintf("абонемент до %s (%s)", dateRu(r.Covers), money(r.Amount))
+			s = fmt.Sprintf("абонемент до %s (%s)", dateShort(r.Covers), money(r.Amount))
 		default:
 			s = fmt.Sprintf("оплата (%s)", money(r.Amount))
 		}
@@ -101,9 +101,9 @@ func rowText(r Row, perLesson bool) string {
 		return s
 	case KindFuture:
 		if r.Covered {
-			return "— по расписанию"
+			return "— за розкладом"
 		}
-		return "— по расписанию (не оплачено)"
+		return "— за розкладом (не оплачено)"
 	default:
 		s := statusGlyphs[r.Status] + " " + model.StatusLabels[r.Status]
 		if r.Comment != "" {
@@ -137,7 +137,7 @@ func SplitMessage(text string, limit int) []string {
 	return out
 }
 
-func dateRu(s string) string {
+func dateShort(s string) string {
 	t, err := model.ParseDate(s)
 	if err != nil {
 		return s

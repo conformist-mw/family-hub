@@ -1,47 +1,47 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="page-head">
-  <h1>Оплаты</h1>
+  <h1>Оплати</h1>
   <a class="btn primary" href="/payments/new">+ Оплата</a>
 </div>
 
 <form class="filters" method="get" action="/payments">
   <select name="person" onchange="this.form.submit()">
-    <option value="">Все</option>
+    <option value="">Усі</option>
     {{range $d.Persons}}
     <option value="{{.ID}}" {{if eq .ID $d.PersonID}}selected{{end}}>{{.Name}}</option>
     {{end}}
   </select>
-  <span class="total">Всего: <b>{{money $d.Total}}</b></span>
+  <span class="total">Усього: <b>{{money $d.Total}}</b></span>
 </form>
 
 <table>
   <thead>
-    <tr><th>Дата</th><th>Кто</th><th>Занятие</th><th>За что</th><th>Сумма</th><th></th></tr>
+    <tr><th>Дата</th><th>Хто</th><th>Заняття</th><th>За що</th><th>Сума</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Payments}}
     <tr>
-      <td data-label="Дата">{{dateRu .Date}}</td>
-      <td data-label="Кто">{{.Person}}</td>
-      <td data-label="Занятие">{{classLabel .Class .ClassDesc}}</td>
-      <td data-label="За что">
-        {{if .LessonsPaid}}{{.LessonsPaid}} зан.{{else if .CoversUntil}}абон. {{dateRu (deref .CoversFrom)}}—{{dateRu (deref .CoversUntil)}}{{else}}—{{end}}
+      <td data-label="Дата">{{dateShort .Date}}</td>
+      <td data-label="Хто">{{.Person}}</td>
+      <td data-label="Заняття">{{classLabel .Class .ClassDesc}}</td>
+      <td data-label="За що">
+        {{if .LessonsPaid}}{{.LessonsPaid}} зан.{{else if .CoversUntil}}абон. {{dateShort (deref .CoversFrom)}}—{{dateShort (deref .CoversUntil)}}{{else}}—{{end}}
       </td>
-      <td data-label="Сумма">{{money .Amount}}</td>
+      <td data-label="Сума">{{money .Amount}}</td>
       <td data-label=""><a class="btn small" href="/payments/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
-    <tr><td colspan="6" class="empty">Оплат нет.</td></tr>
+    <tr><td colspan="6" class="empty">Оплат немає.</td></tr>
     {{end}}
   </tbody>
 </table>
 
 {{if or $d.PrevURL $d.NextURL}}
 <div class="pager">
-  {{if $d.PrevURL}}<a class="btn small" href="{{$d.PrevURL}}">← Новее</a>{{else}}<span></span>{{end}}
-  <span class="muted">стр. {{$d.Page}}</span>
-  {{if $d.NextURL}}<a class="btn small" href="{{$d.NextURL}}">Старее →</a>{{else}}<span></span>{{end}}
+  {{if $d.PrevURL}}<a class="btn small" href="{{$d.PrevURL}}">← Новіші</a>{{else}}<span></span>{{end}}
+  <span class="muted">стор. {{$d.Page}}</span>
+  {{if $d.NextURL}}<a class="btn small" href="{{$d.NextURL}}">Старіші →</a>{{else}}<span></span>{{end}}
 </div>
 {{end}}
 {{end}}

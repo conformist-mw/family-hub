@@ -4,7 +4,7 @@
 {{$schedule := $d.Schedule}}
 <div class="page-head">
   <h1>Баланс</h1>
-  <a class="btn primary" href="/visits/new">+ Занятие</a>
+  <a class="btn primary" href="/visits/new">+ Заняття</a>
 </div>
 
 <div class="cards">
@@ -15,28 +15,28 @@
         <div class="card-activity">{{classLabel .Name .Description}}</div>
         <div class="card-child">{{.Person}}{{with index $schedule .ID}} · {{.}}{{end}}</div>
         {{with index $absences .ID}}
-        <div class="card-absence" title="{{absenceKind .Kind}} · {{.Trainer}}">🏖 тренер до {{dateRu .DateTo}}</div>
+        <div class="card-absence" title="{{absenceKind .Kind}} · {{.Trainer}}">🏖 тренер до {{dateShort .DateTo}}</div>
         {{end}}
       </div>
       <span class="badge badge-{{.State}}">
         {{if eq .BillingType "monthly"}}
-          {{if .CoveredNow}}{{.DaysLeft}} дн.{{else}}нет абонемента{{end}}
+          {{if .CoveredNow}}{{.DaysLeft}} дн.{{else}}немає абонемента{{end}}
         {{else}}
-          {{if eq .State "empty"}}пора платить{{else}}осталось {{.Remaining}}{{end}}
+          {{if eq .State "empty"}}час платити{{else}}залишилось {{.Remaining}}{{end}}
         {{end}}
       </span>
     </div>
     <div class="card-meta">
       <span>
-        {{money .CurrentPrice}}{{if eq .BillingType "monthly"}}/мес{{else}}/зан.{{end}}
-        {{if eq .BillingType "monthly"}} · до {{if .CoveredNow}}{{dateRu .CoversUntil}}{{else}}—{{end}}{{end}}
-        · мес: {{.DoneThisMonth}}
+        {{money .CurrentPrice}}{{if eq .BillingType "monthly"}}/міс{{else}}/зан.{{end}}
+        {{if eq .BillingType "monthly"}} · до {{if .CoveredNow}}{{dateShort .CoversUntil}}{{else}}—{{end}}{{end}}
+        · міс: {{.DoneThisMonth}}
       </span>
-      <a href="/enrollments/{{.ID}}/audit">сверка</a>
+      <a href="/enrollments/{{.ID}}/audit">звірка</a>
     </div>
   </div>
   {{else}}
-  <p class="empty">Пока нет курсов. Заведи их на вкладке <a href="/enrollments">Курсы</a>.</p>
+  <p class="empty">Курсів ще немає. Заведи їх на вкладці <a href="/enrollments">Курси</a>.</p>
   {{end}}
 </div>
 
@@ -44,17 +44,17 @@
   {{if $d.Payments}}
   <section class="dash-payments">
     <div class="dash-payments-head">
-      <h2>Последние оплаты</h2>
-      <a href="/payments">все →</a>
+      <h2>Останні оплати</h2>
+      <a href="/payments">всі →</a>
     </div>
     <table class="dash-table">
       <tbody>
         {{range $d.Payments}}
         <tr>
-          <td class="dash-date">{{dateRu .Date}}</td>
+          <td class="dash-date">{{dateShort .Date}}</td>
           <td>{{.Person}} · {{classLabel .Class .ClassDesc}}</td>
           <td class="dash-what">
-            {{if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateRu (deref .CoversUntil)}}{{end}}
+            {{if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateShort (deref .CoversUntil)}}{{end}}
           </td>
           <td class="dash-amount">{{money .Amount}}</td>
         </tr>

@@ -22,17 +22,17 @@ const (
 var StatusLabels = map[string]string{
 	StatusDone:        "проведено",
 	StatusRescheduled: "перенесено",
-	StatusCancelled:   "отменено",
+	StatusCancelled:   "скасовано",
 	StatusSkipped:     "пропущено",
 }
 
 var AbsenceKindLabels = map[string]string{
-	AbsenceVacation: "отпуск",
-	AbsenceSick:     "болезнь",
-	AbsenceOther:    "другое",
+	AbsenceVacation: "відпустка",
+	AbsenceSick:     "хвороба",
+	AbsenceOther:    "інше",
 }
 
-var WeekdayLabels = [7]string{"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
+var WeekdayLabels = [7]string{"Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
 
 type Person struct {
 	ID     int64

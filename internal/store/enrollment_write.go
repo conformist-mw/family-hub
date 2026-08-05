@@ -8,7 +8,7 @@ import (
 	"familyhub/internal/model"
 )
 
-var ErrEnrollmentHasData = errors.New("у курса есть занятия или оплаты — заархивируй вместо удаления")
+var ErrEnrollmentHasData = errors.New("у курсу є заняття або оплати — заархівуй замість видалення")
 
 func (s *Store) getOrCreatePerson(name string) (int64, error) {
 	name = strings.TrimSpace(name)

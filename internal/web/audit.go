@@ -35,7 +35,7 @@ type auditPageData struct {
 }
 
 // resolveAuditRange turns the range/from/to query params into concrete
-// bounds. Defaults to "с последней оплаты"; an enrollment with no payments
+// bounds. Defaults to "since the last payment"; an enrollment with no payments
 // falls back to all-time. Only a custom range may extend into the future —
 // that is how the forecast is reached.
 func (a *App) resolveAuditRange(enrollmentID int64, q url.Values) (rng, from, to, label string, err error) {
@@ -52,28 +52,28 @@ func (a *App) resolveAuditRange(enrollmentID int64, q url.Values) (rng, from, to
 		}
 		if lp == "" {
 			rng = "all"
-			return rng, "", td, "за всё время", nil
+			return rng, "", td, "за весь час", nil
 		}
-		return rng, lp, td, "с последней оплаты (" + ruDate(lp) + ")", nil
+		return rng, lp, td, "з останньої оплати (" + dateShort(lp) + ")", nil
 	case "month":
 		from = time.Now().Format("2006-01") + "-01"
-		return rng, from, td, "этот месяц", nil
+		return rng, from, td, "цей місяць", nil
 	case "all":
-		return rng, "", td, "за всё время", nil
+		return rng, "", td, "за весь час", nil
 	case "custom":
 		from, to = q.Get("from"), q.Get("to")
 		if _, e1 := model.ParseDate(from); e1 != nil {
-			return rng, "", "", "", fmt.Errorf("укажи корректные даты")
+			return rng, "", "", "", fmt.Errorf("вкажи коректні дати")
 		}
 		if _, e2 := model.ParseDate(to); e2 != nil {
-			return rng, "", "", "", fmt.Errorf("укажи корректные даты")
+			return rng, "", "", "", fmt.Errorf("вкажи коректні дати")
 		}
 		if from > to {
-			return rng, "", "", "", fmt.Errorf("начало периода позже конца")
+			return rng, "", "", "", fmt.Errorf("початок періоду пізніше кінця")
 		}
-		return rng, from, to, ruDate(from) + " — " + ruDate(to), nil
+		return rng, from, to, dateShort(from) + " — " + dateShort(to), nil
 	default:
-		return "", "", "", "", fmt.Errorf("неизвестный период")
+		return "", "", "", "", fmt.Errorf("невідомий період")
 	}
 }
 
@@ -98,7 +98,7 @@ func (a *App) buildAuditPage(enrollmentID int64, q url.Values) (auditPageData, e
 	td := today()
 	data.PeriodLabel = label
 	if rng != "custom" { // the custom label already carries both dates
-		data.PeriodLabel += " по " + ruDate(to)
+		data.PeriodLabel += " по " + dateShort(to)
 	}
 
 	d, err := a.Store.AuditData(enrollmentID, from, to)
@@ -144,14 +144,14 @@ func (a *App) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Sent = r.URL.Query().Get("sent") == "1"
-	a.render(w, "audit.html", "Сверка", "enrollments", data)
+	a.render(w, "audit.html", "Звірка", "enrollments", data)
 }
 
 // handleAuditSend recomputes the same text the page shows and pushes it to
 // the family group via the bot, then bounces back with a flash flag.
 func (a *App) handleAuditSend(w http.ResponseWriter, r *http.Request) {
 	if a.Notifier == nil {
-		http.Error(w, "бот выключен", http.StatusServiceUnavailable)
+		http.Error(w, "бот вимкнений", http.StatusServiceUnavailable)
 		return
 	}
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -176,7 +176,7 @@ func (a *App) handleAuditSend(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/audit?"+back.Encode(), http.StatusSeeOther)
 }
 
-func ruDate(s string) string {
+func dateShort(s string) string {
 	t, err := model.ParseDate(s)
 	if err != nil {
 		return s

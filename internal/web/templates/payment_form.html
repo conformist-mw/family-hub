@@ -2,7 +2,7 @@
 {{$d := .Data}}
 {{$p := $d.Payment}}
 <div class="page-head">
-  <h1>{{if $d.IsEdit}}Оплата{{else}}Новая оплата{{end}}</h1>
+  <h1>{{if $d.IsEdit}}Оплата{{else}}Нова оплата{{end}}</h1>
 </div>
 
 {{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
@@ -11,56 +11,56 @@
   <label>
     Курс
     <select name="enrollment_id" id="enrollment" required>
-      <option value="">— выбери —</option>
+      <option value="">— вибери —</option>
       {{range $d.Enrollments}}
       <option value="{{.ID}}" data-billing="{{.BillingType}}" data-price="{{.CurrentPrice}}"
-        {{if eq .ID $p.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}} ({{billingLabel .BillingType}}){{if not .Active}} (архив){{end}}</option>
+        {{if eq .ID $p.EnrollmentID}}selected{{end}}>{{.Person}} — {{classLabel .Name .Description}} ({{billingLabel .BillingType}}){{if not .Active}} (архів){{end}}</option>
       {{end}}
     </select>
   </label>
 
   <label>
-    Дата оплаты
+    Дата оплати
     <input type="date" name="date" value="{{$p.Date}}" required>
   </label>
 
   <label>
-    Сумма, ₴
+    Сума, ₴
     <input type="number" name="amount" step="0.01" min="0" value="{{if $p.Amount}}{{$p.Amount}}{{end}}" required>
   </label>
 
   <div id="block-lesson" class="billing-block">
     <label>
-      Оплачено занятий
+      Оплачено занять
       <input type="number" name="lessons_paid" step="1" min="1" value="{{if $p.LessonsPaid}}{{$p.LessonsPaid}}{{end}}">
     </label>
   </div>
 
   <div id="block-monthly" class="billing-block" hidden>
     <label>
-      Абонемент с
+      Абонемент з
       <input type="date" name="covers_from" value="{{deref $p.CoversFrom}}">
     </label>
     <label>
-      Абонемент по
+      Абонемент до
       <input type="date" name="covers_until" value="{{deref $p.CoversUntil}}">
     </label>
   </div>
 
   <label>
-    Комментарий
-    <textarea name="comment" placeholder="необязательно">{{$p.Comment}}</textarea>
+    Комментар
+    <textarea name="comment" placeholder="необов’язково">{{$p.Comment}}</textarea>
   </label>
 
   <div class="form-actions">
-    <button class="btn primary" type="submit">Сохранить</button>
-    <a class="btn" href="/payments">Отмена</a>
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/payments">Скасувати</a>
   </div>
 </form>
 
 {{if $d.IsEdit}}
-<form method="post" action="/payments/{{$p.ID}}/delete" onsubmit="return confirm('Удалить оплату?')" style="margin-top:14px">
-  <button class="btn danger" type="submit">Удалить оплату</button>
+<form method="post" action="/payments/{{$p.ID}}/delete" onsubmit="return confirm('Видалити оплату?')" style="margin-top:14px">
+  <button class="btn danger" type="submit">Видалити оплату</button>
 </form>
 {{end}}
 

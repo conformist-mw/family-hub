@@ -38,7 +38,7 @@ var funcs = template.FuncMap{
 		}
 		return s
 	},
-	"dateRu": func(s string) string {
+	"dateShort": func(s string) string {
 		t, err := model.ParseDate(s)
 		if err != nil {
 			return s
@@ -49,7 +49,7 @@ var funcs = template.FuncMap{
 		if b == model.BillingMonthly {
 			return "абонемент"
 		}
-		return "за занятие"
+		return "за заняття"
 	},
 	// costLabel renders an optional amount: "" when nothing was recorded, so
 	// the column stays visually empty rather than showing a fake 0 ₴.
@@ -118,8 +118,8 @@ var funcs = template.FuncMap{
 		}
 		return p
 	},
-	"monthRu": func(ym string) string {
-		months := [...]string{"", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"}
+	"monthShort": func(ym string) string {
+		months := [...]string{"", "січ", "лют", "бер", "кві", "тра", "чер", "лип", "сер", "вер", "жов", "лис", "гру"}
 		if len(ym) != 7 {
 			return ym
 		}

@@ -11,7 +11,7 @@ import (
 // ErrVisitExists reports an insert/update that would put a second visit on
 // the same enrollment+date. The message is user-facing (shown in the web
 // form), matching the ErrEnrollmentHasData convention.
-var ErrVisitExists = errors.New("на эту дату уже есть запись по этому курсу")
+var ErrVisitExists = errors.New("на цю дату вже є запис по цьому курсу")
 
 type VisitFilter struct {
 	PersonID int64

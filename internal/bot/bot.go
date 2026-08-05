@@ -162,17 +162,17 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	// Populate the "/" menu — how the group discovers the appointment commands
 	// (best-effort; a network hiccup here must not block startup).
 	cmds := []tele.Command{
-		{Text: "add", Description: "Отметить занятие"},
-		{Text: "balance", Description: "Баланс по курсам"},
-		{Text: "stats", Description: "Сколько потрачено"},
+		{Text: "add", Description: "Відмітити заняття"},
+		{Text: "balance", Description: "Баланс по курсах"},
+		{Text: "stats", Description: "Скільки витрачено"},
 	}
 	if parser != nil {
-		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записать визит: /visit завтра 15:00 педикюр"})
+		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записати візит: /visit завтра 15:00 педикюр"})
 	}
 	cmds = append(cmds,
-		tele.Command{Text: "week", Description: "Записи на ближайшую неделю"},
-		tele.Command{Text: "list", Description: "Записи по неделям: перенести, поправить, отменить"},
-		tele.Command{Text: "help", Description: "Справка"},
+		tele.Command{Text: "week", Description: "Записи на найближчий тиждень"},
+		tele.Command{Text: "list", Description: "Записи по тижнях: перенести, виправити, скасувати"},
+		tele.Command{Text: "help", Description: "Довідка"},
 	)
 	if err := tb.SetCommands(cmds); err != nil {
 		logger.Warn("bot: set commands", "err", err)
@@ -267,7 +267,7 @@ func (b *Bot) authMiddleware(next tele.HandlerFunc) tele.HandlerFunc {
 				username = c.Sender().Username
 			}
 			b.logger.Warn("bot: unauthorized chat", "chat_id", id, "user", username)
-			return c.Send("Доступ запрещён.")
+			return c.Send("Доступ заборонено.")
 		}
 		return next(c)
 	}

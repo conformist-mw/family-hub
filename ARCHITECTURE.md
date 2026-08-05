@@ -161,7 +161,9 @@ data/          # local SQLite (gitignored)
 - `/list` is one self-editing message: a calendar week at a time, tap a number
   for the card → edit / cancel, all state encoded in the callback data. Text
   edits (reschedule, rename, change who) are private-chat only, because in a
-  group the "next message" could be anyone's.
+  group the "next message" could be anyone's. `✕ Закрити` ends the interaction
+  by stripping the keyboard while keeping the week readable — without it every
+  `/list` ever sent keeps offering live buttons.
 - Without `GEMINI_API_KEY` the parser is nil: `/visit` and free-text capture
   are not registered, everything else (including `/week`, `/list`, cancel and
   the lessons half) works.
@@ -177,7 +179,11 @@ data/          # local SQLite (gitignored)
   the already-asked flag, so a restart cannot ask twice. The sweep only reaches
   24h back (`costPromptLookback`) — without that bound, the first tick after
   the feature shipped would have asked about every appointment in the history.
-  `✗ Без суми` closes the prompt leaving `cost` NULL.
+  `✗ Без суми` closes the prompt leaving `cost` NULL. Capture fills `cost`
+  straight from the text when a price is stated («педикюр 800»); the parser is
+  strict about it (anything that is not a plain number counts as no price)
+  because a wrong amount is worse than an absent one, and an absent one just
+  means the prompt asks later.
 - Three independent tickers run as separate goroutines: `RunScheduler` for
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`) for the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in

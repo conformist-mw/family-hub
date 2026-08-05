@@ -78,21 +78,25 @@ func (b *Bot) listView(offset int) (string, *tele.ReplyMarkup, bool, error) {
 	if hasNext {
 		navRow = append(navRow, m.Data("Наст. тиждень ▶", "lst_nav", "week:"+strconv.Itoa(offset+1)))
 	}
-	if len(navRow) > 0 {
-		rows = append(rows, m.Row(navRow...))
-	}
+	navRow = append(navRow, m.Data("✕ Закрити", "lst_nav", "close:"+off))
+	rows = append(rows, m.Row(navRow...))
 	m.Inline(rows...)
 	return sb.String(), m, false, nil
 }
 
 // onNav switches the single list message between views by editing it in place.
-// Data is "week:<offset>" or "<view>:<id>:<offset>" (view ∈ card/edit/cancel).
+// Data is "week:<offset>", "close:<offset>", or "<view>:<id>:<offset>"
+// (view ∈ card/edit/cancel).
 func (b *Bot) onNav(c tele.Context) error {
 	view, rest := splitData(c.Data())
 	_ = c.Respond()
-	if view == "week" {
+	switch view {
+	case "week":
 		offset, _ := strconv.Atoi(rest)
 		return b.editToList(c, offset)
+	case "close":
+		offset, _ := strconv.Atoi(rest)
+		return b.closeList(c, offset)
 	}
 	id, offset := parseIDOffset(rest)
 	a, err := b.store.GetAppointment(id)
@@ -161,6 +165,17 @@ func (b *Bot) onDel(c tele.Context) error {
 	return c.Edit("✗ Скасовано: "+b.formatAppt(a), tele.ModeHTML)
 }
 
+// closeList ends the interaction: the week stays readable as a plain message,
+// the keyboard goes. Without this every /list ever sent keeps offering buttons
+// that act on whatever their callback data points at.
+func (b *Bot) closeList(c tele.Context, offset int) error {
+	text, _, empty, err := b.listView(offset)
+	if err != nil || empty {
+		return c.Edit("Список закрито.", &tele.ReplyMarkup{})
+	}
+	return c.Edit(text, &tele.ReplyMarkup{}, tele.ModeHTML)
+}
+
 func (b *Bot) editToList(c tele.Context, offset int) error {
 	text, markup, empty, err := b.listView(offset)
 	if err != nil {
@@ -179,7 +194,10 @@ func (b *Bot) cardMarkup(id int64, offset int, private bool) *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
 	ids := strconv.FormatInt(id, 10)
 	ref := ids + ":" + strconv.Itoa(offset)
-	back := m.Row(m.Data("← До списку", "lst_nav", "week:"+strconv.Itoa(offset)))
+	back := m.Row(
+		m.Data("← До списку", "lst_nav", "week:"+strconv.Itoa(offset)),
+		m.Data("✕ Закрити", "lst_nav", "close:"+strconv.Itoa(offset)),
+	)
 	if !private {
 		// In groups, the text-driven edits (Перенести/Изменить) are disabled —
 		// only the button-only cancel is safe from stray messages being captured.
@@ -231,7 +249,7 @@ func (b *Bot) formatListLine(n int, a model.Appointment) string {
 	if a.Person != "" {
 		who = " · " + a.Person
 	}
-	return fmt.Sprintf("%d. %s — <b>%s</b>%s", n, b.whenLabel(a), a.Title, who)
+	return fmt.Sprintf("%d. %s — <b>%s</b>%s%s", n, b.whenLabel(a), a.Title, who, costSuffix(a))
 }
 
 func armPrompt(field string, a model.Appointment) string {

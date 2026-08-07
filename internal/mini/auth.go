@@ -119,24 +119,17 @@ type initDataError string
 
 func (e initDataError) Error() string { return string(e) }
 
-func (v *verifier) parse(raw string) (int64, error) {
-	values, err := url.ParseQuery(raw)
-	if err != nil {
-		return 0, initDataError("malformed query string")
-	}
-
-	gotHash := values.Get("hash")
-	if gotHash == "" {
-		return 0, initDataError("missing hash")
-	}
-
-	// Every received field except the two signature fields, sorted, joined by
-	// newlines. The published algorithm names only "hash" because it predates
-	// "signature" — that one is the Ed25519 third-party signature and is
-	// likewise not part of its own check string.
+// sign builds the data-check-string and returns its HMAC: every received field
+// except "hash", sorted, joined by newlines.
+//
+// "signature" — Telegram's newer Ed25519 field for third-party validation —
+// DOES participate, despite widely repeated advice to strip it alongside
+// "hash". That advice describes the Ed25519 flow, not this one. Verified
+// against a live bot: excluding it fails every real payload.
+func (v *verifier) sign(values url.Values) []byte {
 	keys := make([]string, 0, len(values))
 	for k := range values {
-		if k == "hash" || k == "signature" {
+		if k == "hash" {
 			continue
 		}
 		keys = append(keys, k)
@@ -155,8 +148,25 @@ func (v *verifier) parse(raw string) (int64, error) {
 
 	mac := hmac.New(sha256.New, v.secret)
 	mac.Write([]byte(check.String()))
+	return mac.Sum(nil)
+}
+
+func (v *verifier) parse(raw string) (int64, error) {
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return 0, initDataError("malformed query string")
+	}
+
+	gotHash := values.Get("hash")
+	if gotHash == "" {
+		return 0, initDataError("missing hash")
+	}
+
 	want, err := hex.DecodeString(gotHash)
-	if err != nil || subtle.ConstantTimeCompare(mac.Sum(nil), want) != 1 {
+	if err != nil {
+		return 0, initDataError("hash is not hex")
+	}
+	if subtle.ConstantTimeCompare(v.sign(values), want) != 1 {
 		return 0, initDataError("signature mismatch")
 	}
 

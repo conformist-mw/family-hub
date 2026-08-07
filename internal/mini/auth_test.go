@@ -31,7 +31,7 @@ func signInitData(t *testing.T, token string, v url.Values) string {
 
 	keys := make([]string, 0, len(v))
 	for k := range v {
-		if k == "hash" || k == "signature" {
+		if k == "hash" {
 			continue
 		}
 		keys = append(keys, k)
@@ -192,17 +192,27 @@ func TestAuthenticateAcceptsEdgeOfWindow(t *testing.T) {
 	}
 }
 
-// Telegram's newer "signature" field (Ed25519, for third-party validation) is
-// not part of the HMAC check string. A payload carrying one must still verify.
-func TestSignatureFieldIsExcludedFromCheckString(t *testing.T) {
+// Telegram's newer "signature" field (Ed25519, for third-party validation) IS
+// part of the HMAC check string — only "hash" is excluded. Widely repeated
+// advice says to strip both; that describes the Ed25519 flow, and following it
+// rejects every real payload. Confirmed against a live bot.
+func TestSignatureFieldIsPartOfCheckString(t *testing.T) {
 	v := testVerifier([]int64{42}, 0, "")
 
 	data := launchData(t, 42, testNow.Add(-time.Minute))
-	raw := signInitData(t, testToken, data)
-	withSig := raw + "&signature=" + url.QueryEscape("bXktZWQyNTUxOS1zaWc")
+	data.Set("signature", "bXktZWQyNTUxOS1zaWc")
 
-	if _, err := v.authenticate(request(withSig)); err != nil {
-		t.Fatalf("payload with a signature field rejected: %+v", err)
+	if _, err := v.authenticate(request(signInitData(t, testToken, data))); err != nil {
+		t.Fatalf("real-shaped payload with a signature field rejected: %+v", err)
+	}
+
+	// Pin the direction: a hash computed without the signature field must not
+	// be accepted for a payload that carries one. Without this, excluding
+	// "signature" again would leave every test green.
+	unsigned := launchData(t, 42, testNow.Add(-time.Minute))
+	raw := signInitData(t, testToken, unsigned) + "&signature=" + url.QueryEscape("bXktZWQyNTUxOS1zaWc")
+	if _, err := v.authenticate(request(raw)); err != errBadInitData {
+		t.Fatalf("hash that ignored the signature field was accepted: %+v", err)
 	}
 }
 

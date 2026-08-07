@@ -1,0 +1,143 @@
+package mini
+
+import (
+	"embed"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"familyhub/internal/store"
+)
+
+// The Mini App is a JSON API plus a small client-rendered frontend, both inside
+// this binary and both under a single /mini prefix:
+//
+//	/mini            bootstrap shell, no family data
+//	/mini/assets/*   JS, CSS, vendored Preact+htm
+//	/mini/api/*      JSON, authenticated per request
+//
+// One prefix, so the Traefik oauth bypass needs exactly one rule. It shares the
+// store and the database with the web UI and the bot; nothing here talks to
+// internal/bot, the token arrives as a string.
+
+//go:embed static
+var staticFS embed.FS
+
+// DefaultMaxAge is how long a launch payload stays acceptable. Telegram never
+// refreshes initData while the app is open, so a short window would kill the
+// app in the user's hand. The allowlist is the real barrier here, not
+// signature freshness.
+const DefaultMaxAge = 24 * time.Hour
+
+// maxAppointments caps the upcoming list. The realistic horizon is tens of
+// rows; this is a fuse, not pagination.
+const maxAppointments = 100
+
+type Config struct {
+	// BotToken keys the initData HMAC. Without it there is no Mini App.
+	BotToken string
+	// AllowedUsers are Telegram *user* ids. Deliberately not the bot's
+	// TELEGRAM_ALLOWED_CHATS: that lists chats, including the family group,
+	// while a Mini App authenticates the individual who opened it.
+	AllowedUsers []int64
+	// MaxAge overrides DefaultMaxAge when non-zero.
+	MaxAge time.Duration
+	// DevUser makes the API accept unsigned requests as this Telegram id, so
+	// screens can be opened in a normal browser. It is honoured only while
+	// WebhookURL is empty — see devFixtureUser.
+	DevUser int64
+	// WebhookURL is the production signal. Production always sets it, so
+	// gating the fixture on its absence is structural rather than a flag
+	// somebody can forget to unset.
+	WebhookURL string
+	// Loc is the wall-clock zone appointments are stored in.
+	Loc *time.Location
+	// Now is injectable for tests; nil means time.Now.
+	Now func() time.Time
+}
+
+func (c Config) devFixtureUser() int64 {
+	if c.WebhookURL != "" {
+		return 0
+	}
+	return c.DevUser
+}
+
+type Router struct {
+	store *store.Store
+	log   *slog.Logger
+	v     *verifier
+	loc   *time.Location
+	now   func() time.Time
+}
+
+// NewRouter builds the Mini App surface. It fails when there is no bot token:
+// initData verification is an HMAC keyed by it, so there is nothing to mount.
+func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, error) {
+	if cfg.BotToken == "" {
+		return nil, errors.New("mini: bot token required")
+	}
+	if cfg.MaxAge == 0 {
+		cfg.MaxAge = DefaultMaxAge
+	}
+	if cfg.Loc == nil {
+		cfg.Loc = time.Local
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+
+	rt := &Router{
+		store: st,
+		log:   logger,
+		v:     newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
+		loc:   cfg.Loc,
+		now:   cfg.Now,
+	}
+	if u := cfg.devFixtureUser(); u != 0 {
+		logger.Warn("mini: DEV AUTH FIXTURE ACTIVE — unsigned requests accepted", "user_id", u)
+	}
+
+	assets, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return nil, err
+	}
+
+	// Patterns carry the full path: the outer mux dispatches on the /mini/
+	// subtree without stripping it.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /mini/{$}", rt.handleShell)
+	mux.Handle("GET /mini/assets/", http.StripPrefix("/mini/assets/", http.FileServerFS(assets)))
+	mux.HandleFunc("GET /mini/api/appointments", rt.handleAppointments)
+	return mux, nil
+}
+
+// handleShell serves the bootstrap page. It is unauthenticated on purpose:
+// there is no family data in it, only the markup that then authenticates.
+func (rt *Router) handleShell(w http.ResponseWriter, r *http.Request) {
+	page, err := staticFS.ReadFile("static/index.html")
+	if err != nil {
+		rt.log.Error("mini: read shell", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(page)
+}
+
+func (rt *Router) writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		rt.log.Error("mini: write json", "err", err)
+	}
+}
+
+func (rt *Router) fail(w http.ResponseWriter, e *apiError) {
+	rt.writeJSON(w, e.status, map[string]*apiError{"error": e})
+}

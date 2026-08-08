@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"familyhub/internal/appointments"
 	"familyhub/internal/store"
 )
 
@@ -68,10 +69,13 @@ func (c Config) devFixtureUser() int64 {
 
 type Router struct {
 	store *store.Store
-	log   *slog.Logger
-	v     *verifier
-	loc   *time.Location
-	now   func() time.Time
+	// appointments holds the write rules shared with the web UI, so the two
+	// surfaces cannot drift on what a valid appointment is.
+	appointments *appointments.Service
+	log          *slog.Logger
+	v            *verifier
+	loc          *time.Location
+	now          func() time.Time
 }
 
 // NewRouter builds the Mini App surface. It fails when there is no bot token:
@@ -91,11 +95,12 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	}
 
 	rt := &Router{
-		store: st,
-		log:   logger,
-		v:     newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
-		loc:   cfg.Loc,
-		now:   cfg.Now,
+		store:        st,
+		appointments: appointments.NewService(st, cfg.Loc),
+		log:          logger,
+		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
+		loc:          cfg.Loc,
+		now:          cfg.Now,
 	}
 	if u := cfg.devFixtureUser(); u != 0 {
 		logger.Warn("mini: DEV AUTH FIXTURE ACTIVE — unsigned requests accepted", "user_id", u)
@@ -112,6 +117,10 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/{$}", rt.handleShell)
 	mux.Handle("GET /mini/assets/", http.StripPrefix("/mini/assets/", http.FileServerFS(assets)))
 	mux.HandleFunc("GET /mini/api/appointments", rt.handleAppointments)
+	mux.HandleFunc("POST /mini/api/appointments", rt.handleAppointmentCreate)
+	mux.HandleFunc("PUT /mini/api/appointments/{id}", rt.handleAppointmentUpdate)
+	mux.HandleFunc("DELETE /mini/api/appointments/{id}", rt.handleAppointmentDelete)
+	mux.HandleFunc("GET /mini/api/persons", rt.handlePersons)
 	return mux, nil
 }
 

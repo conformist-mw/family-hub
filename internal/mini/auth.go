@@ -37,6 +37,8 @@ type apiError struct {
 var (
 	errBadInitData = &apiError{Code: "bad_init_data", Message: "невірні дані запуску", status: http.StatusBadRequest}
 	errForbidden   = &apiError{Code: "forbidden", Message: "доступ заборонено", status: http.StatusForbidden}
+	errBadRequest  = &apiError{Code: "bad_request", Message: "некоректний запит", status: http.StatusBadRequest}
+	errNotFound    = &apiError{Code: "not_found", Message: "запис не знайдено", status: http.StatusNotFound}
 	errInternal    = &apiError{Code: "internal", Message: "внутрішня помилка", status: http.StatusInternalServerError}
 )
 

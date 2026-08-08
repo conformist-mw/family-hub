@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"familyhub/internal/appointments"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
 )
@@ -150,68 +151,32 @@ func parseAppointmentForm(r *http.Request) (model.Appointment, string, string, s
 	if err := r.ParseForm(); err != nil {
 		return model.Appointment{}, "", "", "", "не вдалося розібрати форму"
 	}
-	date := strings.TrimSpace(r.FormValue("date"))
-	hhmm := strings.TrimSpace(r.FormValue("time"))
-	endTime := strings.TrimSpace(r.FormValue("end_time"))
-	costRaw := strings.TrimSpace(r.FormValue("cost"))
-
-	appt := model.Appointment{
-		Title:    strings.TrimSpace(r.FormValue("title")),
-		Person:   normalizeName(r.FormValue("person")),
-		Location: strings.TrimSpace(r.FormValue("location")),
-		Note:     strings.TrimSpace(r.FormValue("note")),
+	form := appointments.Form{
+		Title:    r.FormValue("title"),
+		Person:   r.FormValue("person"),
+		Location: r.FormValue("location"),
+		Date:     r.FormValue("date"),
+		Time:     r.FormValue("time"),
+		EndTime:  r.FormValue("end_time"),
 		Status:   r.FormValue("status"),
+		Note:     r.FormValue("note"),
+		Cost:     r.FormValue("cost"),
 	}
-	if appt.Title == "" {
-		return appt, date, hhmm, costRaw, "вкажи назву"
-	}
-	if _, err := time.ParseInLocation(model.LocalDatetime, date+"T"+hhmm, time.Local); err != nil {
-		return appt, date, hhmm, costRaw, "вкажи коректну дату й час"
-	}
-	appt.StartsAt = date + "T" + hhmm
-	if endTime != "" {
-		if _, err := time.ParseInLocation(model.LocalDatetime, date+"T"+endTime, time.Local); err != nil {
-			return appt, date, hhmm, costRaw, "вкажи коректний час завершення"
-		}
-		if endTime <= hhmm { // same-day only: an appointment crossing midnight isn't a thing here
-			return appt, date, hhmm, costRaw, "час завершення має бути пізніше початку"
-		}
-		appt.EndsAt = date + "T" + endTime
-	}
-	if !isValidApptStatus(appt.Status) {
-		return appt, date, hhmm, costRaw, "вибери статус"
-	}
-	// An empty field means "not recorded" (NULL), which is not the same as 0 —
-	// a free visit is recorded by typing 0.
-	if costRaw != "" {
-		cost, ok := parseCost(costRaw)
-		if !ok {
-			return appt, date, hhmm, costRaw, "сума має бути числом, напр. 800 (або 0)"
-		}
-		appt.Cost = &cost
+	// Echoed back into the re-rendered form so a rejected value stays on screen
+	// to be corrected rather than vanishing.
+	date := strings.TrimSpace(form.Date)
+	hhmm := strings.TrimSpace(form.Time)
+	costRaw := strings.TrimSpace(form.Cost)
+
+	appt, err := form.Parse(time.Local)
+	if err != nil {
+		return appt, date, hhmm, costRaw, err.Error()
 	}
 	return appt, date, hhmm, costRaw, ""
 }
 
-// parseCost accepts what a person types into the amount field: "800", "1 200",
-// "1200,50". Negative is rejected; 0 means the visit was free.
-func parseCost(s string) (float64, bool) {
-	s = strings.NewReplacer(" ", "", "\u00a0", "", ",", ".").Replace(s)
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || v < 0 {
-		return 0, false
-	}
-	return v, true
-}
-
-// formatCost renders a stored amount back into the form field ("" when unset,
-// no trailing zeros for whole numbers).
-func formatCost(c *float64) string {
-	if c == nil {
-		return ""
-	}
-	return strconv.FormatFloat(*c, 'f', -1, 64)
-}
+// formatCost renders a stored amount back into the form field.
+func formatCost(c *float64) string { return appointments.FormatCost(c) }
 
 func (a *App) renderAppointmentFormError(w http.ResponseWriter, appt model.Appointment, date, hhmm, costRaw string, isEdit bool, msg string) {
 	w.WriteHeader(http.StatusUnprocessableEntity)
@@ -226,11 +191,6 @@ func (a *App) renderAppointmentFormError(w http.ResponseWriter, appt model.Appoi
 		Today:       today(),
 		Error:       msg,
 	})
-}
-
-func isValidApptStatus(s string) bool {
-	_, ok := model.ApptStatusLabels[s]
-	return ok
 }
 
 // splitLocalDatetime splits "2006-01-02T15:04" into the date and time inputs.

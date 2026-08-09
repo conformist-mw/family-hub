@@ -64,7 +64,7 @@ function App() {
   const loadAppointments = useCallback(async () => {
     try {
       const d = await api('/appointments')
-      setAppointments({ phase: 'ready', days: d.days || [] })
+      setAppointments({ phase: 'ready', days: d.days || [], truncated: Boolean(d.truncated) })
     } catch (err) {
       setAppointments({ phase: 'error', error: err })
     }
@@ -169,6 +169,7 @@ function App() {
       body = html`
         <${AppointmentList}
           days=${appointments.days}
+          truncated=${appointments.truncated}
           onOpen=${(item) => push({ name: 'appointmentCard', item })}
           onAdd=${() => push({ name: 'appointmentForm', item: null })} />`
   } else {

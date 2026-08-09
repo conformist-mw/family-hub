@@ -31,7 +31,7 @@ function Item({ item, date, dayLabel, onOpen }) {
     </li>`
 }
 
-export function AppointmentList({ days, onOpen, onAdd }) {
+export function AppointmentList({ days, truncated, onOpen, onAdd }) {
   return html`
     <main>
       ${days.length === 0 && html`<div class="center muted">Попереду візитів немає</div>`}
@@ -44,6 +44,8 @@ export function AppointmentList({ days, onOpen, onAdd }) {
             </ul>
           </section>`,
       )}
+      ${truncated &&
+      html`<p class="hs-empty">Показано перші 100 записів — далі є ще</p>`}
       <button class="fab" onClick=${onAdd} aria-label="Додати запис">+</button>
     </main>`
 }

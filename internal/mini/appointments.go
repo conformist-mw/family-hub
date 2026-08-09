@@ -197,6 +197,11 @@ type dayDTO struct {
 
 type appointmentsDTO struct {
 	Days []dayDTO `json:"days"`
+	// Truncated says the cap was reached and there is more beyond the last
+	// day shown. Without it the list would simply end, and a family with a
+	// busy month would have no way of telling a quiet future from a cut-off
+	// one. It is not pagination — it is refusing to lie about the horizon.
+	Truncated bool `json:"truncated"`
 }
 
 func (rt *Router) handleAppointments(w http.ResponseWriter, r *http.Request) {
@@ -211,13 +216,22 @@ func (rt *Router) handleAppointments(w http.ResponseWriter, r *http.Request) {
 	now := rt.now().In(rt.loc)
 	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, rt.loc)
 
-	items, err := rt.store.UpcomingAppointments(from.Format(model.LocalDatetime), maxAppointments)
+	// One more than the cap, so reaching it is detectable rather than assumed.
+	items, err := rt.store.UpcomingAppointments(from.Format(model.LocalDatetime), maxAppointments+1)
 	if err != nil {
 		rt.log.Error("mini: upcoming appointments", "err", err)
 		rt.fail(w, errInternal)
 		return
 	}
-	rt.writeJSON(w, http.StatusOK, appointmentsDTO{Days: groupByDay(items, now, rt.loc)})
+	truncated := len(items) > maxAppointments
+	if truncated {
+		items = items[:maxAppointments]
+		rt.log.Info("mini: upcoming list truncated", "cap", maxAppointments)
+	}
+	rt.writeJSON(w, http.StatusOK, appointmentsDTO{
+		Days:      groupByDay(items, now, rt.loc),
+		Truncated: truncated,
+	})
 }
 
 // groupByDay folds the flat, already-ascending list into day sections. Rows

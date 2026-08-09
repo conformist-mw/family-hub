@@ -216,3 +216,57 @@ func TestShellIsServedWithoutCredentials(t *testing.T) {
 		t.Fatalf("asset status = %d", rec.Code)
 	}
 }
+
+// Past the cap the list must say so. Silently ending would make a busy month
+// look like an empty future.
+func TestUpcomingListReportsTruncation(t *testing.T) {
+	st := testStore(t)
+	for i := 0; i < maxAppointments+5; i++ {
+		if _, err := st.CreateAppointment(model.Appointment{
+			StartsAt: "2026-08-10T09:00", Title: "Навантаження", Status: model.ApptStatusPlanned,
+		}); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	testRouter(t, st, []int64{42}, 42).ServeHTTP(rec, request(""))
+
+	var body appointmentsDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Truncated {
+		t.Error("Truncated = false with more rows than the cap")
+	}
+	total := 0
+	for _, d := range body.Days {
+		total += len(d.Items)
+	}
+	if total != maxAppointments {
+		t.Errorf("returned %d items, want the %d cap", total, maxAppointments)
+	}
+}
+
+// Exactly at the cap nothing is missing, so nothing should claim otherwise.
+func TestUpcomingListAtTheCapIsNotTruncated(t *testing.T) {
+	st := testStore(t)
+	for i := 0; i < maxAppointments; i++ {
+		if _, err := st.CreateAppointment(model.Appointment{
+			StartsAt: "2026-08-10T09:00", Title: "Рівно", Status: model.ApptStatusPlanned,
+		}); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	testRouter(t, st, []int64{42}, 42).ServeHTTP(rec, request(""))
+
+	var body appointmentsDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Truncated {
+		t.Error("Truncated = true at exactly the cap")
+	}
+}

@@ -10,9 +10,9 @@ const STATUSES = [
 
 const statusLabel = (v) => (STATUSES.find((s) => s.value === v) || { label: v }).label
 
-function Item({ item, date, onOpen }) {
+function Item({ item, date, dayLabel, onOpen }) {
   return html`
-    <li class="item" onClick=${() => onOpen({ ...item, date })}>
+    <li class="item" onClick=${() => onOpen({ ...item, date, dayLabel })}>
       <div class="time">
         <span class="start">${item.time}</span>
         ${item.endTime && html`<span class="end">${item.endTime}</span>`}
@@ -40,7 +40,7 @@ export function AppointmentList({ days, onOpen, onAdd }) {
           <section class="day" key=${day.date}>
             <h2 class="day-label">${day.label}</h2>
             <ul class="items">
-              ${day.items.map((it) => html`<${Item} key=${it.id} item=${it} date=${day.date} onOpen=${onOpen} />`)}
+              ${day.items.map((it) => html`<${Item} key=${it.id} item=${it} date=${day.date} dayLabel=${day.label} onOpen=${onOpen} />`)}
             </ul>
           </section>`,
       )}
@@ -55,6 +55,8 @@ export function AppointmentList({ days, onOpen, onAdd }) {
 const EMPTY = {
   title: '', person: '', location: '', date: '', time: '',
   endTime: '', duration: '', status: 'planned', note: '', cost: '',
+  // Display only: which day header the row was tapped under.
+  dayLabel: '',
 }
 
 // "How long does it take" is a tap; "when does it end" is arithmetic the
@@ -66,8 +68,22 @@ const DURATIONS = [
   { min: '120', label: '2 год' },
 ]
 
-function DurationPicker({ value, onPick, error }) {
+// Wall-clock arithmetic on two values the person just typed — no Date, no
+// timezone, nothing that could reinterpret a stored time. It exists so the
+// chosen duration says when the thing actually ends; the value that gets
+// stored is still computed on the server.
+function endPreview(time, duration) {
+  const minutes = parseInt(duration, 10)
+  if (!/^\d{1,2}:\d{2}$/.test(time) || !Number.isFinite(minutes) || minutes <= 0) return null
+  const [h, m] = time.split(':').map(Number)
+  const total = h * 60 + m + minutes
+  const pad = (n) => String(n).padStart(2, '0')
+  return { at: `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`, nextDay: total >= 1440 }
+}
+
+function DurationPicker({ value, startTime, onPick, error }) {
   const custom = value !== '' && !DURATIONS.some((d) => d.min === value)
+  const end = endPreview(startTime, value)
   return html`
     <div class="field">
       <span class="label">Скільки триває</span>
@@ -83,8 +99,67 @@ function DurationPicker({ value, onPick, error }) {
           onInput=${(e) => onPick(e.target.value)} />
       </div>
       ${error && html`<span class="field-error">${error}</span>`}
-      <span class="help">Порожньо — тривалість не задана</span>
+      <span class="help">
+        ${end
+          ? `Закінчиться о ${end.at}${end.nextDay ? ' наступного дня' : ''}`
+          : 'Час завершення не задано'}
+      </span>
     </div>`
+}
+
+function costLabel(cost) {
+  if (cost === '' || cost === undefined) return 'не записували'
+  if (Number(cost) === 0) return 'безкоштовно'
+  return `${cost} ₴`
+}
+
+// Tapping a row opens this, not the form. It answers "what did I just pick"
+// before offering to change it, and it keeps Delete off the screen a person
+// lands on by accident. It also shows the fields the form no longer has —
+// location and status are still stored, just not edited from a phone.
+export function AppointmentCard({ item, onEdit, onDelete, onClose }) {
+  const when = [item.dayLabel, item.time].filter(Boolean).join(', ')
+  const rows = [
+    ['Коли', item.endTime ? `${when} – ${item.endTime}` : when],
+    ['Хто', item.person],
+    ['Де', item.location],
+    ['Статус', item.status !== 'planned' ? statusLabel(item.status) : ''],
+    ['Сума', costLabel(item.cost)],
+    ['Нотатка', item.note],
+  ].filter(([, v]) => v)
+
+  return html`
+    <div class="card">
+      <h1 class="card-title">${item.title}</h1>
+      <dl class="card-rows">
+        ${rows.map(
+          ([label, value]) => html`
+            <div class="card-row" key=${label}>
+              <dt>${label}</dt>
+              <dd>${value}</dd>
+            </div>`,
+        )}
+      </dl>
+      <div class="actions">
+        <button type="button" class="primary" onClick=${onEdit}>Редагувати</button>
+        <button type="button" onClick=${onClose}>Закрити</button>
+      </div>
+      <button type="button" class="danger" onClick=${onDelete}>Видалити</button>
+    </div>`
+}
+
+// The edit form still says what it is editing: the card is behind it, not
+// beside it, so the context would otherwise be gone.
+function FormHead({ initial }) {
+  if (!initial || !initial.id) {
+    return html`<p class="form-head"><span class="form-head-title">Новий запис</span></p>`
+  }
+  const when = [initial.dayLabel, initial.time].filter(Boolean).join(', ')
+  return html`
+    <p class="form-head">
+      <span class="form-head-title">${initial.title}</span>
+      ${when && html`<span class="form-head-when">${when}</span>`}
+    </p>`
 }
 
 export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
@@ -129,23 +204,11 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
     }
   }
 
-  const remove = async () => {
-    if (!confirm('Видалити цей запис?')) return
-    setSaving(true)
-    try {
-      await api(`/appointments/${initial.id}`, { method: 'DELETE' })
-      done()
-      onSaved()
-    } catch (err) {
-      setError(err)
-      setSaving(false)
-    }
-  }
-
   const errFor = (f) => (error && error.field === f ? error.message : null)
 
   return html`
     <form class="form" onSubmit=${submit}>
+      <${FormHead} initial=${initial} />
       <${Field} label="Що" error=${errFor('title')}>
         <input value=${values.title} onInput=${set('title')} placeholder="Ортодонт" />
       <//>
@@ -161,7 +224,7 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
           <input type="time" value=${values.time} onInput=${set('time')} />
         <//>
       </div>
-      <${DurationPicker} value=${values.duration} error=${errFor('duration')}
+      <${DurationPicker} value=${values.duration} startTime=${values.time} error=${errFor('duration')}
         onPick=${(min) => { guardUnsaved(true); setValues((v) => ({ ...v, duration: min })) }} />
       <${Field} label="Сума" error=${errFor('cost')}>
         <input value=${values.cost} onInput=${set('cost')} inputmode="decimal" placeholder="—" />
@@ -171,7 +234,6 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
         <textarea rows="2" value=${values.note} onInput=${set('note')}></textarea>
       <//>
       ${error && !error.field && html`<p class="error">${error.message}</p>`}
-      <${Actions} saving=${saving} onCancel=${() => { done(); onCancel() }}
-        onDelete=${isEdit ? remove : null} />
+      <${Actions} saving=${saving} onCancel=${() => { done(); onCancel() }} />
     </form>`
 }

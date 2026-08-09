@@ -1,7 +1,7 @@
 import { html, render, useState, useEffect, useCallback, useRef } from '/mini/assets/vendor/preact-htm.module.js'
 import { api, tg, boot } from '/mini/assets/api.js'
 import { Loading, Failure } from '/mini/assets/ui.js'
-import { AppointmentList, AppointmentForm } from '/mini/assets/appointments.js'
+import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
 
 // Tabs are the top-level navigation; a form is a nested screen inside whichever
@@ -31,7 +31,15 @@ function TabBar({ active, onSelect }) {
 
 function App() {
   const [tab, setTab] = useState('appointments')
-  const [screen, setScreen] = useState(null)
+
+  // Screens stack on top of the tab: list -> card -> edit. Telegram's back
+  // button pops one, so leaving the editor lands on the card it was opened
+  // from rather than all the way out.
+  const [stack, setStack] = useState([])
+  const screen = stack[stack.length - 1] || null
+  const push = (s) => setStack((st) => [...st, s])
+  const pop = () => setStack((st) => st.slice(0, -1))
+  const closeAll = () => setStack([])
 
   // The visibility handler is registered once, so it reads the open screen
   // through a ref rather than through a closure captured on first render.
@@ -79,7 +87,7 @@ function App() {
 
   useEffect(() => {
     if (!tg || !tg.BackButton) return
-    const back = () => setScreen(null)
+    const back = () => pop()
     if (screen) {
       tg.BackButton.show()
       tg.BackButton.onClick(back)
@@ -89,15 +97,34 @@ function App() {
     return () => tg.BackButton.offClick(back)
   }, [screen])
 
-  const closeScreen = () => setScreen(null)
+  const removeAppointment = async (item) => {
+    if (!confirm('Видалити цей запис?')) return
+    try {
+      await api(`/appointments/${item.id}`, { method: 'DELETE' })
+      closeAll()
+      loadAppointments()
+    } catch (err) {
+      setAppointments({ phase: 'error', error: err })
+      closeAll()
+    }
+  }
+
+  if (screen && screen.name === 'appointmentCard') {
+    return html`
+      <${AppointmentCard}
+        item=${screen.item}
+        onEdit=${() => push({ name: 'appointmentForm', item: screen.item })}
+        onDelete=${() => removeAppointment(screen.item)}
+        onClose=${pop} />`
+  }
 
   if (screen && screen.name === 'appointmentForm') {
     return html`
       <${AppointmentForm}
         initial=${screen.item}
         persons=${persons}
-        onSaved=${() => { closeScreen(); loadAppointments() }}
-        onCancel=${closeScreen} />`
+        onSaved=${() => { closeAll(); loadAppointments() }}
+        onCancel=${pop} />`
   }
 
   if (screen && screen.name === 'slotForm') {
@@ -106,8 +133,8 @@ function App() {
         course=${screen.course}
         slot=${screen.slot}
         weekdays=${courses.weekdays || []}
-        onSaved=${() => { closeScreen(); loadCourses() }}
-        onCancel=${closeScreen} />`
+        onSaved=${() => { closeAll(); loadCourses() }}
+        onCancel=${pop} />`
   }
 
   let body
@@ -119,8 +146,8 @@ function App() {
       body = html`
         <${AppointmentList}
           days=${appointments.days}
-          onOpen=${(item) => setScreen({ name: 'appointmentForm', item })}
-          onAdd=${() => setScreen({ name: 'appointmentForm', item: null })} />`
+          onOpen=${(item) => push({ name: 'appointmentCard', item })}
+          onAdd=${() => push({ name: 'appointmentForm', item: null })} />`
   } else {
     if (courses.phase === 'loading') body = html`<${Loading} />`
     else if (courses.phase === 'error')
@@ -130,14 +157,14 @@ function App() {
         <${CourseList}
           courses=${courses.courses}
           weekdays=${courses.weekdays}
-          onEditSlot=${(course, slot) => setScreen({ name: 'slotForm', course, slot })}
-          onAddSlot=${(course) => setScreen({ name: 'slotForm', course, slot: null })} />`
+          onEditSlot=${(course, slot) => push({ name: 'slotForm', course, slot })}
+          onAddSlot=${(course) => push({ name: 'slotForm', course, slot: null })} />`
   }
 
   return html`
     <div class="app">
       ${body}
-      <${TabBar} active=${tab} onSelect=${setTab} />
+      <${TabBar} active=${tab} onSelect=${(id) => { closeAll(); setTab(id) }} />
     </div>`
 }
 

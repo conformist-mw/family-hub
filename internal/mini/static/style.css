@@ -218,3 +218,15 @@ input:focus, select:focus, textarea:focus {
   text-align: center;
 }
 .help { color: var(--hint); font-size: 12px; }
+
+.form-head { display: flex; flex-direction: column; gap: 2px; margin: 0 0 4px; }
+.form-head-title { font-size: 17px; font-weight: 600; }
+.form-head-when { color: var(--hint); font-size: 13px; }
+
+/* Read view */
+.card { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.card-title { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.2; }
+.card-rows { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.card-row { display: flex; gap: 12px; align-items: baseline; }
+.card-row dt { flex: 0 0 86px; color: var(--hint); font-size: 13px; }
+.card-row dd { margin: 0; flex: 1; min-width: 0; }

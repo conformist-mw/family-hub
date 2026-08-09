@@ -93,6 +93,26 @@ func (s *Store) CreateSlot(enrollmentID int64, weekday int, t string, durationMi
 	return err
 }
 
+// UpdateSlot moves an existing weekly slot. Editing beats delete-and-recreate
+// because the row id is what the reminder scheduler and the ICS feed key on:
+// recreating a slot would hand Home Assistant a new uid and duplicate the
+// event in the family calendar.
+func (s *Store) UpdateSlot(id int64, weekday int, t string, durationMin int) error {
+	_, err := s.db.Exec(`
+		UPDATE regular_slots SET weekday=?, time=?, duration_min=? WHERE id=?`,
+		weekday, t, durationMin, id)
+	return err
+}
+
+func (s *Store) GetSlot(id int64) (model.Slot, error) {
+	var sl model.Slot
+	err := s.db.QueryRow(`
+		SELECT id, enrollment_id, weekday, time, duration_min, active
+		FROM regular_slots WHERE id=?`, id).
+		Scan(&sl.ID, &sl.EnrollmentID, &sl.Weekday, &sl.Time, &sl.DurationMin, &sl.Active)
+	return sl, err
+}
+
 func (s *Store) DeleteSlot(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM regular_slots WHERE id=?`, id)
 	return err

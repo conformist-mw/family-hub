@@ -9,6 +9,7 @@ import (
 
 	"familyhub/internal/appointments"
 	"familyhub/internal/model"
+	"familyhub/internal/valid"
 )
 
 // writeForm is the JSON body of a create or edit. It mirrors
@@ -34,13 +35,17 @@ func (w writeForm) form() appointments.Form {
 	}
 }
 
-// decodeWrite reads the body and rejects unknown fields, so a client typo
-// fails loudly instead of silently saving a half-filled appointment.
-func decodeWrite(r *http.Request) (appointments.Form, *apiError) {
-	var body writeForm
+// decodeJSON reads a bounded request body and rejects unknown fields, so a
+// client typo fails loudly instead of silently saving half a record.
+func decodeJSON(r *http.Request, into any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 16<<10))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil {
+	return dec.Decode(into)
+}
+
+func decodeWrite(r *http.Request) (appointments.Form, *apiError) {
+	var body writeForm
+	if err := decodeJSON(r, &body); err != nil {
 		return appointments.Form{}, errBadRequest
 	}
 	return body.form(), nil
@@ -49,7 +54,7 @@ func decodeWrite(r *http.Request) (appointments.Form, *apiError) {
 // writeError maps a failed write onto the JSON error contract. A validation
 // failure is the person's to fix and names the field; anything else is ours.
 func (rt *Router) writeError(w http.ResponseWriter, err error, what string) {
-	var invalid appointments.InvalidField
+	var invalid valid.FieldError
 	if errors.As(err, &invalid) {
 		rt.writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"error": map[string]string{

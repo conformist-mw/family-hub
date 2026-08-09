@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"familyhub/internal/appointments"
+	"familyhub/internal/schedule"
 	"familyhub/internal/store"
 )
 
@@ -72,6 +73,7 @@ type Router struct {
 	// appointments holds the write rules shared with the web UI, so the two
 	// surfaces cannot drift on what a valid appointment is.
 	appointments *appointments.Service
+	schedule     *schedule.Service
 	log          *slog.Logger
 	v            *verifier
 	loc          *time.Location
@@ -97,6 +99,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	rt := &Router{
 		store:        st,
 		appointments: appointments.NewService(st, cfg.Loc),
+		schedule:     schedule.NewService(st),
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
 		loc:          cfg.Loc,
@@ -121,6 +124,10 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("PUT /mini/api/appointments/{id}", rt.handleAppointmentUpdate)
 	mux.HandleFunc("DELETE /mini/api/appointments/{id}", rt.handleAppointmentDelete)
 	mux.HandleFunc("GET /mini/api/persons", rt.handlePersons)
+	mux.HandleFunc("GET /mini/api/courses", rt.handleCourses)
+	mux.HandleFunc("POST /mini/api/courses/{id}/slots", rt.handleSlotCreate)
+	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)
+	mux.HandleFunc("DELETE /mini/api/slots/{id}", rt.handleSlotDelete)
 	return mux, nil
 }
 

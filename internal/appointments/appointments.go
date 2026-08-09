@@ -15,6 +15,7 @@ import (
 
 	"familyhub/internal/model"
 	"familyhub/internal/store"
+	"familyhub/internal/valid"
 )
 
 // Form is what a person filled in, on either surface. Every field is a string
@@ -32,15 +33,9 @@ type Form struct {
 	Cost     string // empty means "nobody wrote it down"; "0" means it was free
 }
 
-// InvalidField is a validation failure a person can act on. Field names the
-// input to point at; Message is shown as written, in Ukrainian, on both
-// surfaces.
-type InvalidField struct {
-	Field   string
-	Message string
-}
-
-func (e InvalidField) Error() string { return e.Message }
+// InvalidField is the shared field-level validation error. It stays named here
+// because that is how the appointment rules read at their call sites.
+type InvalidField = valid.FieldError
 
 // Parse validates the form and builds the appointment it describes. loc is the
 // wall-clock zone the times are written in — appointments are stored as naive

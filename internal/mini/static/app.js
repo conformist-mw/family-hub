@@ -3,12 +3,14 @@ import { api, tg, boot } from '/mini/assets/api.js'
 import { Loading, Failure } from '/mini/assets/ui.js'
 import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
+import { Home } from '/mini/assets/home.js'
 
 // Tabs are the top-level navigation; a form is a nested screen inside whichever
 // tab opened it, so Telegram's own back button leaves the form rather than the
 // app. Only tabs that exist are shown — an empty "coming soon" destination is
 // just a dead end.
 const TABS = [
+  { id: 'home', label: 'Головна', icon: '🏠' },
   { id: 'appointments', label: 'Записи', icon: '🗓' },
   { id: 'courses', label: 'Заняття', icon: '📚' },
 ]
@@ -30,7 +32,7 @@ function TabBar({ active, onSelect }) {
 }
 
 function App() {
-  const [tab, setTab] = useState('appointments')
+  const [tab, setTab] = useState('home')
 
   // Screens stack on top of the tab: list -> card -> edit. Telegram's back
   // button pops one, so leaving the editor lands on the card it was opened
@@ -46,9 +48,18 @@ function App() {
   const screenRef = useRef(null)
   screenRef.current = screen
 
+  const [home, setHome] = useState({ phase: 'loading' })
   const [appointments, setAppointments] = useState({ phase: 'loading' })
   const [courses, setCourses] = useState({ phase: 'loading' })
   const [persons, setPersons] = useState([])
+
+  const loadHome = useCallback(async () => {
+    try {
+      setHome({ phase: 'ready', data: await api('/home') })
+    } catch (err) {
+      setHome({ phase: 'error', error: err })
+    }
+  }, [])
 
   const loadAppointments = useCallback(async () => {
     try {
@@ -70,6 +81,7 @@ function App() {
 
   useEffect(() => {
     boot()
+    loadHome()
     loadAppointments()
     loadCourses()
     api('/persons').then((d) => setPersons(d.persons || [])).catch(() => {})
@@ -78,12 +90,13 @@ function App() {
       // Refresh the lists only. Reloading under a half-filled form would throw
       // away what the person is typing.
       if (document.visibilityState !== 'visible' || screenRef.current) return
+      loadHome()
       loadAppointments()
       loadCourses()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [loadAppointments, loadCourses])
+  }, [loadHome, loadAppointments, loadCourses])
 
   useEffect(() => {
     if (!tg || !tg.BackButton) return
@@ -103,6 +116,7 @@ function App() {
       await api(`/appointments/${item.id}`, { method: 'DELETE' })
       closeAll()
       loadAppointments()
+      loadHome()
     } catch (err) {
       setAppointments({ phase: 'error', error: err })
       closeAll()
@@ -123,7 +137,7 @@ function App() {
       <${AppointmentForm}
         initial=${screen.item}
         persons=${persons}
-        onSaved=${() => { closeAll(); loadAppointments() }}
+        onSaved=${() => { closeAll(); loadAppointments(); loadHome() }}
         onCancel=${pop} />`
   }
 
@@ -133,12 +147,21 @@ function App() {
         course=${screen.course}
         slot=${screen.slot}
         weekdays=${courses.weekdays || []}
-        onSaved=${() => { closeAll(); loadCourses() }}
+        onSaved=${() => { closeAll(); loadCourses(); loadHome() }}
         onCancel=${pop} />`
   }
 
   let body
-  if (tab === 'appointments') {
+  if (tab === 'home') {
+    if (home.phase === 'loading') body = html`<${Loading} />`
+    else if (home.phase === 'error') body = html`<${Failure} error=${home.error} onRetry=${loadHome} />`
+    else
+      body = html`
+        <${Home}
+          data=${home.data}
+          onOpenVisits=${() => setTab('appointments')}
+          onOpenCourses=${() => setTab('courses')} />`
+  } else if (tab === 'appointments') {
     if (appointments.phase === 'loading') body = html`<${Loading} />`
     else if (appointments.phase === 'error')
       body = html`<${Failure} error=${appointments.error} onRetry=${loadAppointments} />`

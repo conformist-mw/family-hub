@@ -124,6 +124,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /mini/{$}", rt.handleShell)
 	mux.Handle("GET /mini/assets/", noStore(http.StripPrefix("/mini/assets/", http.FileServerFS(assets))))
+	mux.HandleFunc("GET /mini/api/home", rt.handleHome)
 	mux.HandleFunc("GET /mini/api/appointments", rt.handleAppointments)
 	mux.HandleFunc("POST /mini/api/appointments", rt.handleAppointmentCreate)
 	mux.HandleFunc("PUT /mini/api/appointments/{id}", rt.handleAppointmentUpdate)

@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"familyhub/internal/appointments"
@@ -78,6 +80,8 @@ type Router struct {
 	v            *verifier
 	loc          *time.Location
 	now          func() time.Time
+	// assetVersion busts caches on restart; see handleShell.
+	assetVersion string
 }
 
 // NewRouter builds the Mini App surface. It fails when there is no bot token:
@@ -104,6 +108,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
 		loc:          cfg.Loc,
 		now:          cfg.Now,
+		assetVersion: strconv.FormatInt(cfg.Now().Unix(), 10),
 	}
 	if u := cfg.devFixtureUser(); u != 0 {
 		logger.Warn("mini: DEV AUTH FIXTURE ACTIVE — unsigned requests accepted", "user_id", u)
@@ -118,7 +123,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	// subtree without stripping it.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /mini/{$}", rt.handleShell)
-	mux.Handle("GET /mini/assets/", http.StripPrefix("/mini/assets/", http.FileServerFS(assets)))
+	mux.Handle("GET /mini/assets/", noStore(http.StripPrefix("/mini/assets/", http.FileServerFS(assets))))
 	mux.HandleFunc("GET /mini/api/appointments", rt.handleAppointments)
 	mux.HandleFunc("POST /mini/api/appointments", rt.handleAppointmentCreate)
 	mux.HandleFunc("PUT /mini/api/appointments/{id}", rt.handleAppointmentUpdate)
@@ -131,8 +136,28 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	return mux, nil
 }
 
+// noStore keeps the assets out of every cache between here and the phone.
+//
+// Without an explicit header Cloudflare applies its own default to .js and
+// .css — four hours, in the browser and at its edge — so a deployed change is
+// simply not visible, and neither a reload nor reopening the app helps. There
+// is no build step here and therefore no content-hashed filenames to rely on
+// instead. Re-fetching some twenty kilobytes per launch costs this family
+// nothing; serving them a stale app costs an evening of confusion.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, must-revalidate")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // handleShell serves the bootstrap page. It is unauthenticated on purpose:
 // there is no family data in it, only the markup that then authenticates.
+//
+// The asset URLs carry ?v=<this process's start time>. no-store above stops
+// caches filling up again, but anything cached *before* that header existed
+// still has four hours to live, and a changed URL is the only way past it.
+// A restart is also exactly when the assets can have changed.
 func (rt *Router) handleShell(w http.ResponseWriter, r *http.Request) {
 	page, err := staticFS.ReadFile("static/index.html")
 	if err != nil {
@@ -142,7 +167,7 @@ func (rt *Router) handleShell(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Write(page)
+	w.Write([]byte(strings.ReplaceAll(string(page), "__V__", rt.assetVersion)))
 }
 
 func (rt *Router) writeJSON(w http.ResponseWriter, status int, body any) {

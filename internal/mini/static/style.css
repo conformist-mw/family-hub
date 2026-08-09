@@ -196,3 +196,25 @@ input:focus, select:focus, textarea:focus {
 .slot-add { background: transparent; color: var(--accent); }
 .small { font-size: 13px; padding: 4px 0 0; }
 .form-head { margin: 0; color: var(--hint); font-size: 14px; }
+
+/* Duration chips */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--section);
+  color: var(--text);
+  font-size: 14px;
+}
+.chip-on {
+  background: var(--tg-theme-button-color, var(--accent));
+  color: var(--tg-theme-button-text-color, #ffffff);
+  border-color: transparent;
+}
+.chip-input {
+  width: 92px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  text-align: center;
+}
+.help { color: var(--hint); font-size: 12px; }

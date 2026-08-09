@@ -159,3 +159,81 @@ func TestSplitStart(t *testing.T) {
 		t.Errorf("got %q %q", d, hhmm)
 	}
 }
+
+// The phone form asks how long something takes rather than when it ends; the
+// end time is derived here so no date arithmetic happens on the client.
+func TestParseDuration(t *testing.T) {
+	f := validForm() // 2026-08-10 14:30
+	f.Duration = "45"
+
+	a, err := f.Parse(time.UTC)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if a.EndsAt != "2026-08-10T15:15" {
+		t.Fatalf("EndsAt = %q, want 2026-08-10T15:15", a.EndsAt)
+	}
+}
+
+// A late appointment may legitimately run past midnight — the duration is
+// added to a parsed time, not to a string.
+func TestParseDurationCrossesMidnight(t *testing.T) {
+	f := validForm()
+	f.Time = "23:30"
+	f.Duration = "120"
+
+	a, err := f.Parse(time.UTC)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if a.EndsAt != "2026-08-11T01:30" {
+		t.Fatalf("EndsAt = %q, want 2026-08-11T01:30", a.EndsAt)
+	}
+}
+
+// An explicit end time is the web form's way of saying it, and it wins.
+func TestExplicitEndTimeBeatsDuration(t *testing.T) {
+	f := validForm()
+	f.EndTime = "16:00"
+	f.Duration = "45"
+
+	a, err := f.Parse(time.UTC)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if a.EndsAt != "2026-08-10T16:00" {
+		t.Fatalf("EndsAt = %q, want the explicit 16:00", a.EndsAt)
+	}
+}
+
+func TestParseDurationRejects(t *testing.T) {
+	for _, bad := range []string{"довго", "0", "-30", "2000"} {
+		f := validForm()
+		f.Duration = bad
+
+		_, err := f.Parse(time.UTC)
+		var invalid InvalidField
+		if !errors.As(err, &invalid) || invalid.Field != "duration" {
+			t.Errorf("duration %q -> %v, want a duration field error", bad, err)
+		}
+	}
+}
+
+func TestDurationOfIsTheInverse(t *testing.T) {
+	for _, minutes := range []string{"30", "45", "60", "120"} {
+		f := validForm()
+		f.Duration = minutes
+
+		a, err := f.Parse(time.UTC)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := DurationOf(a, time.UTC); got != minutes {
+			t.Errorf("DurationOf = %q, want %q", got, minutes)
+		}
+	}
+	// No end recorded means no chip is pre-selected.
+	if got := DurationOf(model.Appointment{StartsAt: "2026-08-10T14:30"}, time.UTC); got != "" {
+		t.Errorf("DurationOf without an end = %q, want empty", got)
+	}
+}

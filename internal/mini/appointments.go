@@ -22,6 +22,7 @@ type writeForm struct {
 	Date     string `json:"date"`
 	Time     string `json:"time"`
 	EndTime  string `json:"endTime"`
+	Duration string `json:"duration"`
 	Status   string `json:"status"`
 	Note     string `json:"note"`
 	Cost     string `json:"cost"`
@@ -30,7 +31,7 @@ type writeForm struct {
 func (w writeForm) form() appointments.Form {
 	return appointments.Form{
 		Title: w.Title, Person: w.Person, Location: w.Location,
-		Date: w.Date, Time: w.Time, EndTime: w.EndTime,
+		Date: w.Date, Time: w.Time, EndTime: w.EndTime, Duration: w.Duration,
 		Status: w.Status, Note: w.Note, Cost: w.Cost,
 	}
 }
@@ -184,6 +185,8 @@ type itemDTO struct {
 	Note     string `json:"note"`
 	Status   string `json:"status"`
 	Cost     string `json:"cost"`
+	// Duration is what the editor's chips bind to; EndTime stays for display.
+	Duration string `json:"duration"`
 }
 
 type dayDTO struct {
@@ -242,6 +245,7 @@ func groupByDay(items []model.Appointment, now time.Time, loc *time.Location) []
 			Note:     a.Note,
 			Status:   a.Status,
 			Cost:     appointments.FormatCost(a.Cost),
+			Duration: appointments.DurationOf(a, loc),
 		})
 	}
 	return days

@@ -18,6 +18,10 @@ import (
 	"familyhub/internal/valid"
 )
 
+// maxDurationMin keeps a mistyped duration from producing an appointment that
+// runs for weeks. A day is already far past anything real here.
+const maxDurationMin = 24 * 60
+
 // Form is what a person filled in, on either surface. Every field is a string
 // because that is what a form produces, and because a bad value has to survive
 // a re-render so it can be corrected rather than silently dropped.
@@ -28,6 +32,7 @@ type Form struct {
 	Date     string // YYYY-MM-DD
 	Time     string // HH:MM
 	EndTime  string // HH:MM; empty means open-ended
+	Duration string // minutes; an alternative to EndTime, not an addition
 	Status   string
 	Note     string
 	Cost     string // empty means "nobody wrote it down"; "0" means it was free
@@ -54,21 +59,38 @@ func (f Form) Parse(loc *time.Location) (model.Appointment, error) {
 
 	date := strings.TrimSpace(f.Date)
 	hhmm := strings.TrimSpace(f.Time)
-	if _, err := time.ParseInLocation(model.LocalDatetime, date+"T"+hhmm, loc); err != nil {
+	start, err := time.ParseInLocation(model.LocalDatetime, date+"T"+hhmm, loc)
+	if err != nil {
 		return a, InvalidField{"date", "вкажи коректну дату й час"}
 	}
 	a.StartsAt = date + "T" + hhmm
 
-	if end := strings.TrimSpace(f.EndTime); end != "" {
+	// Two ways to say when it ends, because the two surfaces ask differently:
+	// the web form has a second clock, while on a phone "how long does it take"
+	// is a tap on a chip. An explicit end time wins when both are given.
+	switch end := strings.TrimSpace(f.EndTime); {
+	case end != "":
 		if _, err := time.ParseInLocation(model.LocalDatetime, date+"T"+end, loc); err != nil {
 			return a, InvalidField{"endTime", "вкажи коректний час завершення"}
 		}
-		// Same-day only: an appointment crossing midnight is not a thing here,
-		// and the string compare is safe because both are zero-padded HH:MM.
+		// Same-day only on this path, and the string compare is safe because
+		// both are zero-padded HH:MM.
 		if end <= hhmm {
 			return a, InvalidField{"endTime", "час завершення має бути пізніше початку"}
 		}
 		a.EndsAt = date + "T" + end
+
+	case strings.TrimSpace(f.Duration) != "":
+		minutes, err := strconv.Atoi(strings.TrimSpace(f.Duration))
+		if err != nil || minutes <= 0 {
+			return a, InvalidField{"duration", "тривалість має бути числом хвилин"}
+		}
+		if minutes > maxDurationMin {
+			return a, InvalidField{"duration", "надто довго — вкажи менше доби"}
+		}
+		// Adding to the parsed start rather than to the string means a late
+		// evening appointment can legitimately end after midnight.
+		a.EndsAt = start.Add(time.Duration(minutes) * time.Minute).Format(model.LocalDatetime)
 	}
 
 	if _, ok := model.ApptStatusLabels[a.Status]; !ok {
@@ -160,4 +182,26 @@ func (s *Service) Update(id int64, f Form) (model.Appointment, error) {
 
 func (s *Service) Delete(id int64) error {
 	return s.store.SoftDeleteAppointment(id)
+}
+
+// DurationOf reports how many minutes an appointment lasts, as the form's
+// field: "" when no end was recorded. It is the inverse of the Duration path
+// in Parse, so the editor can pre-select the chip that was chosen.
+func DurationOf(a model.Appointment, loc *time.Location) string {
+	if a.EndsAt == "" {
+		return ""
+	}
+	start, err := a.Start(loc)
+	if err != nil {
+		return ""
+	}
+	end, err := time.ParseInLocation(model.LocalDatetime, a.EndsAt, loc)
+	if err != nil {
+		return ""
+	}
+	minutes := int(end.Sub(start).Minutes())
+	if minutes <= 0 {
+		return ""
+	}
+	return strconv.Itoa(minutes)
 }

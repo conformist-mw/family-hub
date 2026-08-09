@@ -48,9 +48,43 @@ export function AppointmentList({ days, onOpen, onAdd }) {
     </main>`
 }
 
+// Location and status have no inputs here. Location was never once filled in,
+// and everything entered on a phone is something being planned. They stay in
+// the payload all the same: this form PUTs the whole appointment, so dropping
+// them would wipe whatever the web UI or the bot had recorded.
 const EMPTY = {
   title: '', person: '', location: '', date: '', time: '',
-  endTime: '', status: 'planned', note: '', cost: '',
+  endTime: '', duration: '', status: 'planned', note: '', cost: '',
+}
+
+// "How long does it take" is a tap; "when does it end" is arithmetic the
+// person has to do themselves. The end time is computed server-side.
+const DURATIONS = [
+  { min: '30', label: '30 хв' },
+  { min: '45', label: '45 хв' },
+  { min: '60', label: '1 год' },
+  { min: '120', label: '2 год' },
+]
+
+function DurationPicker({ value, onPick, error }) {
+  const custom = value !== '' && !DURATIONS.some((d) => d.min === value)
+  return html`
+    <div class="field">
+      <span class="label">Скільки триває</span>
+      <div class="chips">
+        ${DURATIONS.map(
+          (d) => html`
+            <button type="button" key=${d.min}
+              class="chip ${value === d.min ? 'chip-on' : ''}"
+              onClick=${() => onPick(value === d.min ? '' : d.min)}>${d.label}</button>`,
+        )}
+        <input class="chip-input ${custom ? 'chip-on' : ''}" inputmode="numeric"
+          value=${custom ? value : ''} placeholder="свої хв"
+          onInput=${(e) => onPick(e.target.value)} />
+      </div>
+      ${error && html`<span class="field-error">${error}</span>`}
+      <span class="help">Порожньо — тривалість не задана</span>
+    </div>`
 }
 
 export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
@@ -77,7 +111,10 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
     setError(null)
     const body = {
       title: values.title, person: values.person, location: values.location,
-      date: values.date, time: values.time, endTime: values.endTime,
+      date: values.date, time: values.time,
+      // The chips own the end of the appointment, so the stored end time is
+      // recomputed from them rather than carried along stale.
+      endTime: '', duration: values.duration,
       status: values.status, note: values.note, cost: values.cost,
     }
     try {
@@ -123,20 +160,12 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
         <${Field} label="Початок" error=${errFor('date')}>
           <input type="time" value=${values.time} onInput=${set('time')} />
         <//>
-        <${Field} label="Кінець" error=${errFor('endTime')}>
-          <input type="time" value=${values.endTime} onInput=${set('endTime')} />
-        <//>
       </div>
-      <${Field} label="Де">
-        <input value=${values.location} onInput=${set('location')} placeholder="Хрещатик 1" />
-      <//>
-      <${Field} label="Статус" error=${errFor('status')}>
-        <select value=${values.status} onChange=${set('status')}>
-          ${STATUSES.map((s) => html`<option value=${s.value} key=${s.value}>${s.label}</option>`)}
-        </select>
-      <//>
+      <${DurationPicker} value=${values.duration} error=${errFor('duration')}
+        onPick=${(min) => { guardUnsaved(true); setValues((v) => ({ ...v, duration: min })) }} />
       <${Field} label="Сума" error=${errFor('cost')}>
-        <input value=${values.cost} onInput=${set('cost')} inputmode="decimal" placeholder="порожньо — не записано" />
+        <input value=${values.cost} onInput=${set('cost')} inputmode="decimal" placeholder="—" />
+        <span class="help">0 — безкоштовно · порожньо — не записували</span>
       <//>
       <${Field} label="Нотатка">
         <textarea rows="2" value=${values.note} onInput=${set('note')}></textarea>

@@ -81,9 +81,30 @@ function endPreview(time, duration) {
   return { at: `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`, nextDay: total >= 1440 }
 }
 
+// "1 год 30 хв" reads better than "90" in a sentence about a visit.
+function humanDuration(minutes) {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (!h) return `${m} хв`
+  if (!m) return `${h} год`
+  return `${h} год ${m} хв`
+}
+
 function DurationPicker({ value, startTime, onPick, error }) {
-  const custom = value !== '' && !DURATIONS.some((d) => d.min === value)
+  const minutes = parseInt(value, 10)
+  const known = Number.isFinite(minutes) && minutes > 0
   const end = endPreview(startTime, value)
+
+  // The end of a visit here is a rough "how long will this take", not a
+  // commitment, so the field says the duration in words and treats the end
+  // time as the consequence.
+  let summary = 'Тривалість не задана — обери чип або введи хвилини'
+  if (known) {
+    summary = `Триває ${humanDuration(minutes)}`
+    if (end) summary += ` · закінчиться о ${end.at}${end.nextDay ? ' наступного дня' : ''}`
+    else summary += ' · вкажи час початку, щоб побачити закінчення'
+  }
+
   return html`
     <div class="field">
       <span class="label">Скільки триває</span>
@@ -94,16 +115,14 @@ function DurationPicker({ value, startTime, onPick, error }) {
               class="chip ${value === d.min ? 'chip-on' : ''}"
               onClick=${() => onPick(value === d.min ? '' : d.min)}>${d.label}</button>`,
         )}
-        <input class="chip-input ${custom ? 'chip-on' : ''}" inputmode="numeric"
-          value=${custom ? value : ''} placeholder="свої хв"
-          onInput=${(e) => onPick(e.target.value)} />
+        <!-- Always mirrors the value, including one a chip just set. Blanking
+             it the moment a typed number matched a preset made the text vanish
+             mid-keystroke. -->
+        <input class="chip-input" inputmode="numeric" value=${value}
+          placeholder="хв" onInput=${(e) => onPick(e.target.value)} />
       </div>
       ${error && html`<span class="field-error">${error}</span>`}
-      <span class="help">
-        ${end
-          ? `Закінчиться о ${end.at}${end.nextDay ? ' наступного дня' : ''}`
-          : 'Час завершення не задано'}
-      </span>
+      <span class="help">${summary}</span>
     </div>`
 }
 

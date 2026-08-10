@@ -50,7 +50,7 @@ func TestBalanceLine(t *testing.T) {
 
 	monthly := model.Balance{CoveredNow: true, CoversUntil: "2026-08-31", DaysLeft: 21}
 	monthly.BillingType = model.BillingMonthly
-	if got := balanceLine(monthly); got != "абонемент до 31.08, 21 день" {
+	if got := balanceLine(monthly); got != "абонемент до 31 сер, 21 день" {
 		t.Errorf("monthly = %q", got)
 	}
 	unpaid := model.Balance{}
@@ -69,7 +69,7 @@ func TestMoney(t *testing.T) {
 }
 
 func TestShortDate(t *testing.T) {
-	if got := shortDate("2026-08-31"); got != "31.08" {
+	if got := shortDate("2026-08-31"); got != "31 сер" {
 		t.Errorf("got %q", got)
 	}
 	// A value that will not parse is shown as-is rather than blanked.
@@ -121,8 +121,12 @@ func TestHome(t *testing.T) {
 	if len(body.Payments) != 1 {
 		t.Fatalf("payments = %+v", body.Payments)
 	}
-	if p := body.Payments[0]; p.Amount != "5000 ₴" || p.Detail != "10 занять" || p.Date != "01.08" {
+	if p := body.Payments[0]; p.Amount != "5000 ₴" || p.Detail != "10 занять" || p.Date != "1 сер" {
 		t.Errorf("payment = %+v", p)
+	}
+	// The heading is the one date on the screen that is not about a row.
+	if body.Today != "Четвер, 6 серпня" {
+		t.Errorf("today = %q", body.Today)
 	}
 }
 

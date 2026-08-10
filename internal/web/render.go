@@ -119,7 +119,6 @@ var funcs = template.FuncMap{
 		return p
 	},
 	"monthShort": func(ym string) string {
-		months := [...]string{"", "січ", "лют", "бер", "кві", "тра", "чер", "лип", "сер", "вер", "жов", "лис", "гру"}
 		if len(ym) != 7 {
 			return ym
 		}
@@ -129,7 +128,7 @@ var funcs = template.FuncMap{
 		if m < 1 || m > 12 {
 			return ym
 		}
-		return months[m] + " " + y
+		return model.MonthsShort[m] + " " + y
 	},
 	"addedAt": func(s string) string {
 		if s == "" {

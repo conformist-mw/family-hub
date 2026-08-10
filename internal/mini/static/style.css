@@ -1,12 +1,106 @@
-/* Telegram supplies the palette through CSS variables; the fallbacks keep the
-   page readable in a plain browser, which is where development happens. */
+/* Two themes, one stylesheet. Telegram tells the app which one the client is
+   in (colorScheme + themeChanged); theme.js writes that onto <html> as
+   data-theme. Without Telegram — the browser during development — the OS
+   preference decides. The palette is the app's own: Telegram's own colours
+   vary per client and per custom theme, which made the accent unpredictable
+   and the greys inconsistent between the two halves of a card. What is still
+   taken from Telegram is the page background, so the app does not sit on a
+   different white than the client around it. */
 :root {
-  --bg: var(--tg-theme-bg-color, #ffffff);
-  --text: var(--tg-theme-text-color, #1c1c1e);
-  --hint: var(--tg-theme-hint-color, #8b8e93);
-  --section: var(--tg-theme-secondary-bg-color, #f2f2f7);
-  --accent: var(--tg-theme-link-color, #2f81f7);
-  --danger: #d9534f;
+  --bg: var(--tg-theme-secondary-bg-color, #f2f3f7);
+  --card: var(--tg-theme-bg-color, #ffffff);
+  --text: #111214;
+  --muted: #6b6e73;
+  --hint: #8b8e93;
+  --line: #eceef2;
+  --line-strong: #e3e5ea;
+
+  --accent: #127a68;
+  --accent-weak: #e7f2ef;
+  --on-accent: #ffffff;
+
+  --hero-bg: #0f4d43;
+  --hero-text: #ffffff;
+  --hero-muted: #a7ded1;
+  --hero-line: rgba(255, 255, 255, 0.16);
+
+  --warn: #b07c00;
+  --warn-bar: #d99e00;
+  --warn-weak: #f2ecdb;
+
+  --danger: #c0392b;
+  --danger-weak: #fbeceb;
+
+  --field-bg: transparent;
+  --nav-bg: rgba(255, 255, 255, 0.94);
+  --shadow-fab: 0 6px 18px rgba(18, 122, 104, 0.34);
+
+  --r-card: 16px;
+  --r-hero: 18px;
+  --r-btn: 14px;
+  --r-chip: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: var(--tg-theme-secondary-bg-color, #17181c);
+    --card: var(--tg-theme-bg-color, #212227);
+    --text: #f1f2f4;
+    --muted: #a2a6ad;
+    --hint: #8b8e93;
+    --line: #2c2e34;
+    --line-strong: #33353c;
+
+    --accent: #3dae99;
+    --accent-weak: rgba(61, 174, 153, 0.16);
+    --on-accent: #06231e;
+
+    --hero-bg: #123c35;
+    --hero-text: #f1f2f4;
+    --hero-muted: #86c7b8;
+    --hero-line: rgba(255, 255, 255, 0.12);
+
+    --warn: #e0aa2a;
+    --warn-bar: #e0aa2a;
+    --warn-weak: rgba(224, 170, 42, 0.16);
+
+    --danger: #ef6f61;
+    --danger-weak: rgba(239, 111, 97, 0.16);
+
+    --nav-bg: rgba(33, 34, 39, 0.94);
+    --shadow-fab: 0 6px 18px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Telegram's own scheme wins over the OS one: the app lives inside the client,
+   and a light app inside a dark client is the thing being fixed here. */
+:root[data-theme='dark'] {
+  --bg: var(--tg-theme-secondary-bg-color, #17181c);
+  --card: var(--tg-theme-bg-color, #212227);
+  --text: #f1f2f4;
+  --muted: #a2a6ad;
+  --hint: #8b8e93;
+  --line: #2c2e34;
+  --line-strong: #33353c;
+
+  --accent: #3dae99;
+  --accent-weak: rgba(61, 174, 153, 0.16);
+  --on-accent: #06231e;
+
+  --hero-bg: #123c35;
+  --hero-text: #f1f2f4;
+  --hero-muted: #86c7b8;
+  --hero-line: rgba(255, 255, 255, 0.12);
+
+  --warn: #e0aa2a;
+  --warn-bar: #e0aa2a;
+  --warn-weak: rgba(224, 170, 42, 0.16);
+
+  --danger: #ef6f61;
+  --danger-weak: rgba(239, 111, 97, 0.16);
+
+  --nav-bg: rgba(33, 34, 39, 0.94);
+  --shadow-fab: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -15,8 +109,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  /* Telegram reports its own insets; env() covers the notch underneath. */
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
   padding:
     var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px))
     var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px))
@@ -24,130 +118,354 @@ body {
     var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px));
 }
 
-main { padding: 4px 0 0; }
+.app { padding-bottom: 78px; }
 
-.day-label {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+/* Screen scaffold ------------------------------------------------------ */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 16px 0;
+}
+.screen-title {
   margin: 0;
-  padding: 10px 16px 6px;
-  background: var(--bg);
-  color: var(--hint);
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 2px 0;
+}
+.sec-title {
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
-  text-transform: lowercase;
-}
-
-.items { margin: 0; padding: 0; list-style: none; }
-
-.item {
-  display: flex;
-  gap: 12px;
-  padding: 10px 16px;
-  border-top: 1px solid color-mix(in srgb, var(--hint) 22%, transparent);
-}
-.day .item:first-child { border-top: none; }
-
-.time {
-  flex: 0 0 48px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  font-variant-numeric: tabular-nums;
-}
-.start { font-weight: 600; }
-.end { color: var(--hint); font-size: 13px; }
-
-.body { min-width: 0; flex: 1; }
-.line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.title { font-weight: 500; }
-.person { color: var(--hint); font-size: 14px; }
-.location, .note { color: var(--hint); font-size: 14px; }
-.note { font-style: italic; }
-
-.pill {
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 12px;
-  background: var(--section);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--hint);
 }
-.pill-cancelled { color: var(--danger); }
+.sec-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sec-empty { margin: 0 2px; color: var(--hint); font-size: 14px; }
 
-.item { cursor: pointer; }
-.chev { align-self: center; color: var(--hint); font-size: 20px; }
+/* Cards ---------------------------------------------------------------- */
 
-.center {
+.card {
+  background: var(--card);
+  border-radius: var(--r-card);
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 12px;
-  padding: 25vh 24px 0;
-  text-align: center;
 }
-.muted { color: var(--hint); }
-.error { margin: 0; color: var(--danger); }
+/* A card that is only a list of rows: the rows own the vertical padding, so
+   the dividers run the full width of the text column. */
+.card-rows { padding: 2px 16px; gap: 0; }
 
-/* Buttons */
-button {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 10px;
-  background: var(--section);
-  color: var(--text);
-  font-size: 15px;
-  font-family: inherit;
+.row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
 }
-button.primary {
-  background: var(--tg-theme-button-color, var(--accent));
-  color: var(--tg-theme-button-text-color, #ffffff);
-}
-button.danger { background: transparent; color: var(--danger); }
-button[disabled] { opacity: 0.6; }
-
-.fab {
-  position: fixed;
-  right: 16px;
-  bottom: calc(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 20px);
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--tg-theme-button-color, var(--accent));
-  color: var(--tg-theme-button-text-color, #ffffff);
-  font-size: 28px;
-  line-height: 1;
-  padding: 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-}
-
-/* Form */
-.form { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
-.field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-.label { color: var(--hint); font-size: 13px; }
-.field-error { color: var(--danger); font-size: 13px; }
-.row { display: flex; gap: 10px; }
-
-input, select, textarea {
+.row:first-child { border-top: none; }
+button.row {
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--hint) 35%, transparent);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  border-radius: 0;
+}
+.row-top { align-items: flex-start; }
+.row-when {
+  flex: 0 0 96px;
+  color: var(--hint);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.row-date { flex: 0 0 52px; }
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.row-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chev { flex: 0 0 auto; color: var(--line-strong); }
+
+.title { font-size: 16px; font-weight: 600; }
+.person { color: var(--muted); font-size: 14px; }
+.meta { display: flex; align-items: center; gap: 5px; color: var(--hint); font-size: 13px; }
+.note { color: var(--hint); font-size: 13px; font-style: italic; }
+.muted { color: var(--hint); }
+.dim { opacity: 0.62; }
+
+/* Hero: the next thing today ------------------------------------------- */
+
+.hero {
+  background: var(--hero-bg);
+  color: var(--hero-text);
+  border-radius: var(--r-hero);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hero-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hero-muted);
+}
+.hero-body { display: flex; align-items: flex-start; gap: 14px; }
+.hero-time {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.hero-title { font-size: 18px; font-weight: 600; }
+.hero-sub { font-size: 14px; color: var(--hero-muted); }
+.hero-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hero-line);
+  font-size: 13px;
+  color: var(--hero-muted);
+}
+
+/* Course cards --------------------------------------------------------- */
+
+.course-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.course-name { font-size: 17px; font-weight: 600; }
+.course-sub { font-size: 13px; color: var(--hint); }
+.course-state { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.state-ok { color: var(--accent); }
+.state-low { color: var(--warn); }
+.state-empty { color: var(--danger); }
+
+/* A three-step gauge, not a measurement: the server sends a state, and the
+   bar says "full / running out / gone" at a glance. */
+.bar { height: 6px; border-radius: 99px; overflow: hidden; background: var(--accent-weak); }
+.bar-low { background: var(--warn-weak); }
+.bar-empty { background: var(--danger-weak); }
+.bar-fill { height: 100%; background: var(--accent); }
+.bar-low .bar-fill { background: var(--warn-bar); }
+.bar-empty .bar-fill { background: var(--danger); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 8px 13px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.chip-on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.chip-add {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Appointments --------------------------------------------------------- */
+
+.day { display: flex; flex-direction: column; gap: 8px; }
+.day-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.day-today { color: var(--accent); }
+.day-date { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--hint); }
+
+.time {
+  flex: 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+}
+.start { font-size: 16px; font-weight: 600; }
+.end { font-size: 13px; color: var(--hint); }
+.start-off { text-decoration: line-through; text-decoration-color: var(--line-strong); }
+
+.pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--muted);
+}
+.pill-done { background: var(--accent-weak); color: var(--accent); }
+.pill-cancelled { background: var(--danger-weak); color: var(--danger); }
+.line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Forms ---------------------------------------------------------------- */
+
+.form { display: flex; flex-direction: column; gap: 14px; padding: 18px 16px; }
+.form-head { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.form-head-title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.form-head-when { font-size: 13px; color: var(--hint); }
+
+/* Fields live inside a card and are separated by hairlines rather than each
+   being boxed: on a phone a column of outlined inputs is mostly outline. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+}
+.field:first-child { border-top: none; }
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hint);
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: var(--field-bg);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.field textarea { resize: none; }
+.field input:focus,
+.field select:focus,
+.field textarea:focus { outline: none; }
+.field-error { color: var(--danger); font-size: 13px; }
+.help { color: var(--hint); font-size: 12px; }
+.help-ok { color: var(--accent); font-size: 13px; }
+
+.field-row { display: flex; border-top: 1px solid var(--line); }
+.field-row:first-child { border-top: none; }
+.field-row .field { border-top: none; flex: 1; min-width: 0; }
+.field-row .field + .field {
+  flex: 0 0 122px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+
+/* Seven weekdays fit across a phone, so the day of a lesson is a tap rather
+   than a dropdown. */
+.days { display: flex; gap: 6px; }
+.day-btn {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
   border-radius: 10px;
   background: var(--bg);
   color: var(--text);
   font: inherit;
+  font-size: 14px;
 }
-textarea { resize: vertical; }
-input:focus, select:focus, textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-}
+.day-on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
 
+/* Buttons -------------------------------------------------------------- */
+
+button { font-family: inherit; }
+.btn {
+  flex: 1;
+  padding: 13px;
+  border: none;
+  border-radius: var(--r-btn);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-danger {
+  width: 100%;
+  padding: 6px;
+  border: none;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+.btn[disabled] { opacity: 0.6; }
 .actions { display: flex; gap: 10px; }
-.actions button { flex: 1; }
 
-/* Tabs */
-.app { padding-bottom: 64px; }
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 82px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 24px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: var(--shadow-fab);
+}
+
+/* Empty and error states ----------------------------------------------- */
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22vh 32px 0;
+  text-align: center;
+}
+.state-icon { color: var(--line-strong); }
+.state-title { font-size: 16px; font-weight: 600; }
+.state-title.error { color: var(--danger); }
+.state-text { color: var(--hint); font-size: 14px; }
+.state .btn { flex: 0 0 auto; margin-top: 6px; padding: 11px 20px; }
+
+/* Tab bar -------------------------------------------------------------- */
 
 .tabbar {
   position: fixed;
@@ -155,109 +473,24 @@ input:focus, select:focus, textarea:focus {
   right: 0;
   bottom: 0;
   display: flex;
-  background: var(--bg);
-  border-top: 1px solid color-mix(in srgb, var(--hint) 22%, transparent);
-  padding-bottom: var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  background: var(--nav-bg);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line-strong);
+  padding: 8px 0 calc(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 10px);
 }
 .tab {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 0;
+  gap: 4px;
+  padding: 0;
+  border: none;
   border-radius: 0;
   background: transparent;
   color: var(--hint);
+  font: inherit;
 }
-.tab-active { color: var(--tg-theme-button-color, var(--accent)); }
-.tab-icon { font-size: 19px; line-height: 1; }
+.tab-active { color: var(--accent); }
 .tab-label { font-size: 11px; }
-
-/* The add button sits above the tab bar rather than under it. */
-.fab { bottom: calc(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 76px); }
-
-/* Courses */
-.course {
-  padding: 12px 16px;
-  border-top: 1px solid color-mix(in srgb, var(--hint) 22%, transparent);
-}
-.course:first-child { border-top: none; }
-.course-head { margin-bottom: 8px; }
-.slots { display: flex; flex-wrap: wrap; gap: 8px; }
-.slot {
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--section);
-  color: var(--text);
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-}
-.slot-add { background: transparent; color: var(--accent); }
-.small { font-size: 13px; padding: 4px 0 0; }
-.form-head { margin: 0; color: var(--hint); font-size: 14px; }
-
-/* Duration chips */
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: var(--section);
-  color: var(--text);
-  font-size: 14px;
-}
-.chip-on {
-  background: var(--tg-theme-button-color, var(--accent));
-  color: var(--tg-theme-button-text-color, #ffffff);
-  border-color: transparent;
-}
-.chip-input {
-  width: 92px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  text-align: center;
-}
-.help { color: var(--hint); font-size: 12px; }
-
-.form-head { display: flex; flex-direction: column; gap: 2px; margin: 0 0 4px; }
-.form-head-title { font-size: 17px; font-weight: 600; }
-.form-head-when { color: var(--hint); font-size: 13px; }
-
-/* Read view */
-.card { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-.card-title { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.2; }
-.card-rows { margin: 0; display: flex; flex-direction: column; gap: 10px; }
-.card-row { display: flex; gap: 12px; align-items: baseline; }
-.card-row dt { flex: 0 0 86px; color: var(--hint); font-size: 13px; }
-.card-row dd { margin: 0; flex: 1; min-width: 0; }
-
-/* Home */
-.home { padding: 4px 0 8px; }
-.hs { padding: 8px 0 4px; }
-.hs-title {
-  display: flex; align-items: baseline; justify-content: space-between;
-  margin: 0; padding: 10px 16px 6px;
-  color: var(--hint); font-size: 13px; font-weight: 600; text-transform: lowercase;
-}
-.hs-more { padding: 0; background: none; color: var(--accent); font-size: 13px; }
-.hs-empty { margin: 0; padding: 2px 16px 10px; color: var(--hint); font-size: 14px; }
-.hs-list { margin: 0; padding: 0; list-style: none; }
-.hs-row {
-  display: flex; gap: 12px; align-items: flex-start;
-  padding: 9px 16px;
-  border-top: 1px solid color-mix(in srgb, var(--hint) 18%, transparent);
-}
-.hs-list .hs-row:first-child { border-top: none; }
-.hs-when { flex: 0 0 96px; color: var(--hint); font-size: 13px; font-variant-numeric: tabular-nums; }
-.hs-main { flex: 1; min-width: 0; }
-.hs-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.hs-balance { font-size: 14px; }
-.bal-ok { color: var(--hint); }
-.bal-low { color: #c98a00; }
-.bal-empty { color: var(--danger); }
-.hs-absence { font-size: 13px; }
-.hs-absence { color: var(--hint); font-style: italic; }
-.dot { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--hint); }
-.dot-ok { background: #2fae5f; }
-.dot-low { background: #d99e00; }
-.dot-empty { background: var(--danger); }
+.tab-active .tab-label { font-weight: 600; }

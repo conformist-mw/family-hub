@@ -1,6 +1,8 @@
 import { html, render, useState, useEffect, useCallback, useRef } from '/mini/assets/vendor/preact-htm.module.js'
 import { api, tg, boot } from '/mini/assets/api.js'
+import { watchTheme } from '/mini/assets/theme.js'
 import { Loading, Failure } from '/mini/assets/ui.js'
+import { IconHome, IconCalendar, IconBook } from '/mini/assets/icons.js'
 import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
 import { Home } from '/mini/assets/home.js'
@@ -10,9 +12,9 @@ import { Home } from '/mini/assets/home.js'
 // app. Only tabs that exist are shown — an empty "coming soon" destination is
 // just a dead end.
 const TABS = [
-  { id: 'home', label: 'Головна', icon: '🏠' },
-  { id: 'appointments', label: 'Записи', icon: '🗓' },
-  { id: 'courses', label: 'Заняття', icon: '📚' },
+  { id: 'home', label: 'Головна', Icon: IconHome },
+  { id: 'appointments', label: 'Записи', Icon: IconCalendar },
+  { id: 'courses', label: 'Заняття', Icon: IconBook },
 ]
 
 function TabBar({ active, onSelect }) {
@@ -24,7 +26,7 @@ function TabBar({ active, onSelect }) {
             key=${t.id}
             class="tab ${active === t.id ? 'tab-active' : ''}"
             onClick=${() => onSelect(t.id)}>
-            <span class="tab-icon">${t.icon}</span>
+            <${t.Icon} />
             <span class="tab-label">${t.label}</span>
           </button>`,
       )}
@@ -81,6 +83,7 @@ function App() {
 
   useEffect(() => {
     boot()
+    watchTheme()
     loadHome()
     loadAppointments()
     loadCourses()

@@ -21,10 +21,16 @@ type slotDTO struct {
 }
 
 type courseDTO struct {
-	ID       int64     `json:"id"`
-	Name     string    `json:"name"`
-	Person   string    `json:"person"`
-	Note     string    `json:"note"`
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Person string `json:"person"`
+	Note   string `json:"note"`
+	// The same three strings the home screen shows. A person who came here to
+	// move a lesson is the person who wants to know whether it is paid for,
+	// and switching tabs to find out is a tab too many.
+	State    string    `json:"state"`   // ok | low | empty
+	Balance  string    `json:"balance"` // "залишилось 6 занять"
+	Absence  string    `json:"absence"`
 	Schedule []slotDTO `json:"schedule"`
 }
 
@@ -45,6 +51,22 @@ func (rt *Router) handleCourses(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errInternal)
 		return
 	}
+	balances, err := rt.store.Balances()
+	if err != nil {
+		rt.log.Error("mini: balances", "err", err)
+		rt.fail(w, errInternal)
+		return
+	}
+	byEnrollment := make(map[int64]model.Balance, len(balances))
+	for _, b := range balances {
+		byEnrollment[b.ID] = b
+	}
+	absences, err := rt.store.ActiveAbsenceByEnrollment(rt.now().In(rt.loc).Format("2006-01-02"))
+	if err != nil {
+		rt.log.Error("mini: absences", "err", err)
+		rt.fail(w, errInternal)
+		return
+	}
 
 	courses := make([]courseDTO, 0, len(enrollments))
 	for _, e := range enrollments {
@@ -54,13 +76,23 @@ func (rt *Router) handleCourses(w http.ResponseWriter, r *http.Request) {
 			rt.fail(w, errInternal)
 			return
 		}
-		courses = append(courses, courseDTO{
+		c := courseDTO{
 			ID:       e.ID,
 			Name:     e.Name,
 			Person:   e.Person,
 			Note:     e.Description,
 			Schedule: slotDTOs(slots),
-		})
+		}
+		// A course with no balance row yet keeps State empty, and the client
+		// then draws the card without the gauge rather than an empty one.
+		if b, ok := byEnrollment[e.ID]; ok {
+			c.State = b.State()
+			c.Balance = balanceLine(b)
+		}
+		if a := absences[e.ID]; a != nil {
+			c.Absence = absenceLine(*a)
+		}
+		courses = append(courses, c)
 	}
 
 	rt.writeJSON(w, http.StatusOK, coursesDTO{

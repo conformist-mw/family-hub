@@ -41,6 +41,13 @@ just deploy-hetzner-tag family-hub
   `docker run --rm -v <dir>:/data -v "$PWD/Доп. занятия.xlsx":/seed.xlsx \
    --entrypoint /app/import olegsmedyuk/family-hub:latest -src /seed.xlsx -db /data/lessons.db`
 - Migrations (`goose`) run automatically on container start.
+- The Mini App needs three things beyond a normal deploy, all one-time:
+  `lessons_mini_users` in `host_vars/hetzner/secrets.sops.yaml`
+  (Telegram **user** ids, not chat ids), the
+  `family-hub-mini` Traefik router in the role, and the Mini App URL
+  `https://family.conformist.name/mini/` registered on the prod bot in
+  BotFather. Miss the allowlist and everyone gets 403; miss the router and
+  the app hits the oauth wall.
 - Prod env (bot token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
   `TELEGRAM_REMINDER_DELAY_MIN`, `GEMINI_API_KEY`, `VISIT_PEOPLE`,
   `TZ=Europe/Kyiv`) comes from the role +

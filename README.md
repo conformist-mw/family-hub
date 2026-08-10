@@ -84,3 +84,7 @@ webhook and the ICS feed, which bypass it (secret path / token).
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the data model, deployment
 pipeline (SOPS + Ansible + Docker Hub), Telegram bot internals, common
 operational recipes, and the open backlog.
+
+See [`docs/telegram-mini-app-plan.md`](docs/telegram-mini-app-plan.md) for the
+proposed Telegram Mini App boundary, authentication model, UX scope, and
+delivery slices.

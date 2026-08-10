@@ -6,7 +6,9 @@ import (
 	"strconv"
 
 	"familyhub/internal/model"
+	"familyhub/internal/schedule"
 	"familyhub/internal/store"
+	"familyhub/internal/valid"
 )
 
 type billingOption struct {
@@ -191,17 +193,23 @@ func (a *App) handleSlotCreate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	weekday, _ := strconv.Atoi(r.FormValue("weekday"))
-	t := normalizeName(r.FormValue("time"))
-	duration, _ := strconv.Atoi(r.FormValue("duration_min"))
-	if duration <= 0 {
-		duration = 60
+	// Slot rules live in internal/schedule, shared with the Mini App. They are
+	// stricter than what used to be here: the time is now actually parsed, so
+	// a typo can no longer reach the table and silently never fire a reminder.
+	form := schedule.Form{
+		Weekday:  r.FormValue("weekday"),
+		Time:     r.FormValue("time"),
+		Duration: r.FormValue("duration_min"),
 	}
-	if weekday < 0 || weekday > 6 || t == "" {
-		http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
-		return
-	}
-	if err := a.Store.CreateSlot(id, weekday, t, duration); err != nil {
+	if err := schedule.NewService(a.Store).Add(id, form); err != nil {
+		var invalid valid.FieldError
+		if errors.As(err, &invalid) {
+			// This page has no slot-level error slot; the value is rejected
+			// rather than stored, which is the part that matters.
+			a.Logger.Warn("web: slot rejected", "err", invalid.Message, "enrollment", id)
+			http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
+			return
+		}
 		a.serverError(w, err)
 		return
 	}

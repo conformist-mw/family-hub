@@ -34,6 +34,14 @@ var AbsenceKindLabels = map[string]string{
 
 var WeekdayLabels = [7]string{"Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
 
+// MonthsGenitive is the "6 серпня" form, for day headers that have room for a
+// whole word. The compact "6 сер" lists in the bot and the web charts keep
+// their own short vocabulary.
+var MonthsGenitive = [13]string{
+	"", "січня", "лютого", "березня", "квітня", "травня", "червня",
+	"липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+}
+
 type Person struct {
 	ID     int64
 	Name   string

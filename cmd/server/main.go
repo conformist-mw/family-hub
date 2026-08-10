@@ -17,6 +17,7 @@ import (
 
 	"familyhub/internal/bot"
 	"familyhub/internal/db"
+	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/store"
 	"familyhub/internal/web"
@@ -56,7 +57,8 @@ func main() {
 	// send: a nil *bot.Bot stuffed into an interface would be non-nil and
 	// the send button would render against a dead bot.
 	var notifier web.Notifier
-	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if token != "" {
 		notifyChat, _ := strconv.ParseInt(os.Getenv("TELEGRAM_NOTIFY_CHAT"), 10, 64)
 		reminderDelay := 60
 		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_REMINDER_DELAY_MIN")); err == nil {
@@ -137,9 +139,34 @@ func main() {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
 	}
 
+	webHandler := web.NewRouter(database, logger, webhookPath, webhookHandler, notifier)
+
+	// initData verification is an HMAC keyed by the bot token, so with no token
+	// there is nothing to mount — the same shape as free-text capture without
+	// a Gemini key.
+	var miniHandler http.Handler
+	if token == "" {
+		logger.Info("mini: disabled (TELEGRAM_BOT_TOKEN not set)")
+	} else {
+		devUser, _ := strconv.ParseInt(os.Getenv("MINI_DEV_USER"), 10, 64)
+		miniRouter, err := mini.NewRouter(store.New(database), logger, mini.Config{
+			BotToken:     token,
+			AllowedUsers: mini.ParseUserIDs(os.Getenv("TELEGRAM_MINI_USERS"), logger),
+			DevUser:      devUser,
+			WebhookURL:   os.Getenv("TELEGRAM_WEBHOOK_URL"),
+			Loc:          time.Local,
+		})
+		if err != nil {
+			logger.Error("mini: init", "err", err)
+			os.Exit(1)
+		}
+		miniHandler = miniRouter
+		logger.Info("mini: mounted at /mini")
+	}
+
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           web.NewRouter(database, logger, webhookPath, webhookHandler, notifier),
+		Handler:           buildHandler(webHandler, miniHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -159,6 +186,20 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown", "err", err)
 	}
+}
+
+// buildHandler composes the two HTTP surfaces. They are deliberately separate
+// handlers rather than one shared mux: /mini/* must not pass through web's
+// csrfGuard — it authenticates each request with a header and so has no
+// ambient credential to protect — and must not inherit the web layout or its
+// OAuth-proxy assumptions. A nil miniHandler means the Mini App is off.
+func buildHandler(webHandler, miniHandler http.Handler) http.Handler {
+	root := http.NewServeMux()
+	root.Handle("/", webHandler)
+	if miniHandler != nil {
+		root.Handle("/mini/", miniHandler)
+	}
+	return root
 }
 
 // parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.

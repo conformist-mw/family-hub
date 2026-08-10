@@ -67,6 +67,10 @@ internal/
   store/       # repository layer (one file per concern)
   audit/       # pure reconciliation logic: ledger, forecast, text rendering
   web/         # http handlers, templates, static
+  mini/        # Telegram Mini App: JSON API + Preact/htm frontend under /mini
+  appointments/# appointment write rules, shared by web and mini
+  schedule/    # weekly-slot write rules, shared by web and mini
+  valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
   ics/         # the single VCALENDAR feed HA polls
@@ -114,6 +118,42 @@ data/          # local SQLite (gitignored)
   for frequent courses and recent comments, status pills, responsive CSS.
 - Auth in production is provided by `oauth2-proxy` via the Traefik
   middleware `auth-chain@file`; the app itself has no login.
+
+## Mini App
+
+- `internal/mini` serves everything under one prefix: `/mini` is a data-free
+  shell, `/mini/assets/*` its JS and CSS, `/mini/api/*` the JSON it talks to.
+  One prefix means Traefik needs exactly one oauth bypass rule.
+- **Auth is per request, not a session.** Telegram's signed `initData` travels
+  as `Authorization: tma <initData>`; the server recomputes the HMAC (secret
+  derived once at startup), checks `auth_date` freshness, then checks the
+  Telegram **user** id against `TELEGRAM_MINI_USERS`. No cookie: on Telegram
+  Web and Desktop the app runs in a cross-site iframe where a `SameSite=Lax`
+  cookie is never sent. No ambient credential also means no CSRF surface, so
+  `/mini/*` deliberately does not pass through web's `csrfGuard`.
+- `TELEGRAM_MINI_USERS` is **users**, not chats — `TELEGRAM_ALLOWED_CHATS`
+  lists chats including the family group, while a Mini App authenticates the
+  individual who tapped it. Empty means nobody.
+- All received `initData` fields except `hash` join the check string,
+  **including `signature`**. Widely repeated advice says to strip both; that
+  describes Telegram's separate Ed25519 flow and rejects every real payload.
+- Without `TELEGRAM_BOT_TOKEN` the routes are not mounted at all — the HMAC is
+  keyed by it, so there is nothing to verify against.
+- `MINI_DEV_USER` accepts unsigned requests locally so screens open in a plain
+  browser. It is honoured only while `TELEGRAM_WEBHOOK_URL` is empty, which
+  production always sets, and the id must still be on the allowlist.
+- Frontend is Preact + htm as one vendored ES module — no build step, no
+  `package.json`, embedded with `//go:embed` like the web assets. Assets are
+  served `no-store` and their URLs carry `?v=<process start>`: without an
+  explicit header Cloudflare and friends cache `.js` for hours, and a deployed
+  change simply never arrives.
+- Write rules live above the store in `internal/appointments` and
+  `internal/schedule`, shared with the web form so the two surfaces cannot
+  drift on what a valid appointment or slot is. `store.UpdateSlot` moves a
+  slot rather than delete-and-recreate: the ICS uid is `slot-<id>`, and Home
+  Assistant keys on it.
+- Screens: Головна (balances, recent payments, next visits), Записи (upcoming
+  list, read card, edit form), Заняття (courses and their editable schedule).
 
 ## Importer
 
@@ -241,12 +281,15 @@ data/          # local SQLite (gitignored)
 - Container runs as `1000:1000`, mounts `~/server_data/lessons` for the
   SQLite file (still `lessons.db` — the path predates the rename and changing
   it buys nothing).
-- Three Traefik routers on the same host, which answers to both
+- Four Traefik routers on the same host, which answers to both
   `family.conformist.name` and (transitionally) `lessons.conformist.name`:
   - the app router → `auth-chain@file` middleware (oauth2-proxy in front).
   - the bot router — host plus `PathPrefix(<webhook path>)` →
     `no-auth-chain@file`, so Telegram can POST without going through
     oauth. The path is loaded from SOPS, so the repo never reveals it.
+  - the Mini App router — host plus `PathPrefix(/mini)` → `no-auth-chain@file`,
+    guarded by the `initData` signature and the user allowlist instead. Needs
+    `priority: 100` or the catch-all host router wins and it hits oauth.
   - the ICS router — host plus `PathPrefix(/calendar.ics)` →
     `no-auth-chain@file`, guarded by `ICS_TOKEN` instead, so HA can poll.
     On the compound routers the host alternation must stay parenthesized:
@@ -271,6 +314,12 @@ data/          # local SQLite (gitignored)
   - `family_hub_notify_chat`
   - `family_hub_gemini_api_key`
   - `family_hub_reminder_hour` (optional override)
+- Host-scoped secrets live in `dotfiles/host_vars/hetzner/secrets.sops.yaml`
+  instead, auto-decrypted by the `community.sops.sops` vars plugin with no
+  explicit load task. `lessons_mini_users` — the Telegram **user** ids allowed
+  into the Mini App, comma-separated — belongs there because it is about this
+  VPS. Store it as a quoted string: as a bare YAML number it decrypts back as
+  a float with a `.0` glued on.
 - Edit a value: `cd ~/dev/dotfiles && sops edit roles/family-hub/vars/secrets.sops.yaml`.
 - Rotate without echoing: `sops --set '["key"] "value"' …`.
 - The rest of the dotfiles still uses Bitwarden Secrets Manager. Full

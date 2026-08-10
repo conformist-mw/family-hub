@@ -34,12 +34,24 @@ var AbsenceKindLabels = map[string]string{
 
 var WeekdayLabels = [7]string{"Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
 
+// WeekdayFull is for a screen heading, where the two-letter form reads as an
+// abbreviation of something rather than as the name of today.
+var WeekdayFull = [7]string{
+	"Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота",
+}
+
 // MonthsGenitive is the "6 серпня" form, for day headers that have room for a
-// whole word. The compact "6 сер" lists in the bot and the web charts keep
-// their own short vocabulary.
+// whole word.
 var MonthsGenitive = [13]string{
 	"", "січня", "лютого", "березня", "квітня", "травня", "червня",
 	"липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+}
+
+// MonthsShort is the compact "6 сер" form, for lists and cards where a whole
+// word would push the line onto a second row.
+var MonthsShort = [13]string{
+	"", "січ", "лют", "бер", "кві", "тра", "чер",
+	"лип", "сер", "вер", "жов", "лис", "гру",
 }
 
 type Person struct {

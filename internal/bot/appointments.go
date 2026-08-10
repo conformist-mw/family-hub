@@ -188,10 +188,7 @@ func (b *Bot) confirmMarkup(key string, n int, updateID int64) *tele.ReplyMarkup
 
 // ── formatting ───────────────────────────────────────────────────────────────
 
-var monthsShort = [...]string{
-	"", "січ", "лют", "бер", "кві", "тра", "чер",
-	"лип", "сер", "вер", "жов", "лис", "гру",
-}
+var monthsShort = model.MonthsShort
 
 var weekdaysShort = [7]string{"нд", "пн", "вт", "ср", "чт", "пт", "сб"}
 

@@ -55,6 +55,11 @@ func TestCoursesCarryScheduleAndWeekdayNames(t *testing.T) {
 	if len(c.Schedule) != 1 || c.Schedule[0].Time != "13:35" || c.Schedule[0].WeekdayName != model.WeekdayLabels[2] {
 		t.Errorf("schedule = %+v", c.Schedule)
 	}
+	// Nothing has been paid for this course, so the card says so here rather
+	// than sending the reader to the home tab for it.
+	if c.State != "empty" || c.Balance != "оплачених занять немає" {
+		t.Errorf("balance = %q, state = %q", c.Balance, c.State)
+	}
 }
 
 func TestSlotLifecycle(t *testing.T) {

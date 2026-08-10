@@ -1,6 +1,7 @@
 import { html, useState } from '/mini/assets/vendor/preact-htm.module.js'
 import { api, haptic, guardUnsaved } from '/mini/assets/api.js'
-import { Field, Actions } from '/mini/assets/ui.js'
+import { Field, Actions, Empty, Bar } from '/mini/assets/ui.js'
+import { IconInfo } from '/mini/assets/icons.js'
 
 // Courses and, the point of this tab, their weekly schedule. Moving a lesson
 // used to mean adding the new times and deleting the old ones by hand, which
@@ -9,29 +10,33 @@ import { Field, Actions } from '/mini/assets/ui.js'
 
 export function CourseList({ courses, weekdays, onEditSlot, onAddSlot }) {
   if (courses.length === 0) {
-    return html`<div class="center muted">Активних курсів немає</div>`
+    return html`<main><${Empty} title="Активних курсів немає" /></main>`
   }
   return html`
-    <main>
+    <main class="screen">
+      <h1 class="screen-title">Заняття</h1>
       ${courses.map(
         (c) => html`
-          <section class="course" key=${c.id}>
+          <section class="card" key=${c.id}>
             <div class="course-head">
               <div>
-                <div class="title">${c.name}</div>
-                <div class="person">${c.person}${c.note ? ` · ${c.note}` : ''}</div>
+                <div class="course-name">${c.name}</div>
+                <div class="course-sub">${c.person}${c.note ? ` · ${c.note}` : ''}</div>
               </div>
+              ${c.balance && html`<div class="course-state state-${c.state}">${c.balance}</div>`}
             </div>
-            <div class="slots">
+            ${c.state && html`<${Bar} state=${c.state} />`}
+            ${c.absence && html`<div class="meta"><${IconInfo} /> ${c.absence}</div>`}
+            <div class="chips">
               ${c.schedule.map(
                 (s) => html`
-                  <button class="slot" key=${s.id} onClick=${() => onEditSlot(c, s)}>
+                  <button class="chip" key=${s.id} onClick=${() => onEditSlot(c, s)}>
                     ${weekdays[s.weekday]} ${s.time}
                   </button>`,
               )}
-              <button class="slot slot-add" onClick=${() => onAddSlot(c)}>+ час</button>
+              <button class="chip chip-add" onClick=${() => onAddSlot(c)}>+ час</button>
             </div>
-            ${c.schedule.length === 0 && html`<div class="muted small">Розклад не заданий</div>`}
+            ${c.schedule.length === 0 && html`<div class="meta">Розклад не заданий</div>`}
           </section>`,
       )}
     </main>`
@@ -50,6 +55,10 @@ export function SlotForm({ course, slot, weekdays, onSaved, onCancel }) {
   const set = (name) => (e) => {
     guardUnsaved(true)
     setValues((v) => ({ ...v, [name]: e.target.value }))
+  }
+  const pickDay = (i) => {
+    guardUnsaved(true)
+    setValues((v) => ({ ...v, weekday: String(i) }))
   }
   const done = () => guardUnsaved(false)
 
@@ -85,22 +94,44 @@ export function SlotForm({ course, slot, weekdays, onSaved, onCancel }) {
 
   const errFor = (f) => (error && error.field === f ? error.message : null)
 
+  // Weekdays arrive Sunday-first (Go's own order) but a school week starts on
+  // Monday, so the buttons are reordered for reading while the value stays
+  // the index the server sends.
+  const order = [1, 2, 3, 4, 5, 6, 0]
+
   return html`
     <form class="form" onSubmit=${submit}>
-      <p class="form-head">${course.name} · ${course.person}</p>
-      <${Field} label="День тижня" error=${errFor('weekday')}>
-        <select value=${values.weekday} onChange=${set('weekday')}>
-          ${weekdays.map((name, i) => html`<option value=${String(i)} key=${i}>${name}</option>`)}
-        </select>
-      <//>
-      <${Field} label="Час" error=${errFor('time')}>
-        <input type="time" value=${values.time} onInput=${set('time')} />
-      <//>
-      <${Field} label="Тривалість, хв" error=${errFor('duration')}>
-        <input value=${values.duration} onInput=${set('duration')} inputmode="numeric" />
-      <//>
-      ${error && !error.field && html`<p class="error">${error.message}</p>`}
+      <p class="form-head">
+        <span class="form-head-title">${isEdit ? 'Час у розкладі' : 'Новий час'}</span>
+        <span class="form-head-when">${course.name} · ${course.person}</span>
+      </p>
+
+      <div class="card">
+        <span class="label">День тижня</span>
+        <div class="days">
+          ${order.map(
+            (i) => html`
+              <button type="button" key=${i}
+                class="day-btn ${values.weekday === String(i) ? 'day-on' : ''}"
+                onClick=${() => pickDay(i)}>${weekdays[i]}</button>`,
+          )}
+        </div>
+        ${errFor('weekday') && html`<span class="field-error">${errFor('weekday')}</span>`}
+      </div>
+
+      <div class="card card-rows">
+        <div class="field-row">
+          <${Field} label="Час" error=${errFor('time')}>
+            <input type="time" value=${values.time} onInput=${set('time')} />
+          <//>
+          <${Field} label="Триває, хв" error=${errFor('duration')}>
+            <input value=${values.duration} onInput=${set('duration')} inputmode="numeric" />
+          <//>
+        </div>
+      </div>
+
+      ${error && !error.field && html`<p class="field-error">${error.message}</p>`}
       <${Actions} saving=${saving} onCancel=${() => { done(); onCancel() }}
-        onDelete=${isEdit ? remove : null} />
+        onDelete=${isEdit ? remove : null} deleteLabel="Прибрати з розкладу" />
     </form>`
 }

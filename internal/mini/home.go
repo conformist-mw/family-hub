@@ -45,9 +45,13 @@ type homeVisitDTO struct {
 	When   string `json:"when"` // "Сьогодні, 14:30"
 	Title  string `json:"title"`
 	Person string `json:"person"`
+	// Location is only shown on the card for the next visit, where there is
+	// room for it; the rows below it stay one line each.
+	Location string `json:"location"`
 }
 
 type homeDTO struct {
+	Today    string           `json:"today"` // "Понеділок, 10 серпня"
 	Upcoming []homeVisitDTO   `json:"upcoming"`
 	Courses  []homeCourseDTO  `json:"courses"`
 	Payments []homePaymentDTO `json:"payments"`
@@ -96,6 +100,7 @@ func (rt *Router) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt.writeJSON(w, http.StatusOK, homeDTO{
+		Today:    model.WeekdayFull[int(now.Weekday())] + ", " + dayAndMonth(now),
 		Upcoming: homeVisits(upcoming, now, rt.loc),
 		Courses:  homeCourses(balances, absences, scheduleLines(slots)),
 		Payments: homePaymentRows(payments),
@@ -201,22 +206,24 @@ func homeVisits(items []model.Appointment, now time.Time, loc *time.Location) []
 			continue
 		}
 		out = append(out, homeVisitDTO{
-			ID:     a.ID,
-			When:   dayLabel(start, now) + ", " + start.Format("15:04"),
-			Title:  a.Title,
-			Person: a.Person,
+			ID:       a.ID,
+			When:     dayLabel(start, now) + ", " + start.Format("15:04"),
+			Title:    a.Title,
+			Person:   a.Person,
+			Location: a.Location,
 		})
 	}
 	return out
 }
 
-// shortDate turns a stored YYYY-MM-DD into the 31.08 people write.
+// shortDate turns a stored YYYY-MM-DD into "31 сер". The numeric 31.08 read as
+// a version number in a line that also carries counts and money.
 func shortDate(s string) string {
 	t, err := time.Parse("2006-01-02", s)
 	if err != nil {
 		return s
 	}
-	return t.Format("02.01")
+	return strconv.Itoa(t.Day()) + " " + model.MonthsShort[int(t.Month())]
 }
 
 func money(v float64) string {

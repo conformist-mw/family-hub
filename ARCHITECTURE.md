@@ -313,10 +313,13 @@ data/          # local SQLite (gitignored)
   - `family_hub_allowed_chats`
   - `family_hub_notify_chat`
   - `family_hub_gemini_api_key`
-  - `lessons_mini_users` — Telegram **user** ids allowed into the Mini App,
-    comma-separated. Stored as a quoted string on purpose: as a bare YAML
-    number it comes back as a float, with a `.0` glued on.
   - `family_hub_reminder_hour` (optional override)
+- Host-scoped secrets live in `dotfiles/host_vars/hetzner/secrets.sops.yaml`
+  instead, auto-decrypted by the `community.sops.sops` vars plugin with no
+  explicit load task. `lessons_mini_users` — the Telegram **user** ids allowed
+  into the Mini App, comma-separated — belongs there because it is about this
+  VPS. Store it as a quoted string: as a bare YAML number it decrypts back as
+  a float with a `.0` glued on.
 - Edit a value: `cd ~/dev/dotfiles && sops edit roles/family-hub/vars/secrets.sops.yaml`.
 - Rotate without echoing: `sops --set '["key"] "value"' …`.
 - The rest of the dotfiles still uses Bitwarden Secrets Manager. Full

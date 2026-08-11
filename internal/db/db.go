@@ -33,9 +33,22 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func Migrate(db *sql.DB) error {
-	goose.SetBaseFS(migrationFS)
-	if err := goose.SetDialect("sqlite3"); err != nil {
+	if err := prepare(); err != nil {
 		return err
 	}
 	return goose.Up(db, "migrations")
+}
+
+// Version is what the deploy step reports after migrating, so a run says which
+// schema it left behind rather than only that it did not fail.
+func Version(db *sql.DB) (int64, error) {
+	if err := prepare(); err != nil {
+		return 0, err
+	}
+	return goose.GetDBVersion(db)
+}
+
+func prepare() error {
+	goose.SetBaseFS(migrationFS)
+	return goose.SetDialect("sqlite3")
 }

@@ -39,7 +39,7 @@ just deploy-hetzner-tag family-hub
   fresh install, copy the local Excel to the host and run the bundled
   importer against it once:
   `docker run --rm -v <dir>:/data -v "$PWD/Доп. занятия.xlsx":/seed.xlsx \
-   --entrypoint /app/import olegsmedyuk/family-hub:latest -src /seed.xlsx -db /data/lessons.db`
+   --entrypoint /app/import olegsmedyuk/family-hub:latest -src /seed.xlsx -db /data/family-hub.db`
 - Migrations (`goose`) run automatically on container start.
 - The prod bot is **@family_core_hub_bot**; its token and everything else the
   container reads are `family_hub_*` keys in
@@ -62,8 +62,11 @@ just deploy-hetzner-tag family-hub
   because `TELEGRAM_NOTIFY_CHAT` is unset locally.
 - The appointment digests stay off in prod (`NOTIFICATIONS_ENABLED` unset):
   Home Assistant sends those summaries from the ICS feed.
-- The DB file is still `lessons.db` inside `~/server_data/lessons` — renaming
-  it buys nothing and every runbook path points there.
+- The database is `family-hub.db` inside `~/server_data/family-hub`. The path
+  is decided in two places that must agree: `family_hub_dir` in the Ansible
+  role, and the `-db` flag in this image's `CMD`. If they disagree, SQLite
+  creates an empty file at the new path and the app comes up healthy and
+  blank — so after any change there, check row counts, not the log.
 
 ## Verify after deploy
 

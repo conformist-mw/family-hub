@@ -73,7 +73,7 @@ per-lesson courses, and "is today covered by a paid period" for monthly passes.
 ## Running locally
 
 ```sh
-go run ./cmd/server          # serves on :8080, db at data/lessons.db
+go run ./cmd/server          # serves on :8080, db at data/family-hub.db
 go run ./cmd/import          # (re)seed the db from a local spreadsheet
 ```
 

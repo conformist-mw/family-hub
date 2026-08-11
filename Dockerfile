@@ -15,4 +15,4 @@ COPY --from=build /out/import /app/import
 # from Excel, mount the file and run /app/import against it manually.
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]
-CMD ["-db", "/data/lessons.db", "-addr", ":8080"]
+CMD ["-db", "/data/family-hub.db", "-addr", ":8080"]

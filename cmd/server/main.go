@@ -25,7 +25,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
-	dbPath := flag.String("db", "data/lessons.db", "SQLite database path")
+	dbPath := flag.String("db", "data/family-hub.db", "SQLite database path")
 	flag.Parse()
 
 	// Load .env for local development; absence is not an error (prod uses

@@ -80,3 +80,25 @@ on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
 appointment digest ticker logs `bot: digests disabled (NOTIFICATIONS_ENABLED
 not set)` — that line is expected in prod. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`.
+
+## Migrations
+
+Migrations run twice, on purpose. The Ansible role runs `/app/migrate` in a
+throwaway container **before** it touches the running one, and the server also
+migrates on boot.
+
+The explicit step is the one that matters. A migration that fails on boot fails
+inside a container the play has already created: docker reports it started, the
+play goes green, and the app restarts forever while nothing says so. Run first,
+a bad migration stops the play with the old container still serving.
+
+The boot-time run stays as the second line: a container started by hand, or a
+fresh install nobody deployed with Ansible, should not come up against a schema
+it does not understand.
+
+To migrate by hand:
+
+```sh
+docker run --rm -v ~/server_data/family-hub:/data \
+  --entrypoint /app/migrate olegsmedyuk/family-hub:latest -db /data/family-hub.db
+```

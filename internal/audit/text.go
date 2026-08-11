@@ -18,7 +18,7 @@ var statusGlyphs = map[string]string{
 // View is everything the text rendering needs; the web handler fills it from
 // the same data the page shows, so copy/send never diverge from the screen.
 type View struct {
-	Title       string // "Демид · Гимнастика"
+	Title       string // "<хто> · Гимнастика"
 	PeriodLabel string // "з останньої оплати (12.06) по 18.07"
 	BillingType string
 	Rows        []Row

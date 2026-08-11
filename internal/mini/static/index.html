@@ -6,7 +6,12 @@
   <!-- Both themes are supported. Without this the browser paints form controls
        for a light page and inputs come out white on the dark theme. -->
   <meta name="color-scheme" content="light dark">
-  <title>Візити</title>
+  <title>Family Hub</title>
+  <!-- Served from /mini/assets/ rather than the site root: the root is behind
+       oauth, and the Mini App is the one surface that must load without it. -->
+  <link rel="icon" href="/mini/assets/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/mini/assets/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/mini/assets/apple-touch-icon.png">
   <link rel="stylesheet" href="/mini/assets/style.css?v=__V__">
   <!-- Telegram's own SDK; it must come from their origin, it is what injects
        window.Telegram.WebApp. Everything else is served from this app. -->

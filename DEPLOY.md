@@ -41,13 +41,20 @@ just deploy-hetzner-tag family-hub
   `docker run --rm -v <dir>:/data -v "$PWD/Доп. занятия.xlsx":/seed.xlsx \
    --entrypoint /app/import olegsmedyuk/family-hub:latest -src /seed.xlsx -db /data/lessons.db`
 - Migrations (`goose`) run automatically on container start.
+- The prod bot is **@family_core_hub_bot**; its token and everything else the
+  container reads are `family_hub_*` keys in
+  `host_vars/hetzner/secrets.sops.yaml`. The role has no `vars/` file —
+  secrets belong to a host — and none of those keys has a default, so a
+  missing one fails the play instead of starting a bot with an empty token.
 - The Mini App needs three things beyond a normal deploy, all one-time:
-  `lessons_mini_users` in `host_vars/hetzner/secrets.sops.yaml`
-  (Telegram **user** ids, not chat ids), the
+  `family_hub_mini_users` (Telegram **user** ids, not chat ids), the
   `family-hub-mini` Traefik router in the role, and the Mini App URL
-  `https://family.conformist.name/mini/` registered on the prod bot in
+  `https://family.conformist.name/mini/` registered on the bot in
   BotFather. Miss the allowlist and everyone gets 403; miss the router and
   the app hits the oauth wall.
+- A new bot also needs privacy mode **disabled** (`/setprivacy`) or it will
+  not see plain messages in the family group — free-text capture and the
+  replies to the "how much was it?" prompt both arrive that way.
 - Prod env (bot token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
   `TELEGRAM_REMINDER_DELAY_MIN`, `GEMINI_API_KEY`, `VISIT_PEOPLE`,
   `TZ=Europe/Kyiv`) comes from the role +

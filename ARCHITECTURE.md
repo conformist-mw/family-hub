@@ -278,11 +278,9 @@ data/          # local SQLite (gitignored)
 
   Use `just`, not raw `ansible-playbook` — `just` loads the `.env` that
   carries the BWS access token used by other roles.
-- Container runs as `1000:1000`, mounts `~/server_data/lessons` for the
-  SQLite file (still `lessons.db` — the path predates the rename and changing
-  it buys nothing).
-- Four Traefik routers on the same host, which answers to both
-  `family.conformist.name` and (transitionally) `lessons.conformist.name`:
+- Container runs as `1000:1000`, mounts `~/server_data/family-hub` for the
+  SQLite file, `family-hub.db`.
+- Four Traefik routers on the same host, `family.conformist.name`:
   - the app router → `auth-chain@file` middleware (oauth2-proxy in front).
   - the bot router — host plus `PathPrefix(<webhook path>)` →
     `no-auth-chain@file`, so Telegram can POST without going through
@@ -337,7 +335,7 @@ data/          # local SQLite (gitignored)
   ```
 
 - `go run ./cmd/server` — boots web on `:8080` plus a polling bot.
-- Reset to a clean Excel-derived DB: `rm data/lessons.db && go run ./cmd/import`.
+- Reset to a clean Excel-derived DB: `rm data/family-hub.db && go run ./cmd/import`.
 - The dev bot is a different Telegram bot than prod, so messaging it
   doesn't touch the production app.
 

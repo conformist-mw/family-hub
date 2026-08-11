@@ -11,7 +11,7 @@ import (
 
 func main() {
 	src := flag.String("src", "Доп. занятия.xlsx", "source xlsx file")
-	dbPath := flag.String("db", "data/lessons.db", "SQLite database path")
+	dbPath := flag.String("db", "data/family-hub.db", "SQLite database path")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))

@@ -2,10 +2,13 @@
 -- a history of a database nobody else runs, and the first of them seeded two
 -- real children's names into every fresh install.
 --
--- Version 7 on purpose: an existing database is already at 7, so goose finds
--- nothing to apply and leaves it alone, while a fresh one gets exactly the
--- schema production has. Both end up at the same version, and the next
--- migration is 0008 — never 0002, which every existing database would skip.
+-- A database that predates the squash was at version 7 and has had rows 2..7
+-- pruned from goose_db_version by hand, so it reads as version 1 — exactly
+-- what this file creates. Numbering therefore continues at 0002 as normal.
+--
+-- Do that pruning *after* deploying an image that contains this file, never
+-- before: an older image still carries migrations 2..7, and on a restart it
+-- would try to re-apply them against tables that already have those columns.
 
 -- +goose Up
 CREATE TABLE persons (

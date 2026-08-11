@@ -128,7 +128,7 @@ func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, a
 	return []byte(b.String())
 }
 
-// appointmentSummary is "Ортодонт · Демид", or just the title. Named apart from
+// appointmentSummary is "Ортодонт · <хто>", or just the title. Named apart from
 // summary (the lesson one) — same shape, different domain, one package.
 func appointmentSummary(a model.Appointment) string {
 	if a.Person != "" {

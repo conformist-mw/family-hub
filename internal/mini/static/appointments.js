@@ -267,7 +267,7 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
           <input value=${values.title} onInput=${set('title')} placeholder="Ортодонт" />
         <//>
         <${Field} label="Хто">
-          <input value=${values.person} onInput=${set('person')} list="persons" placeholder="Демид" />
+          <input value=${values.person} onInput=${set('person')} list="persons" placeholder="хто піде" />
           <datalist id="persons">${persons.map((p) => html`<option value=${p} key=${p} />`)}</datalist>
         <//>
         <div class="field-row">

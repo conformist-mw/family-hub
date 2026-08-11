@@ -35,19 +35,22 @@ BotFather → `/setuserpic` → отправить `telegram-512.png` файло
 
 ## Web
 
-Иконки кладутся в `internal/mini/static/`, отдаются тем же файловым сервером.
-В `index.html`:
+Копии знака лежат у обеих морд, потому что отдаются они по-разному: `/static/`
+веб-интерфейса сидит за oauth, а mini app обязан грузиться без него, так что
+поделить один каталог нельзя.
 
-```html
-<link rel="icon" href="/favicon.ico" sizes="32x32">
-<link rel="icon" href="/mini/assets/icon-small.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/mini/assets/apple-touch-icon.png">
-```
+| Куда | Файлы | Откуда взято |
+| --- | --- | --- |
+| `internal/web/static/` | `favicon.svg`, `favicon-32.png`, `apple-touch-icon.png` | `icon-small.svg` → `favicon.svg` |
+| `internal/mini/static/` | `icon.svg`, `favicon-32.png`, `apple-touch-icon.png` | то же, `icon.svg` — упрощённый знак |
 
-`/favicon.ico` браузер просит в корне сам, без тега — если сервер отдаёт
-статику только под `/mini/`, добавить отдельный маршрут на этот файл.
+Теги прописаны в `internal/web/templates/base.html` и
+`internal/mini/static/index.html`.
 
-Манифест, если нужен PWA:
+`/favicon.ico` в корне намеренно не отдаётся: корневой роутер за `auth-chain`,
+браузер получит на него 401. Иконка приходит из тега, а не из корня.
+
+Манифест, если понадобится PWA (пока не подключён):
 
 ```json
 {
@@ -65,11 +68,11 @@ BotFather → `/setuserpic` → отправить `telegram-512.png` файло
 
 ## GitHub
 
-`banner.png` в репозиторий, первой строкой README:
+`banner.png` стоит первой строкой README. Растр, а не `banner.svg`, потому что
+в баннере настоящий `<text>` с системным шрифтовым стеком: у каждого читателя
+он разрешится в свой шрифт. Для логотипа предсказуемость дороже вектора,
+1280×640 и так хватает на retina.
 
-```markdown
-![family-hub](brand/banner.png)
-```
-
-Он же в Settings → General → Social preview: это картинка, которую видно,
-когда ссылку на репозиторий вставляют в чат.
+`banner.png` — в Settings → General → Social preview: это картинка, которую
+видно, когда ссылку на репозиторий вставляют в чат. Через API её не поставить,
+только руками.

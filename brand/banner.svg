@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <rect width="1280" height="640" fill="#f2f3f7"></rect>
+  <g transform="translate(150 176) scale(0.56)">
+    <rect width="512" height="512" rx="116" fill="#127a68"></rect>
+    <path d="M110 246 L256 124 L402 246" fill="none" stroke="#ffffff" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path>
+    <rect x="146" y="296" width="220" height="34" rx="17" fill="#ffffff"></rect>
+  <rect x="146" y="348" width="150" height="34" rx="17" fill="#8ed3c4"></rect>
+  <rect x="146" y="400" width="96" height="34" rx="17" fill="#8ed3c4" fill-opacity=".62"></rect>
+  </g>
+  <text x="500" y="316" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="72" font-weight="650" letter-spacing="-1.5" fill="#111214">family-hub</text>
+  <text x="500" y="376" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="30" fill="#6b6e73">Розклад і гроші сімʼї. Телеграм-бот і mini app.</text>
+</svg>

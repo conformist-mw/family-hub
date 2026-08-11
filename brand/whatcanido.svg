@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+  <rect width="640" height="360" fill="#f2f3f7"></rect>
+
+  <!-- Знак, тот же, что в icon.svg: 512 -> 148, scale 0.2891. По вертикали
+       выровнен по центру текстового блока, а не по центру холста. -->
+  <g transform="translate(56 132) scale(0.2891)">
+    <rect width="512" height="512" rx="116" fill="#127a68"></rect>
+    <path d="M110 246 L256 124 L402 246" fill="none" stroke="#ffffff" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path>
+    <rect x="146" y="296" width="220" height="34" rx="17" fill="#ffffff"></rect>
+    <rect x="146" y="348" width="150" height="34" rx="17" fill="#8ed3c4"></rect>
+    <rect x="146" y="400" width="96" height="34" rx="17" fill="#8ed3c4" fill-opacity=".62"></rect>
+  </g>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif">
+    <text x="248" y="110" font-size="34" font-weight="650" letter-spacing="-0.8" fill="#111214">Розклад і гроші сімʼї</text>
+
+    <!-- Три строки повторяют три полосы знака: полная, короче, самая короткая.
+         Формулировки держатся одной длины, чтобы правый край не рвался. -->
+    <g transform="translate(248 158)">
+      <rect x="0" y="-13" width="26" height="7" rx="3.5" fill="#127a68"></rect>
+      <text x="42" y="0" font-size="23" fill="#2c2f33">Візити: коли, де і за скільки</text>
+    </g>
+    <g transform="translate(248 204)">
+      <rect x="0" y="-13" width="20" height="7" rx="3.5" fill="#3f9d8c"></rect>
+      <text x="42" y="0" font-size="23" fill="#2c2f33">Заняття: тижневий розклад</text>
+    </g>
+    <g transform="translate(248 250)">
+      <rect x="0" y="-13" width="13" height="7" rx="3.5" fill="#8ed3c4"></rect>
+      <text x="42" y="0" font-size="23" fill="#2c2f33">Баланс: скільки лишилось</text>
+    </g>
+
+    <text x="248" y="298" font-size="19" fill="#6b6e73">Бот у групі та mini app на телефоні</text>
+  </g>
+</svg>

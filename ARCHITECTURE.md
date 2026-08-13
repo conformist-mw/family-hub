@@ -245,8 +245,12 @@ data/          # local SQLite (gitignored)
   `RunBillingReminders` (below). All four need a configured notify chat.
 - **Billing reminders** (`internal/bot/billing.go`): an hourly ticker that
   warns when a monthly course's paid period is about to run out, so the next
-  month gets paid before it starts — `BILLING_LEAD_DAYS` days ahead (default
-  `1`, `<0` disables). It is deliberately not tied to a slot time: a school
+  month gets paid before it starts. How far ahead is the course's own
+  `low_threshold` — for a monthly course that field already means "days before
+  the pass runs out", and it is what turns the dashboard badge yellow, so one
+  number on the course form drives both and they cannot disagree. `0` means no
+  warning, the same way it means the badge never goes yellow. It is
+  deliberately not tied to a slot time: a school
   charging a fixed monthly fee owes the same amount whether or not anyone
   showed up. The trigger is the coverage boundary alone, and three wanted
   behaviours follow from that: nothing is sent over the summer (coverage ended

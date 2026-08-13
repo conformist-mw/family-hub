@@ -31,12 +31,6 @@ type Config struct {
 	// what it cost; <0 disables the prompt entirely.
 	CostPromptDelayMin int
 
-	// BillingLeadDays is how many days before a monthly course's paid period
-	// runs out the bot asks for the next payment; <0 disables. Default 1 —
-	// the day before, which for a whole-month period is the day before the
-	// next month starts.
-	BillingLeadDays int
-
 	// Loc places stored wall-clock times: slot "HH:MM", appointment
 	// starts_at, and the digest times below. It is time.Local in practice
 	// (the deploy sets TZ in the container); the appointment code takes it

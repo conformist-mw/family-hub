@@ -90,6 +90,13 @@ type Enrollment struct {
 	TrainerID    *int64 // nil — no trainer attached
 	Trainer      string // joined trainer name, read-only
 
+	// PaymentNoticeMin is how long before money is due to say so, in minutes.
+	// What it counts down to depends on the billing type: the next lesson
+	// nothing covers (per_lesson) or the last day of the paid period
+	// (monthly). 0 means never. The form takes it as a number plus a unit;
+	// minutes is just the storage.
+	PaymentNoticeMin int
+
 	// AttendanceMode is per_session | exceptions_only.
 	AttendanceMode string
 	// PaymentInstructions is free text shown in the payment reminder: payee,
@@ -196,7 +203,9 @@ func (b Balance) State() string {
 			}
 			return "empty"
 		}
-		if b.DaysLeft <= b.LowThreshold {
+		// The same number the payment reminder fires on, so the badge and the
+		// message cannot disagree about when it is time to pay.
+		if b.NoticeDue() {
 			return "low"
 		}
 		return "ok"
@@ -209,6 +218,16 @@ func (b Balance) State() string {
 		}
 		return "ok"
 	}
+}
+
+// MinutesPerDay converts between the form's units and the stored minutes.
+const MinutesPerDay = 24 * 60
+
+// NoticeDue reports whether a monthly pass is close enough to running out to
+// say so. Coverage is measured in whole days, so the stored minutes are
+// compared at that granularity: any notice under a day lands on the last day.
+func (b Balance) NoticeDue() bool {
+	return b.PaymentNoticeMin > 0 && b.CoveredNow && b.DaysLeft*MinutesPerDay <= b.PaymentNoticeMin
 }
 
 // ParseDate parses a stored "YYYY-MM-DD" into midnight in the local zone.

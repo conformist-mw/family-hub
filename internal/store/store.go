@@ -37,7 +37,7 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 	rows, err := s.db.Query(`
 		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
-		       e.attendance_mode, e.payment_instructions,
+		       e.attendance_mode, e.payment_instructions, e.payment_notice_min,
 		       COALESCE((SELECT SUM(lessons_paid) FROM payments pm
 		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL),0) AS paid,
 		       (SELECT COUNT(*) FROM visits v
@@ -61,7 +61,7 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 		var b model.Balance
 		if err := rows.Scan(&b.ID, &b.PersonID, &b.Person, &b.Name, &b.Description,
 			&b.BillingType, &b.CurrentPrice, &b.LowThreshold, &b.Active, &b.Notes,
-			&b.AttendanceMode, &b.PaymentInstructions,
+			&b.AttendanceMode, &b.PaymentInstructions, &b.PaymentNoticeMin,
 			&b.Paid, &b.Done, &b.DoneThisMonth); err != nil {
 			return nil, err
 		}

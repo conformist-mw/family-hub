@@ -27,6 +27,13 @@ to look when picking it back up after a break.
   evening whether a lesson happened, while its schedule stays for the calendar
   and the forecast. `payment_instructions` is free text (payee, IBAN,
   reference) carried into the payment reminder; it never reaches the ICS feed.
+  `payment_notice_min` is how long before money is due to say so, in minutes.
+  What it counts down to depends on the billing type — the next lesson nothing
+  covers, or the last day of the paid period — and the form takes it as a
+  number plus a unit, because the same question is answered in hours for a
+  lesson and in days for a pass. `0` means never. For monthly courses it also
+  owns the yellow badge, which leaves `low_threshold` meaning one thing again:
+  lessons remaining, per-lesson courses only.
 - **`regular_slots`** — weekly schedule of a course (weekday + time). Used
   by the bot to drive evening reminders.
 - **`visits`** — one attendance event: `date`, `status`
@@ -246,11 +253,10 @@ data/          # local SQLite (gitignored)
 - **Billing reminders** (`internal/bot/billing.go`): an hourly ticker that
   warns when a monthly course's paid period is about to run out, so the next
   month gets paid before it starts. How far ahead is the course's own
-  `low_threshold` — for a monthly course that field already means "days before
-  the pass runs out", and it is what turns the dashboard badge yellow, so one
-  number on the course form drives both and they cannot disagree. `0` means no
-  warning, the same way it means the badge never goes yellow. It is
-  deliberately not tied to a slot time: a school
+  `payment_notice_min`, which also turns the dashboard badge yellow
+  (`Balance.NoticeDue`), so one number on the course form drives both and they
+  cannot disagree. Coverage is measured in whole days, so a notice shorter than
+  a day lands on the last day. It is deliberately not tied to a slot time: a school
   charging a fixed monthly fee owes the same amount whether or not anyone
   showed up. The trigger is the coverage boundary alone, and three wanted
   behaviours follow from that: nothing is sent over the summer (coverage ended
@@ -272,11 +278,13 @@ data/          # local SQLite (gitignored)
   (`SlotsForWeekday`), which silences both the reminder and the
   empty-balance warning for the whole absence.
 - The scheduler also sends a buttonless **empty-balance warning**
-  `TELEGRAM_PRELESSON_LEAD_MIN` minutes (default `120`, `<0` disables)
-  before a slot when nothing paid covers the lesson: zero/negative
-  remaining (per-lesson) or no active pass (monthly). Only inside the
-  `[slot−lead, slot)` window — never after the lesson has started — and
-  once per enrollment per day.
+  `payment_notice_min` minutes before a slot — the course's own field, same
+  one the billing reminder reads — when nothing paid covers the lesson:
+  zero/negative remaining (per-lesson) or no active pass (monthly). Only
+  inside the `[slot−notice, slot)` window — never after the lesson has
+  started — and once per enrollment per day. A notice longer than the slot's
+  time of day just means "from midnight", since the scheduler only looks at
+  today's slots.
 - After a lesson is marked via inline buttons (reminder or `/add`), the
   final message carries a one-line balance: 🟢/🟡/🔴 per `Balance.State()`,
   the paid stock for per-lesson, "Абонемент до …, залишилось N дн." for monthly.

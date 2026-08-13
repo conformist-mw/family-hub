@@ -22,7 +22,8 @@ func (s *Store) SlotsForWeekday(weekday int, date string) ([]SlotWithEnrollment,
 	rows, err := s.db.Query(`
 		SELECT s.id, s.enrollment_id, s.weekday, s.time, s.active,
 		       e.id, e.person_id, p.name, e.name, e.description,
-		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes
+		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
+		       e.payment_notice_min
 		FROM regular_slots s
 		JOIN enrollments e ON e.id = s.enrollment_id
 		JOIN persons p     ON p.id = e.person_id
@@ -47,6 +48,7 @@ func (s *Store) SlotsForWeekday(weekday int, date string) ([]SlotWithEnrollment,
 			&x.Enrollment.Name, &x.Enrollment.Description,
 			&x.Enrollment.BillingType, &x.Enrollment.CurrentPrice,
 			&x.Enrollment.LowThreshold, &x.Enrollment.Active, &x.Enrollment.Notes,
+			&x.Enrollment.PaymentNoticeMin,
 		); err != nil {
 			return nil, err
 		}

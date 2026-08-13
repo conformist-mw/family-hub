@@ -16,17 +16,13 @@ import (
 // until ctx is done; meant to run in its own goroutine alongside
 // polling/webhook.
 func (b *Bot) RunScheduler(ctx context.Context) {
-	if b.cfg.NotifyChat == 0 || (b.cfg.ReminderDelayMin < 0 && b.cfg.PreLessonLeadMin < 0) {
-		b.logger.Info("bot: scheduler disabled",
-			"notify_chat", b.cfg.NotifyChat,
-			"reminder_delay_min", b.cfg.ReminderDelayMin,
-			"pre_lesson_lead_min", b.cfg.PreLessonLeadMin)
+	if b.cfg.NotifyChat == 0 {
+		b.logger.Info("bot: scheduler disabled (no notify chat)")
 		return
 	}
 	b.logger.Info("bot: scheduler started",
 		"notify_chat", b.cfg.NotifyChat,
-		"reminder_delay_min", b.cfg.ReminderDelayMin,
-		"pre_lesson_lead_min", b.cfg.PreLessonLeadMin)
+		"reminder_delay_min", b.cfg.ReminderDelayMin)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -69,9 +65,7 @@ func (b *Bot) sendDueReminders(now time.Time, reminded, warned map[int64]bool) {
 	}
 
 	for _, sl := range slots {
-		if b.cfg.PreLessonLeadMin >= 0 {
-			b.warnEmptyBalance(now, sl, today, warned)
-		}
+		b.warnEmptyBalance(now, sl, today, warned)
 		if b.cfg.ReminderDelayMin >= 0 {
 			b.remindSlot(now, sl, today, reminded)
 		}
@@ -108,12 +102,16 @@ func (b *Bot) remindSlot(now time.Time, sl store.SlotWithEnrollment, today strin
 // warnEmptyBalance sends one informational message per enrollment per day
 // when a lesson is coming up and there is nothing paid to cover it: zero or
 // negative remaining lessons (per-lesson) or no pass covering today
-// (monthly). It fires only inside the [slot−lead, slot) window — once the
+// (monthly). It fires only inside the [slot−notice, slot) window — once the
 // lesson has started, the warning is just noise — and carries no buttons:
 // the post-slot reminder owns the marking flow.
+//
+// The lead is the course's own payment_notice_min. Anything longer than the
+// slot's time of day just means "from midnight", because the scheduler only
+// ever looks at today's slots.
 func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today string, warned map[int64]bool) {
 	eid := sl.Enrollment.ID
-	if warned[eid] {
+	if warned[eid] || sl.Enrollment.PaymentNoticeMin <= 0 {
 		return
 	}
 	start, err := slotTimeToday(now, sl.Slot.Time)
@@ -121,7 +119,7 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 		b.logger.Error("bot: bad slot time", "err", err, "slot", sl.Slot.ID, "time", sl.Slot.Time)
 		return
 	}
-	warnFrom := start.Add(-time.Duration(b.cfg.PreLessonLeadMin) * time.Minute)
+	warnFrom := start.Add(-time.Duration(sl.Enrollment.PaymentNoticeMin) * time.Minute)
 	if now.Before(warnFrom) || !now.Before(start) {
 		return
 	}

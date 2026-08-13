@@ -100,6 +100,12 @@ input, select, textarea {
 textarea { min-height: 70px; resize: vertical; }
 .form-actions { display: flex; gap: 10px; align-items: center; }
 
+/* A number and its unit read as one control, so they sit on one line and the
+   number takes only the width a small integer needs. */
+.pair { display: flex; gap: 8px; }
+.pair input { flex: 0 1 7em; }
+.pair select { flex: 1 1 auto; }
+
 .date-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .date-quick button { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); background: #fff; border-radius: 999px; cursor: pointer; }
 .date-quick button:active { background: var(--accent); color: #fff; }

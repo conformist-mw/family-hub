@@ -29,6 +29,43 @@ var attendanceOptions = []billingOption{
 	{model.AttendanceExceptionsOnly, model.AttendanceModeLabels[model.AttendanceExceptionsOnly]},
 }
 
+// noticeUnits are the multipliers behind the payment-notice field. Minutes is
+// what the column stores; the unit exists because the same question — how much
+// warning do I want — is answered in hours for a lesson and in days for a
+// monthly pass, and 7200 is not a number anyone types into a form.
+type noticeUnit struct {
+	Code  string
+	Label string
+	Min   int
+}
+
+var noticeUnits = []noticeUnit{
+	{"min", "хв", 1},
+	{"hour", "год", 60},
+	{"day", "днів", model.MinutesPerDay},
+}
+
+// splitNotice renders stored minutes as the largest unit that divides evenly,
+// so 7200 comes back as "5 днів" rather than "7200 хв".
+func splitNotice(minutes int) (int, string) {
+	for i := len(noticeUnits) - 1; i >= 0; i-- {
+		u := noticeUnits[i]
+		if minutes >= u.Min && minutes%u.Min == 0 {
+			return minutes / u.Min, u.Code
+		}
+	}
+	return minutes, "min"
+}
+
+func noticeMinutes(value int, unit string) int {
+	for _, u := range noticeUnits {
+		if u.Code == unit {
+			return value * u.Min
+		}
+	}
+	return value
+}
+
 func (a *App) handleEnrollments(w http.ResponseWriter, r *http.Request) {
 	enrollments, err := a.Store.ListEnrollments(false)
 	if err != nil {
@@ -42,13 +79,17 @@ type enrollmentFormData struct {
 	Enrollment model.Enrollment
 	Billing    []billingOption
 	Attendance []billingOption
-	Persons    []model.Person
-	ClassNames []string
-	Trainers   []model.Trainer
-	Slots      []model.Slot
-	Weekdays   []weekdayOption
-	IsEdit     bool
-	Error      string
+	// NoticeValue and NoticeUnit are PaymentNoticeMin split for the form.
+	NoticeValue int
+	NoticeUnit  string
+	NoticeUnits []noticeUnit
+	Persons     []model.Person
+	ClassNames  []string
+	Trainers    []model.Trainer
+	Slots       []model.Slot
+	Weekdays    []weekdayOption
+	IsEdit      bool
+	Error       string
 }
 
 type weekdayOption struct {
@@ -71,10 +112,11 @@ func weekdayOptions() []weekdayOption {
 func (a *App) handleEnrollmentNew(w http.ResponseWriter, r *http.Request) {
 	a.renderEnrollmentForm(w, enrollmentFormData{
 		Enrollment: model.Enrollment{
-			BillingType:    model.BillingPerLesson,
-			AttendanceMode: model.AttendancePerSession,
-			LowThreshold:   2,
-			Active:         true,
+			BillingType:      model.BillingPerLesson,
+			AttendanceMode:   model.AttendancePerSession,
+			LowThreshold:     2,
+			PaymentNoticeMin: 2 * 60,
+			Active:           true,
 		},
 	})
 }
@@ -168,6 +210,7 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 func parseEnrollmentForm(r *http.Request) model.Enrollment {
 	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
 	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
+	noticeValue, _ := strconv.Atoi(r.FormValue("payment_notice_value"))
 	return model.Enrollment{
 		Name:                normalizeName(r.FormValue("name")),
 		Description:         normalizeName(r.FormValue("description")),
@@ -178,6 +221,7 @@ func parseEnrollmentForm(r *http.Request) model.Enrollment {
 		Trainer:             normalizeName(r.FormValue("trainer")),
 		AttendanceMode:      r.FormValue("attendance_mode"),
 		PaymentInstructions: strings.TrimSpace(r.FormValue("payment_instructions")),
+		PaymentNoticeMin:    noticeMinutes(noticeValue, r.FormValue("payment_notice_unit")),
 	}
 }
 
@@ -258,6 +302,8 @@ func (a *App) handleSlotDelete(w http.ResponseWriter, r *http.Request) {
 func (a *App) renderEnrollmentForm(w http.ResponseWriter, data enrollmentFormData) {
 	data.Billing = billingOptions
 	data.Attendance = attendanceOptions
+	data.NoticeUnits = noticeUnits
+	data.NoticeValue, data.NoticeUnit = splitNotice(data.Enrollment.PaymentNoticeMin)
 	data.Weekdays = weekdayOptions()
 	trainers, _ := a.Store.ListTrainers()
 	data.Trainers = trainers

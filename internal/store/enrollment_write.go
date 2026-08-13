@@ -38,10 +38,12 @@ func (s *Store) CreateEnrollment(e model.Enrollment) (int64, error) {
 	}
 	res, err := s.db.Exec(`
 		INSERT INTO enrollments (person_id, name, description, billing_type, current_price,
-		                         low_threshold, notes, trainer_id, attendance_mode, payment_instructions)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                         low_threshold, notes, trainer_id, attendance_mode, payment_instructions,
+		                         payment_notice_min)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		personID, strings.TrimSpace(e.Name), e.Description, e.BillingType, e.CurrentPrice,
-		e.LowThreshold, e.Notes, e.TrainerID, e.AttendanceMode, e.PaymentInstructions)
+		e.LowThreshold, e.Notes, e.TrainerID, e.AttendanceMode, e.PaymentInstructions,
+		e.PaymentNoticeMin)
 	if err != nil {
 		return 0, err
 	}
@@ -54,10 +56,12 @@ func (s *Store) UpdateEnrollment(e model.Enrollment) error {
 	_, err := s.db.Exec(`
 		UPDATE enrollments
 		SET name=?, description=?, billing_type=?, current_price=?, low_threshold=?,
-		    active=?, notes=?, trainer_id=?, attendance_mode=?, payment_instructions=?
+		    active=?, notes=?, trainer_id=?, attendance_mode=?, payment_instructions=?,
+		    payment_notice_min=?
 		WHERE id=?`,
 		strings.TrimSpace(e.Name), e.Description, e.BillingType, e.CurrentPrice, e.LowThreshold,
-		e.Active, e.Notes, e.TrainerID, e.AttendanceMode, e.PaymentInstructions, e.ID)
+		e.Active, e.Notes, e.TrainerID, e.AttendanceMode, e.PaymentInstructions,
+		e.PaymentNoticeMin, e.ID)
 	return err
 }
 

@@ -25,7 +25,6 @@ type Config struct {
 	AllowedChats     []int64
 	NotifyChat       int64 // where attendance reminders are pushed; 0 disables
 	ReminderDelayMin int   // minutes after a slot's time to ask about it; <0 disables
-	PreLessonLeadMin int   // minutes before a slot to warn about an empty balance; <0 disables
 
 	// CostPromptDelayMin is how long after an appointment starts the bot asks
 	// what it cost; <0 disables the prompt entirely.

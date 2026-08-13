@@ -64,10 +64,6 @@ func main() {
 		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_REMINDER_DELAY_MIN")); err == nil {
 			reminderDelay = v
 		}
-		preLessonLead := 120
-		if v, err := strconv.Atoi(os.Getenv("TELEGRAM_PRELESSON_LEAD_MIN")); err == nil {
-			preLessonLead = v
-		}
 		costPromptDelay := 60
 		if v, err := strconv.Atoi(os.Getenv("APPOINTMENT_COST_PROMPT_MIN")); err == nil {
 			costPromptDelay = v
@@ -97,7 +93,6 @@ func main() {
 			AllowedChats:         bot.ParseChatIDs(os.Getenv("TELEGRAM_ALLOWED_CHATS"), logger),
 			NotifyChat:           notifyChat,
 			ReminderDelayMin:     reminderDelay,
-			PreLessonLeadMin:     preLessonLead,
 			CostPromptDelayMin:   costPromptDelay,
 			Loc:                  time.Local, // TZ comes from the container env
 			NotificationsEnabled: parseBool(os.Getenv("NOTIFICATIONS_ENABLED")),

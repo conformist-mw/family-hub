@@ -57,9 +57,23 @@
     <input type="number" name="current_price" step="0.01" min="0" value="{{$e.CurrentPrice}}" required>
   </label>
 
-  <label>
-    Порог нагадування <span class="muted">(залишилось занять / днів до кінця абонемента)</span>
+  <label id="row-threshold">
+    Жовтий бейдж <span class="muted">(коли залишилось стільки занять)</span>
     <input type="number" name="low_threshold" step="1" min="0" value="{{$e.LowThreshold}}" required>
+  </label>
+
+  <label>
+    Нагадати про оплату за
+    <span class="pair">
+      <input type="number" name="payment_notice_value" step="1" min="0" value="{{$d.NoticeValue}}" required>
+      <select name="payment_notice_unit">
+        {{range $d.NoticeUnits}}
+        <option value="{{.Code}}" {{if eq .Code $d.NoticeUnit}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </span>
+    <span class="muted" id="notice-hint-lesson">до заняття, яке нема чим оплатити</span>
+    <span class="muted" id="notice-hint-monthly" hidden>до кінця оплаченого періоду; це ж число робить бейдж жовтим</span>
   </label>
 
   <label>
@@ -93,6 +107,26 @@
     <a class="btn" href="/enrollments">Скасувати</a>
   </div>
 </form>
+
+<script>
+  // The lessons-left threshold means nothing for a pass, where the notice
+  // field below owns the yellow badge. Hide it rather than leave a number
+  // nobody can act on.
+  (function () {
+    var billing = document.querySelector('select[name="billing_type"]');
+    var threshold = document.getElementById('row-threshold');
+    var hintLesson = document.getElementById('notice-hint-lesson');
+    var hintMonthly = document.getElementById('notice-hint-monthly');
+    function toggle() {
+      var monthly = billing.value === 'monthly';
+      threshold.hidden = monthly;
+      hintLesson.hidden = monthly;
+      hintMonthly.hidden = !monthly;
+    }
+    billing.addEventListener('change', toggle);
+    toggle();
+  })();
+</script>
 
 {{if $d.IsEdit}}
 <section class="slots">

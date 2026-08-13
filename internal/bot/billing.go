@@ -81,21 +81,16 @@ func (b *Bot) sendDueBillingReminders() {
 // window. The window is a range, not a single day: an app that was down on the
 // 25th must still warn on the 26th rather than skip the month.
 //
-// The lead is the course's own low_threshold, which for a monthly course
-// already means "days before the pass runs out" — it is what turns the
-// dashboard badge yellow. One number on the course form drives both, so the
-// badge and the message cannot disagree about when it is time to pay. A
-// threshold of 0 means no warning, the same way it means the badge never goes
-// yellow.
+// The lead is the course's own payment_notice_min, which also turns the
+// dashboard badge yellow (Balance.NoticeDue) — one number on the course form
+// drives both, so the badge and the message cannot disagree about when it is
+// time to pay. Zero means no warning at all.
 //
 // Coverage must exist right now. Without it there is no boundary to warn
 // about — which is exactly what keeps the summer quiet and stops an overdue
 // month from being re-announced every day once its last day has passed.
 func dueForBillingReminder(bal model.Balance) bool {
-	return bal.BillingType == model.BillingMonthly &&
-		bal.LowThreshold > 0 &&
-		bal.CoveredNow &&
-		bal.DaysLeft <= bal.LowThreshold
+	return bal.BillingType == model.BillingMonthly && bal.NoticeDue()
 }
 
 // billingReminderText renders the warning. The amount is the course's current

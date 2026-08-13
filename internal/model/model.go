@@ -6,6 +6,14 @@ const (
 	BillingPerLesson = "per_lesson"
 	BillingMonthly   = "monthly"
 
+	// AttendancePerSession expects a marked result for every scheduled day —
+	// the bot asks in the evening. AttendanceExceptionsOnly treats a scheduled
+	// day as simply "по розкладу" and asks nothing; a school with a fixed
+	// monthly fee owes the same amount either way, so the daily question buys
+	// nothing. It gates reminders only, never money.
+	AttendancePerSession     = "per_session"
+	AttendanceExceptionsOnly = "exceptions_only"
+
 	StatusDone        = "done"
 	StatusRescheduled = "rescheduled"
 	StatusCancelled   = "cancelled"
@@ -30,6 +38,11 @@ var AbsenceKindLabels = map[string]string{
 	AbsenceVacation: "відпустка",
 	AbsenceSick:     "хвороба",
 	AbsenceOther:    "інше",
+}
+
+var AttendanceModeLabels = map[string]string{
+	AttendancePerSession:     "відмічати кожне заняття",
+	AttendanceExceptionsOnly: "без щоденних відміток",
 }
 
 var WeekdayLabels = [7]string{"Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
@@ -76,6 +89,19 @@ type Enrollment struct {
 	SlotCount    int    // weekly reminder slots; only populated by ListEnrollments
 	TrainerID    *int64 // nil — no trainer attached
 	Trainer      string // joined trainer name, read-only
+
+	// AttendanceMode is per_session | exceptions_only.
+	AttendanceMode string
+	// PaymentInstructions is free text shown in the payment reminder: payee,
+	// IBAN, reference. Never rendered into the ICS feed.
+	PaymentInstructions string
+}
+
+// SkipsDailyMarks reports whether the bot should stay silent about this
+// enrollment's scheduled days. The schedule itself stays — the calendar and
+// the forecast still need it.
+func (e Enrollment) SkipsDailyMarks() bool {
+	return e.AttendanceMode == AttendanceExceptionsOnly
 }
 
 type Trainer struct {
@@ -133,6 +159,16 @@ type Payment struct {
 	Comment      string
 }
 
+// CoversMonth renders the coverage range as the "YYYY-MM" an <input type=month>
+// wants, or "" when there is no coverage. The payment form only ever writes
+// whole calendar months, so the start of the range identifies the month.
+func (p Payment) CoversMonth() string {
+	if p.CoversFrom == nil || len(*p.CoversFrom) < 7 {
+		return ""
+	}
+	return (*p.CoversFrom)[:7]
+}
+
 // Balance is a per-enrollment rollup shown on the dashboard.
 type Balance struct {
 	Enrollment
@@ -141,8 +177,11 @@ type Balance struct {
 	Remaining     int    // Paid - Done (per_lesson)
 	DoneThisMonth int    // done visits since the start of the current month
 	CoveredNow    bool   // monthly: is today within a paid period
-	CoversUntil   string // monthly: end of the contiguous block covering today, "" if none
-	DaysLeft      int    // monthly: days until CoversUntil
+	CoversUntil   string // monthly: end of the covering block, or of the prepaid one; "" if none
+	DaysLeft      int    // monthly: days until CoversUntil; 0 while prepaid
+	// PrepaidFrom is set when nothing covers today but a later period is
+	// already paid — September settled on 28 August. Empty otherwise.
+	PrepaidFrom string
 }
 
 // State returns one of: ok, low, empty — drives the dashboard badge.
@@ -150,6 +189,11 @@ func (b Balance) State() string {
 	switch b.BillingType {
 	case BillingMonthly:
 		if !b.CoveredNow {
+			// Paid ahead of the period it buys — the normal shape for a school
+			// fee, and not a reason to ask for money.
+			if b.PrepaidFrom != "" {
+				return "ok"
+			}
 			return "empty"
 		}
 		if b.DaysLeft <= b.LowThreshold {

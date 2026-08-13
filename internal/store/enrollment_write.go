@@ -27,27 +27,37 @@ func (s *Store) getOrCreatePerson(name string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) CreateEnrollment(personName, name, description, billingType string, price float64, lowThreshold int, notes string, trainerID *int64) (int64, error) {
-	personID, err := s.getOrCreatePerson(personName)
+// CreateEnrollment takes the whole struct rather than a positional list: the
+// argument count had already outgrown the form, and the two school fields
+// would have pushed it to eleven. e.Person is the person's name, resolved (or
+// created) here; e.ID is ignored.
+func (s *Store) CreateEnrollment(e model.Enrollment) (int64, error) {
+	personID, err := s.getOrCreatePerson(e.Person)
 	if err != nil {
 		return 0, err
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO enrollments (person_id, name, description, billing_type, current_price, low_threshold, notes, trainer_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		personID, strings.TrimSpace(name), description, billingType, price, lowThreshold, notes, trainerID)
+		INSERT INTO enrollments (person_id, name, description, billing_type, current_price,
+		                         low_threshold, notes, trainer_id, attendance_mode, payment_instructions)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		personID, strings.TrimSpace(e.Name), e.Description, e.BillingType, e.CurrentPrice,
+		e.LowThreshold, e.Notes, e.TrainerID, e.AttendanceMode, e.PaymentInstructions)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdateEnrollment(id int64, name, description, billingType string, price float64, lowThreshold int, active bool, notes string, trainerID *int64) error {
+// UpdateEnrollment writes every editable field of e, keyed by e.ID. The person
+// is not among them — a course does not change who attends it.
+func (s *Store) UpdateEnrollment(e model.Enrollment) error {
 	_, err := s.db.Exec(`
 		UPDATE enrollments
-		SET name=?, description=?, billing_type=?, current_price=?, low_threshold=?, active=?, notes=?, trainer_id=?
+		SET name=?, description=?, billing_type=?, current_price=?, low_threshold=?,
+		    active=?, notes=?, trainer_id=?, attendance_mode=?, payment_instructions=?
 		WHERE id=?`,
-		strings.TrimSpace(name), description, billingType, price, lowThreshold, active, notes, trainerID, id)
+		strings.TrimSpace(e.Name), e.Description, e.BillingType, e.CurrentPrice, e.LowThreshold,
+		e.Active, e.Notes, e.TrainerID, e.AttendanceMode, e.PaymentInstructions, e.ID)
 	return err
 }
 

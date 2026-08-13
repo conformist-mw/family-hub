@@ -154,10 +154,14 @@ func homeCourses(balances []model.Balance, absences map[int64]*model.TrainerAbse
 // balanceLine states a balance the way a person would say it out loud.
 func balanceLine(b model.Balance) string {
 	if b.BillingType == model.BillingMonthly {
-		if !b.CoveredNow {
+		switch {
+		case b.CoveredNow:
+			return "абонемент до " + shortDate(b.CoversUntil) + ", " + plural(b.DaysLeft, "день", "дні", "днів")
+		case b.PrepaidFrom != "":
+			return "оплачено з " + shortDate(b.PrepaidFrom) + " до " + shortDate(b.CoversUntil)
+		default:
 			return "абонемент не оплачено"
 		}
-		return "абонемент до " + shortDate(b.CoversUntil) + ", " + plural(b.DaysLeft, "день", "дні", "днів")
 	}
 	switch {
 	case b.Remaining < 0:

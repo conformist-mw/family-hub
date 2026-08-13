@@ -15,7 +15,14 @@ import (
 // tests that matter here must not quietly skip themselves.
 func seedCourse(t *testing.T, st *store.Store) int64 {
 	t.Helper()
-	id, err := st.CreateEnrollment("Демид", "Логопед", "", model.BillingPerLesson, 500, 2, "", nil)
+	id, err := st.CreateEnrollment(model.Enrollment{
+		Person:         "Демид",
+		Name:           "Логопед",
+		BillingType:    model.BillingPerLesson,
+		CurrentPrice:   500,
+		LowThreshold:   2,
+		AttendanceMode: model.AttendancePerSession,
+	})
 	if err != nil {
 		t.Fatalf("seed enrollment: %v", err)
 	}

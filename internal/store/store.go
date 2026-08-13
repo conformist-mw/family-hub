@@ -37,6 +37,7 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 	rows, err := s.db.Query(`
 		SELECT e.id, e.person_id, p.name, e.name, e.description,
 		       e.billing_type, e.current_price, e.low_threshold, e.active, e.notes,
+		       e.attendance_mode, e.payment_instructions,
 		       COALESCE((SELECT SUM(lessons_paid) FROM payments pm
 		                 WHERE pm.enrollment_id=e.id AND pm.lessons_paid IS NOT NULL),0) AS paid,
 		       (SELECT COUNT(*) FROM visits v
@@ -60,6 +61,7 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 		var b model.Balance
 		if err := rows.Scan(&b.ID, &b.PersonID, &b.Person, &b.Name, &b.Description,
 			&b.BillingType, &b.CurrentPrice, &b.LowThreshold, &b.Active, &b.Notes,
+			&b.AttendanceMode, &b.PaymentInstructions,
 			&b.Paid, &b.Done, &b.DoneThisMonth); err != nil {
 			return nil, err
 		}
@@ -70,6 +72,9 @@ func (s *Store) balances(where string, args ...any) ([]model.Balance, error) {
 				return nil, err
 			}
 			b.CoveredNow, b.CoversUntil, b.DaysLeft = coverageFromToday(periods, today)
+			if !b.CoveredNow {
+				b.PrepaidFrom, b.CoversUntil = upcomingCoverage(periods, today)
+			}
 		}
 		out = append(out, b)
 	}
@@ -136,6 +141,41 @@ func coverageFromToday(periods []period, today time.Time) (bool, string, int) {
 	// transition inside the span makes one "day" 23 or 25 hours long.
 	days := int(math.Round(cover.Sub(today).Hours() / 24))
 	return true, cover.Format("2006-01-02"), days
+}
+
+// upcomingCoverage reports a paid period that has not started yet: its first
+// day and the end of the contiguous run from there. It answers the case the
+// school scenario is built on — September paid on 28 August. Coverage-from-
+// today alone reads that as "nothing is paid", which would put a red badge on
+// a course whose next month is already settled.
+//
+// Only the nearest future block counts; a gap between blocks ends the run for
+// the same reason it does in coverageFromToday.
+func upcomingCoverage(periods []period, today time.Time) (string, string) {
+	sort.Slice(periods, func(i, j int) bool { return periods[i].from.Before(periods[j].from) })
+
+	var start, end *time.Time
+	for _, p := range periods {
+		if !p.from.After(today) {
+			continue
+		}
+		if start == nil {
+			f, t := p.from, p.to
+			start, end = &f, &t
+			continue
+		}
+		if p.from.After(end.AddDate(0, 0, 1)) {
+			break
+		}
+		if p.to.After(*end) {
+			t := p.to
+			end = &t
+		}
+	}
+	if start == nil {
+		return "", ""
+	}
+	return start.Format("2006-01-02"), end.Format("2006-01-02")
 }
 
 func truncateDay(t time.Time) time.Time {

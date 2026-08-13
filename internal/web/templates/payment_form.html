@@ -38,12 +38,8 @@
 
   <div id="block-monthly" class="billing-block" hidden>
     <label>
-      Абонемент з
-      <input type="date" name="covers_from" value="{{deref $p.CoversFrom}}">
-    </label>
-    <label>
-      Абонемент до
-      <input type="date" name="covers_until" value="{{deref $p.CoversUntil}}">
+      За який місяць <span class="muted">(не плутати з датою переказу вище)</span>
+      <input type="month" name="covers_month" value="{{$p.CoversMonth}}">
     </label>
   </div>
 

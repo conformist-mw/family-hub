@@ -23,11 +23,43 @@ type Stats struct {
 	TotalYear  float64
 	TotalMonth float64
 	ByMonth    []MonthSpend
+	ByPeriod   []MonthSpend
 	ByPerson   []PersonSpend
 	ByCourse   []CourseSpend
 	MaxMonth   float64
+	MaxPeriod  float64
 	MaxPerson  float64
 	MaxCourse  float64
+}
+
+// spendByMonth sums payments into the last 12 buckets produced by groupExpr,
+// which must be a SQL expression over one payments row yielding "YYYY-MM".
+// It is interpolated, not bound: a bucket expression is code, and both call
+// sites are literals in this file.
+func (s *Store) spendByMonth(groupExpr string) ([]MonthSpend, float64, error) {
+	rows, err := s.db.Query(`
+		SELECT ` + groupExpr + ` AS ym, SUM(amount)
+		FROM payments
+		GROUP BY ym
+		ORDER BY ym DESC
+		LIMIT 12`)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []MonthSpend
+	var max float64
+	for rows.Next() {
+		var m MonthSpend
+		if err := rows.Scan(&m.Month, &m.Amount); err != nil {
+			return nil, 0, err
+		}
+		if m.Amount > max {
+			max = m.Amount
+		}
+		out = append(out, m)
+	}
+	return out, max, rows.Err()
 }
 
 func (s *Store) Stats() (Stats, error) {
@@ -43,29 +75,26 @@ func (s *Store) Stats() (Stats, error) {
 		return st, err
 	}
 
-	monthRows, err := s.db.Query(`
-		SELECT strftime('%Y-%m', date) AS ym, SUM(amount)
-		FROM payments
-		GROUP BY ym
-		ORDER BY ym DESC
-		LIMIT 12`)
+	// Two month-by-month views of the same rows, deliberately not one query.
+	// ByMonth groups on the transfer date — when money left the account.
+	// ByPeriod groups on what was bought: September's fee paid on 28 August
+	// belongs to August in the first and to September in the second. The
+	// second is also the only place a skipped month shows up, since
+	// coverageFromToday merges adjacent periods and hides the gap.
+	byMonth, maxMonth, err := s.spendByMonth(`strftime('%Y-%m', date)`)
 	if err != nil {
 		return st, err
 	}
-	defer monthRows.Close()
-	for monthRows.Next() {
-		var m MonthSpend
-		if err := monthRows.Scan(&m.Month, &m.Amount); err != nil {
-			return st, err
-		}
-		if m.Amount > st.MaxMonth {
-			st.MaxMonth = m.Amount
-		}
-		st.ByMonth = append(st.ByMonth, m)
-	}
-	if err := monthRows.Err(); err != nil {
+	st.ByMonth, st.MaxMonth = byMonth, maxMonth
+
+	// Per-lesson payments have no coverage range; for them the money and what
+	// it bought coincide, so they fall back to the payment date.
+	byPeriod, maxPeriod, err := s.spendByMonth(
+		`COALESCE(strftime('%Y-%m', covers_from), strftime('%Y-%m', date))`)
+	if err != nil {
 		return st, err
 	}
+	st.ByPeriod, st.MaxPeriod = byPeriod, maxPeriod
 
 	personRows, err := s.db.Query(`
 		SELECT p.name, SUM(pm.amount)

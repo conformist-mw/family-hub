@@ -20,7 +20,7 @@
       </div>
       <span class="badge badge-{{.State}}">
         {{if eq .BillingType "monthly"}}
-          {{if .CoveredNow}}{{.DaysLeft}} дн.{{else}}немає абонемента{{end}}
+          {{if .CoveredNow}}{{.DaysLeft}} дн.{{else if .PrepaidFrom}}з {{dateShort .PrepaidFrom}}{{else}}немає абонемента{{end}}
         {{else}}
           {{if eq .State "empty"}}час платити{{else}}залишилось {{.Remaining}}{{end}}
         {{end}}
@@ -29,7 +29,7 @@
     <div class="card-meta">
       <span>
         {{money .CurrentPrice}}{{if eq .BillingType "monthly"}}/міс{{else}}/зан.{{end}}
-        {{if eq .BillingType "monthly"}} · до {{if .CoveredNow}}{{dateShort .CoversUntil}}{{else}}—{{end}}{{end}}
+        {{if eq .BillingType "monthly"}} · до {{if .CoversUntil}}{{dateShort .CoversUntil}}{{else}}—{{end}}{{end}}
         · міс: {{.DoneThisMonth}}
       </span>
       <a href="/enrollments/{{.ID}}/audit">звірка</a>

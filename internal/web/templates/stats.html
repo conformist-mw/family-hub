@@ -20,12 +20,27 @@
 </div>
 
 <section class="stat-block">
-  <h2>По місяцях</h2>
+  <h2>По місяцях <span class="muted">(коли платили)</span></h2>
   <div class="bars">
     {{range $s.ByMonth}}
     <div class="bar-row">
       <span class="bar-label">{{monthShort .Month}}</span>
       <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxMonth}}%"></span></span>
+      <span class="bar-value">{{money .Amount}}</span>
+    </div>
+    {{else}}
+    <p class="empty">Оплат немає.</p>
+    {{end}}
+  </div>
+</section>
+
+<section class="stat-block">
+  <h2>За оплачені періоди <span class="muted">(за який місяць)</span></h2>
+  <div class="bars">
+    {{range $s.ByPeriod}}
+    <div class="bar-row">
+      <span class="bar-label">{{monthShort .Month}}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxPeriod}}%"></span></span>
       <span class="bar-value">{{money .Amount}}</span>
     </div>
     {{else}}

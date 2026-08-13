@@ -14,6 +14,10 @@ type SlotWithEnrollment struct {
 // given date — that one condition silences both the post-slot reminder and
 // the pre-slot balance warning. Enrollments without a trainer never match
 // the subquery and are never muted.
+//
+// exceptions_only enrollments are filtered out for the same reason: their
+// slots exist for the calendar and the forecast, not to be confirmed one
+// evening at a time. Their slots still reach the ICS feed via AllActiveSlots.
 func (s *Store) SlotsForWeekday(weekday int, date string) ([]SlotWithEnrollment, error) {
 	rows, err := s.db.Query(`
 		SELECT s.id, s.enrollment_id, s.weekday, s.time, s.active,
@@ -23,6 +27,7 @@ func (s *Store) SlotsForWeekday(weekday int, date string) ([]SlotWithEnrollment,
 		JOIN enrollments e ON e.id = s.enrollment_id
 		JOIN persons p     ON p.id = e.person_id
 		WHERE s.active = 1 AND e.active = 1 AND s.weekday = ?
+		  AND e.attendance_mode = 'per_session'
 		  AND NOT EXISTS (
 		      SELECT 1 FROM trainer_absences a
 		      WHERE a.trainer_id = e.trainer_id

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -169,15 +170,9 @@ func (a *App) parsePaymentForm(r *http.Request) (model.Payment, string) {
 	}
 
 	if enr.BillingType == model.BillingMonthly {
-		from := r.FormValue("covers_from")
-		until := r.FormValue("covers_until")
-		fromT, errFrom := model.ParseDate(from)
-		untilT, errUntil := model.ParseDate(until)
-		if errFrom != nil || errUntil != nil {
-			return p, "вкажи період абонемента (з / по)"
-		}
-		if untilT.Before(fromT) {
-			return p, "дата «по» раніше дати «з»"
+		from, until, err := monthRange(r.FormValue("covers_month"))
+		if err != nil {
+			return p, "вкажи місяць, за який оплата"
 		}
 		p.CoversFrom = &from
 		p.CoversUntil = &until
@@ -189,6 +184,22 @@ func (a *App) parsePaymentForm(r *http.Request) (model.Payment, string) {
 		p.LessonsPaid = &lessons
 	}
 	return p, ""
+}
+
+// monthRange expands "2026-09" into the first and last day of that month.
+//
+// The form takes a month rather than two free dates so a coverage range is
+// always exactly one calendar month. That is what keeps the "за оплачені
+// періоди" chart honest: a single payment spanning September to December would
+// otherwise land wholly in September. The columns stay a date range, so a
+// free-form period can come back without a migration.
+func monthRange(v string) (string, string, error) {
+	first, err := time.ParseInLocation("2006-01", v, time.Local)
+	if err != nil {
+		return "", "", err
+	}
+	last := first.AddDate(0, 1, -1)
+	return first.Format("2006-01-02"), last.Format("2006-01-02"), nil
 }
 
 func (a *App) renderPaymentFormError(w http.ResponseWriter, p model.Payment, isEdit bool, msg string) {

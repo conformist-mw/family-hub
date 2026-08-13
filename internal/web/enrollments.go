@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"familyhub/internal/model"
 	"familyhub/internal/schedule"
@@ -21,6 +22,13 @@ var billingOptions = []billingOption{
 	{model.BillingMonthly, "абонемент (щомісяця)"},
 }
 
+// attendanceOptions is a separate axis from billing on purpose: a monthly club
+// may want every lesson marked, a school with a fixed fee does not.
+var attendanceOptions = []billingOption{
+	{model.AttendancePerSession, model.AttendanceModeLabels[model.AttendancePerSession]},
+	{model.AttendanceExceptionsOnly, model.AttendanceModeLabels[model.AttendanceExceptionsOnly]},
+}
+
 func (a *App) handleEnrollments(w http.ResponseWriter, r *http.Request) {
 	enrollments, err := a.Store.ListEnrollments(false)
 	if err != nil {
@@ -33,6 +41,7 @@ func (a *App) handleEnrollments(w http.ResponseWriter, r *http.Request) {
 type enrollmentFormData struct {
 	Enrollment model.Enrollment
 	Billing    []billingOption
+	Attendance []billingOption
 	Persons    []model.Person
 	ClassNames []string
 	Trainers   []model.Trainer
@@ -61,7 +70,12 @@ func weekdayOptions() []weekdayOption {
 
 func (a *App) handleEnrollmentNew(w http.ResponseWriter, r *http.Request) {
 	a.renderEnrollmentForm(w, enrollmentFormData{
-		Enrollment: model.Enrollment{BillingType: model.BillingPerLesson, LowThreshold: 2, Active: true},
+		Enrollment: model.Enrollment{
+			BillingType:    model.BillingPerLesson,
+			AttendanceMode: model.AttendancePerSession,
+			LowThreshold:   2,
+			Active:         true,
+		},
 	})
 }
 
@@ -70,43 +84,28 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	person := normalizeName(r.FormValue("person"))
-	name := normalizeName(r.FormValue("name"))
-	description := normalizeName(r.FormValue("description"))
-	billing := r.FormValue("billing_type")
-	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
-	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
-	notes := normalizeName(r.FormValue("notes"))
-	trainer := normalizeName(r.FormValue("trainer"))
+	e := parseEnrollmentForm(r)
+	e.Person = normalizeName(r.FormValue("person"))
+	e.Active = true
 
-	formData := enrollmentFormData{
-		Enrollment: model.Enrollment{
-			Person: person, Name: name, Description: description, BillingType: billing,
-			CurrentPrice: price, LowThreshold: low, Notes: notes, Active: true,
-			Trainer: trainer,
-		},
-	}
-	if person == "" || name == "" {
+	formData := enrollmentFormData{Enrollment: e}
+	if e.Person == "" || e.Name == "" {
 		formData.Error = "вкажи людину і назву заняття"
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
-	if !isValidBilling(billing) {
-		formData.Error = "вибери тип оплати"
+	if msg := validateEnrollment(e); msg != "" {
+		formData.Error = msg
 		a.renderEnrollmentForm(w, formData)
 		return
 	}
-	if price < 0 {
-		formData.Error = "ціна не може бути відʼємною"
-		a.renderEnrollmentForm(w, formData)
-		return
-	}
-	trainerID, err := a.trainerIDFromForm(trainer)
+	trainerID, err := a.trainerIDFromForm(e.Trainer)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	if _, err := a.Store.CreateEnrollment(person, name, description, billing, price, low, notes, trainerID); err != nil {
+	e.TrainerID = trainerID
+	if _, err := a.Store.CreateEnrollment(e); err != nil {
 		a.serverError(w, err)
 		return
 	}
@@ -138,16 +137,11 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	name := normalizeName(r.FormValue("name"))
-	description := normalizeName(r.FormValue("description"))
-	billing := r.FormValue("billing_type")
-	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
-	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
-	active := r.FormValue("active") == "on"
-	notes := normalizeName(r.FormValue("notes"))
-	trainer := normalizeName(r.FormValue("trainer"))
+	e := parseEnrollmentForm(r)
+	e.ID = id
+	e.Active = r.FormValue("active") == "on"
 
-	if name == "" || !isValidBilling(billing) || price < 0 {
+	if e.Name == "" || validateEnrollment(e) != "" {
 		enr, _ := a.Store.GetEnrollment(id)
 		slots, _ := a.Store.ListSlots(id)
 		a.renderEnrollmentForm(w, enrollmentFormData{
@@ -156,16 +150,51 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	trainerID, err := a.trainerIDFromForm(trainer)
+	trainerID, err := a.trainerIDFromForm(e.Trainer)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	if err := a.Store.UpdateEnrollment(id, name, description, billing, price, low, active, notes, trainerID); err != nil {
+	e.TrainerID = trainerID
+	if err := a.Store.UpdateEnrollment(e); err != nil {
 		a.serverError(w, err)
 		return
 	}
 	http.Redirect(w, r, "/enrollments", http.StatusSeeOther)
+}
+
+// parseEnrollmentForm reads the fields both create and update share. Person
+// and Active differ between the two and are set by the caller.
+func parseEnrollmentForm(r *http.Request) model.Enrollment {
+	price, _ := strconv.ParseFloat(r.FormValue("current_price"), 64)
+	low, _ := strconv.Atoi(r.FormValue("low_threshold"))
+	return model.Enrollment{
+		Name:                normalizeName(r.FormValue("name")),
+		Description:         normalizeName(r.FormValue("description")),
+		BillingType:         r.FormValue("billing_type"),
+		CurrentPrice:        price,
+		LowThreshold:        low,
+		Notes:               normalizeName(r.FormValue("notes")),
+		Trainer:             normalizeName(r.FormValue("trainer")),
+		AttendanceMode:      r.FormValue("attendance_mode"),
+		PaymentInstructions: strings.TrimSpace(r.FormValue("payment_instructions")),
+	}
+}
+
+// validateEnrollment returns a user-facing message, or "" when the enrollment
+// may be written. The attendance mode is checked because it reaches a CHECK
+// constraint: a bad value would surface as a 500 instead of a form error.
+func validateEnrollment(e model.Enrollment) string {
+	if !isValidBilling(e.BillingType) {
+		return "вибери тип оплати"
+	}
+	if !isValidAttendance(e.AttendanceMode) {
+		return "вибери режим відміток"
+	}
+	if e.CurrentPrice < 0 {
+		return "ціна не може бути відʼємною"
+	}
+	return ""
 }
 
 func (a *App) handleEnrollmentDelete(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +257,7 @@ func (a *App) handleSlotDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) renderEnrollmentForm(w http.ResponseWriter, data enrollmentFormData) {
 	data.Billing = billingOptions
+	data.Attendance = attendanceOptions
 	data.Weekdays = weekdayOptions()
 	trainers, _ := a.Store.ListTrainers()
 	data.Trainers = trainers
@@ -255,4 +285,8 @@ func (a *App) trainerIDFromForm(name string) (*int64, error) {
 
 func isValidBilling(b string) bool {
 	return b == model.BillingPerLesson || b == model.BillingMonthly
+}
+
+func isValidAttendance(m string) bool {
+	return m == model.AttendancePerSession || m == model.AttendanceExceptionsOnly
 }

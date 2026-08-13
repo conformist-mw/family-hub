@@ -21,14 +21,28 @@ to look when picking it back up after a break.
   `description`, `billing_type` (`per_lesson` | `monthly`), `current_price`,
   `low_threshold`, `active`. Identity is the row `id`; the `name` is not
   unique by design — two "Гимнастика" for different people coexist,
-  distinguished by `description`.
+  distinguished by `description`. `attendance_mode` (`per_session` |
+  `exceptions_only`) gates reminders only, never money: a school with a fixed
+  monthly fee owes the same amount either way, so it is not asked every
+  evening whether a lesson happened, while its schedule stays for the calendar
+  and the forecast. `payment_instructions` is free text (payee, IBAN,
+  reference) carried into the payment reminder; it never reaches the ICS feed.
 - **`regular_slots`** — weekly schedule of a course (weekday + time). Used
   by the bot to drive evening reminders.
 - **`visits`** — one attendance event: `date`, `status`
   (`done` / `rescheduled` / `cancelled` / `skipped`), `comment`. One visit
   per enrollment per date, enforced by a UNIQUE index.
 - **`payments`** — money in. Either prepaid lessons (`lessons_paid`) or a
-  monthly pass (`covers_from` + `covers_until`).
+  monthly pass (`covers_from` + `covers_until`). The transfer date and the
+  period bought are separate facts and both are reported: September's school
+  fee paid on 28 August counts in August on the "по місяцях" chart and in
+  September on "за оплачені періоди". The payment form takes a month, not two
+  dates, so a coverage range is always exactly one calendar month — otherwise
+  a September-to-December payment would land wholly in September. A course
+  paid ahead of the period it buys is not an empty balance
+  (`Balance.PrepaidFrom`); the badge reads "з 01.09" rather than red.
+- **`billing_reminders`** — which coverage endings the bot has already warned
+  about, keyed `(enrollment_id, covers_until)`. See Bot.
 - **`trainers`** + **`trainer_absences`** — who teaches a course
   (`enrollments.trainer_id`, nullable) and their date-range absences
   (vacation / sick / other, both bounds inclusive). While an absence covers
@@ -224,11 +238,25 @@ data/          # local SQLite (gitignored)
   strict about it (anything that is not a plain number counts as no price)
   because a wrong amount is worse than an absent one, and an absent one just
   means the prompt asks later.
-- Three independent tickers run as separate goroutines: `RunScheduler` for
+- Four independent tickers run as separate goroutines: `RunScheduler` for
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`) for the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
-  prod — HA owns those summaries), and `RunCostPrompts` for the above. All
-  three need a configured notify chat.
+  prod — HA owns those summaries), `RunCostPrompts` for the above, and
+  `RunBillingReminders` (below). All four need a configured notify chat.
+- **Billing reminders** (`internal/bot/billing.go`): an hourly ticker that
+  warns when a monthly course's paid period is about to run out, so the next
+  month gets paid before it starts — `BILLING_LEAD_DAYS` days ahead (default
+  `1`, `<0` disables). It is deliberately not tied to a slot time: a school
+  charging a fixed monthly fee owes the same amount whether or not anyone
+  showed up. The trigger is the coverage boundary alone, and three wanted
+  behaviours follow from that: nothing is sent over the summer (coverage ended
+  in May, no boundary is approaching), an overdue month stops nagging once its
+  last day passes (the dashboard badge carries the debt), and a course's first
+  payment has to be entered by hand, since until something is covered there is
+  no boundary to warn about. The window is a range rather than one day, so an
+  app that was down on the 29th still warns on the 30th. `billing_reminders`
+  is the sent-state, keyed by the period's last day and claimed with
+  `INSERT OR IGNORE` before sending, which makes "check then send" atomic.
 - The **scheduler** (`internal/bot/scheduler.go`) is a once-a-minute
   ticker. `TELEGRAM_REMINDER_DELAY_MIN` minutes (default `60`, container
   TZ is `Europe/Kyiv`) after each active `regular_slot` matching today's

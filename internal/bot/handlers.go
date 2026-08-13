@@ -87,10 +87,12 @@ func formatBalanceLine(bal model.Balance, packs []audit.Pack) string {
 	label := bal.Name
 	if bal.BillingType == model.BillingMonthly {
 		switch {
-		case !bal.CoveredNow:
-			return fmt.Sprintf("%s %s — %s: немає абонемента", mark, bal.Person, label)
-		default:
+		case bal.CoveredNow:
 			return fmt.Sprintf("%s %s — %s: %d дн.", mark, bal.Person, label, bal.DaysLeft)
+		case bal.PrepaidFrom != "":
+			return fmt.Sprintf("%s %s — %s: оплачено з %s", mark, bal.Person, label, dateShort(bal.PrepaidFrom))
+		default:
+			return fmt.Sprintf("%s %s — %s: немає абонемента", mark, bal.Person, label)
 		}
 	}
 	return fmt.Sprintf("%s %s — %s: %s", mark, bal.Person, label, paidFragment(bal, packs))
@@ -147,10 +149,15 @@ func balanceStatusLine(bal model.Balance, packs []audit.Pack) string {
 		mark = "🔴"
 	}
 	if bal.BillingType == model.BillingMonthly {
-		if !bal.CoveredNow {
+		switch {
+		case bal.CoveredNow:
+			return fmt.Sprintf("%s Абонемент до %s, залишилось %d дн.", mark, dateShort(bal.CoversUntil), bal.DaysLeft)
+		case bal.PrepaidFrom != "":
+			return fmt.Sprintf("%s Оплачено наперед: з %s до %s",
+				mark, dateShort(bal.PrepaidFrom), dateShort(bal.CoversUntil))
+		default:
 			return mark + " Немає активного абонемента"
 		}
-		return fmt.Sprintf("%s Абонемент до %s, залишилось %d дн.", mark, dateShort(bal.CoversUntil), bal.DaysLeft)
 	}
 	// An empty balance reads as the pre-lesson warning's wording rather than
 	// a literal "0 из N", which looked odd. emptyBalanceText keeps both

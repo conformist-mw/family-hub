@@ -8,6 +8,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/appointments"
 	"familyhub/internal/model"
 )
 
@@ -244,12 +245,16 @@ func (b *Bot) cancelMarkup(id int64, offset int) *tele.ReplyMarkup {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// formatListLine is the numbered variant of appointments.Format — the number is
+// what the tap targets refer to. The escaping is the same and for the same
+// reason: a title with a "<" in it must not break the message.
 func (b *Bot) formatListLine(n int, a model.Appointment) string {
 	who := ""
 	if a.Person != "" {
-		who = " · " + a.Person
+		who = " · " + appointments.Escape(a.Person)
 	}
-	return fmt.Sprintf("%d. %s — <b>%s</b>%s%s", n, b.whenLabel(a), a.Title, who, costSuffix(a))
+	return fmt.Sprintf("%d. %s — <b>%s</b>%s%s",
+		n, b.whenLabel(a), appointments.Escape(a.Title), who, appointments.CostSuffix(a))
 }
 
 func armPrompt(field string, a model.Appointment) string {

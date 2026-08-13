@@ -11,11 +11,15 @@ import (
 	"familyhub/internal/model"
 )
 
-// Notifier posts a plain-text message to the family group. The bot
-// implements it; web stays free of telebot. Nil means the bot is off and
-// the send button is hidden.
+// Notifier posts a message to the family group. The bot implements it; web
+// stays free of telebot. Nil means the bot is off: the audit page's send button
+// is hidden and appointment writes go unannounced.
+//
+// NotifyHTML is what appointments.Service needs — this interface is the superset
+// the whole web surface uses, and it satisfies that one by having its method.
 type Notifier interface {
 	NotifyText(text string) error
+	NotifyHTML(text string) error
 }
 
 type auditPageData struct {

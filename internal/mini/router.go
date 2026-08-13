@@ -59,6 +59,10 @@ type Config struct {
 	WebhookURL string
 	// Loc is the wall-clock zone appointments are stored in.
 	Loc *time.Location
+	// Notifier posts a write to the family group. The bot implements it and
+	// nothing here imports it; nil means no group message, the same as a
+	// disabled bot.
+	Notifier appointments.Notifier
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -102,7 +106,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 
 	rt := &Router{
 		store:        st,
-		appointments: appointments.NewService(st, cfg.Loc),
+		appointments: appointments.NewService(st, cfg.Loc, cfg.Notifier, logger),
 		schedule:     schedule.NewService(st),
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),

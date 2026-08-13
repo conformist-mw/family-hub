@@ -8,25 +8,33 @@ import (
 	"net/url"
 	"time"
 
+	"familyhub/internal/appointments"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
 )
 
 type App struct {
-	DB        *sql.DB
-	Store     *store.Store
-	Logger    *slog.Logger
-	Notifier  Notifier // nil — bot disabled, send-to-group hidden
-	templates map[string]*template.Template
+	DB     *sql.DB
+	Store  *store.Store
+	Logger *slog.Logger
+	// Appointments holds the write rules and the group notification shared with
+	// the Mini App, so the two surfaces cannot drift on either.
+	Appointments *appointments.Service
+	Notifier     Notifier // nil — bot disabled, send-to-group hidden
+	templates    map[string]*template.Template
 }
 
 func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler, notifier Notifier) http.Handler {
+	st := store.New(db)
 	a := &App{
-		DB:        db,
-		Store:     store.New(db),
-		Logger:    logger,
-		Notifier:  notifier,
-		templates: parseTemplates(),
+		DB:     db,
+		Store:  st,
+		Logger: logger,
+		// time.Local is the zone appointments are written in — TZ comes from the
+		// container env, the same source the bot and the Mini App read.
+		Appointments: appointments.NewService(st, time.Local, notifier, logger),
+		Notifier:     notifier,
+		templates:    parseTemplates(),
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", staticHandler())

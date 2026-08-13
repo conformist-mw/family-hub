@@ -121,8 +121,10 @@ data/          # local SQLite (gitignored)
     lessons (grey; unpaid ones flagged with the top-up amount; trainer
     absences excluded), copy-as-text, and "send to group" via the bot
     (`POST .../audit/send`). Pure logic lives in `internal/audit`; the bot
-    is reached through the small `web.Notifier` interface, so `internal/web`
-    never imports telebot and the button hides when the bot is off.
+    is reached through the small `web.Notifier` interface (`NotifyText` for
+    this button, `NotifyHTML` for the appointment notifications below), so
+    `internal/web` never imports telebot and the button hides when the bot
+    is off.
   - `/trainers` — trainers with their absences; add/delete an absence
   - `/stats` — totals (month/year/all time) and CSS bar charts by month,
     by person, by course
@@ -219,6 +221,17 @@ data/          # local SQLite (gitignored)
   (`internal/bot/pending.go`) and armed field edits
   (`internal/bot/awaiting.go`) are in-memory with eviction: a restart drops
   them, the user just re-sends.
+- **The family group hears about every appointment write**, whichever surface
+  made it: the bot mirrors its private-chat add/edit/cancel there
+  (`mirrorToGroup`, a no-op in the group itself where the confirmation card is
+  already visible), and the web form and the Mini App reach the same messages
+  through `appointments.Service`, which announces after a successful write.
+  The text and the byline are built in `internal/appointments` so all three
+  read alike; it is Telegram HTML with everything a person typed escaped.
+  Sending is best-effort — the row is already saved, and reporting a Telegram
+  outage as a failed save invites a duplicate. The byline is the Telegram
+  `first_name` for the bot and the Mini App; on the web it is whatever
+  oauth2-proxy forwards, falling back to "веб".
 - `/list` is one self-editing message: a calendar week at a time, tap a number
   for the card → edit / cancel, all state encoded in the callback data. Text
   edits (reschedule, rename, change who) are private-chat only, because in a

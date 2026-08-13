@@ -8,6 +8,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/appointments"
 	"familyhub/internal/model"
 	"familyhub/internal/parse"
 )
@@ -188,44 +189,22 @@ func (b *Bot) confirmMarkup(key string, n int, updateID int64) *tele.ReplyMarkup
 
 // ── formatting ───────────────────────────────────────────────────────────────
 
+// An appointment reads the same everywhere, so the rendering lives in
+// internal/appointments alongside the group notifications the other two
+// surfaces send. These are the bot's shorthand for it.
+
 var monthsShort = model.MonthsShort
 
-var weekdaysShort = [7]string{"нд", "пн", "вт", "ср", "чт", "пт", "сб"}
-
-// whenLabel renders an appointment's start as "пн 8 лип, 10:30" (falls back to
-// the raw stored value if it can't be parsed).
 func (b *Bot) whenLabel(a model.Appointment) string {
-	t, err := a.Start(b.cfg.Loc)
-	if err != nil {
-		return a.StartsAt
-	}
-	return fmt.Sprintf("%s %d %s, %02d:%02d",
-		weekdaysShort[int(t.Weekday())], t.Day(), monthsShort[int(t.Month())], t.Hour(), t.Minute())
+	return appointments.WhenLabel(a, b.cfg.Loc)
 }
 
 func (b *Bot) formatAppt(a model.Appointment) string {
-	who := ""
-	if a.Person != "" {
-		who = " · " + a.Person
-	}
-	return fmt.Sprintf("📌 <b>%s</b> — %s%s%s", a.Title, b.whenLabel(a), who, costSuffix(a))
-}
-
-// costSuffix renders a recorded amount, including 0 ("free" was a decision
-// somebody made, so it is worth showing). Nothing when unrecorded.
-func costSuffix(a model.Appointment) string {
-	if a.Cost == nil {
-		return ""
-	}
-	return " · " + money(*a.Cost)
+	return appointments.Format(a, b.cfg.Loc)
 }
 
 func (b *Bot) formatList(items []model.Appointment) string {
-	lines := make([]string, 0, len(items))
-	for _, a := range items {
-		lines = append(lines, b.formatAppt(a))
-	}
-	return strings.Join(lines, "\n")
+	return appointments.FormatList(items, b.cfg.Loc)
 }
 
 func (b *Bot) now() time.Time { return time.Now().In(b.cfg.Loc) }
@@ -237,37 +216,28 @@ func (b *Bot) now() time.Time { return time.Now().In(b.cfg.Loc) }
 // visit in a 1:1 chat with the bot. It's a no-op in the group itself (the
 // action's confirmation card is already visible there, so mirroring would
 // double-post) and when no notify chat is configured.
+//
+// The web UI and the Mini App reach the same messages through
+// appointments.Service, which has no chat to check and therefore always sends.
 func (b *Bot) mirrorToGroup(c tele.Context, text string) {
-	if !isPrivate(c) || b.cfg.NotifyChat == 0 {
+	if !isPrivate(c) {
 		return
 	}
-	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), text, tele.ModeHTML); err != nil {
+	if err := b.NotifyHTML(text); err != nil {
 		b.logger.Error("bot: mirror to group", "err", err)
 	}
 }
 
 func (b *Bot) groupAddText(c tele.Context, items []model.Appointment) string {
-	head := "🆕 Новий візит"
-	if len(items) > 1 {
-		head = "🆕 Нові візити"
-	}
-	return head + byLine(c) + ":\n\n" + b.formatList(items)
+	return appointments.GroupAddText(items, senderName(c), b.cfg.Loc)
 }
 
 func (b *Bot) groupChangeText(c tele.Context, a model.Appointment, verb string) string {
-	return "🔄 Візит " + verb + byLine(c) + ":\n" + b.formatAppt(a)
+	return appointments.GroupChangeText(a, verb, senderName(c), b.cfg.Loc)
 }
 
 func (b *Bot) groupCancelText(c tele.Context, a model.Appointment) string {
-	return "✗ Візит скасовано" + byLine(c) + ":\n" + b.formatAppt(a)
-}
-
-// byLine attributes a group notification to whoever made the change.
-func byLine(c tele.Context) string {
-	if who := senderName(c); who != "" {
-		return " (" + who + ")"
-	}
-	return ""
+	return appointments.GroupCancelText(a, senderName(c), b.cfg.Loc)
 }
 
 // applyEdit routes a follow-up text message to the field the user chose to edit.

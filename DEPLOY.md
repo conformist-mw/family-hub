@@ -80,9 +80,9 @@ on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
 appointment digest ticker logs `bot: digests disabled (NOTIFICATIONS_ENABLED
 not set)` — that line is expected in prod. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
-`bot: billing reminders started billing_lead_days=1`. That one needs no new
-secret: `BILLING_LEAD_DAYS` defaults to `1`, and like the other tickers it goes
-quiet without `TELEGRAM_NOTIFY_CHAT`.
+`bot: billing reminders started`. That one needs no configuration at all: how
+many days ahead it warns is the course's own «Порог нагадування», and like the
+other tickers it goes quiet without `TELEGRAM_NOTIFY_CHAT`.
 
 ## Migrations
 

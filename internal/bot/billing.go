@@ -17,14 +17,14 @@ import (
 //
 // Unlike the lesson scheduler this is not tied to a slot time: a school with a
 // fixed monthly fee owes the same amount whether or not anyone showed up, so
-// the trigger is the coverage boundary alone.
+// the trigger is the coverage boundary alone. How far ahead to warn is set per
+// course, not here — see dueForBillingReminder.
 func (b *Bot) RunBillingReminders(ctx context.Context) {
-	if b.cfg.NotifyChat == 0 || b.cfg.BillingLeadDays < 0 {
-		b.logger.Info("bot: billing reminders disabled",
-			"notify_chat", b.cfg.NotifyChat, "billing_lead_days", b.cfg.BillingLeadDays)
+	if b.cfg.NotifyChat == 0 {
+		b.logger.Info("bot: billing reminders disabled (no notify chat)")
 		return
 	}
-	b.logger.Info("bot: billing reminders started", "billing_lead_days", b.cfg.BillingLeadDays)
+	b.logger.Info("bot: billing reminders started")
 
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
@@ -58,7 +58,7 @@ func (b *Bot) sendDueBillingReminders() {
 		return
 	}
 	for _, bal := range balances {
-		if !dueForBillingReminder(bal, b.cfg.BillingLeadDays) {
+		if !dueForBillingReminder(bal) {
 			continue
 		}
 		// Claim before sending: the row is the "already warned" mark, and
@@ -79,15 +79,23 @@ func (b *Bot) sendDueBillingReminders() {
 
 // dueForBillingReminder reports whether this balance is inside its warning
 // window. The window is a range, not a single day: an app that was down on the
-// 29th must still warn on the 30th rather than skip the month.
+// 25th must still warn on the 26th rather than skip the month.
+//
+// The lead is the course's own low_threshold, which for a monthly course
+// already means "days before the pass runs out" — it is what turns the
+// dashboard badge yellow. One number on the course form drives both, so the
+// badge and the message cannot disagree about when it is time to pay. A
+// threshold of 0 means no warning, the same way it means the badge never goes
+// yellow.
 //
 // Coverage must exist right now. Without it there is no boundary to warn
 // about — which is exactly what keeps the summer quiet and stops an overdue
 // month from being re-announced every day once its last day has passed.
-func dueForBillingReminder(bal model.Balance, leadDays int) bool {
+func dueForBillingReminder(bal model.Balance) bool {
 	return bal.BillingType == model.BillingMonthly &&
+		bal.LowThreshold > 0 &&
 		bal.CoveredNow &&
-		bal.DaysLeft <= leadDays
+		bal.DaysLeft <= bal.LowThreshold
 }
 
 // billingReminderText renders the warning. The amount is the course's current

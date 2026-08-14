@@ -1,5 +1,5 @@
 import { html, useState, useRef } from '/mini/assets/vendor/preact-htm.module.js'
-import { api, haptic, guardUnsaved, todayISO } from '/mini/assets/api.js'
+import { api, haptic, guardUnsaved, todayISO, dateLong } from '/mini/assets/api.js'
 import { Field, Actions, Empty } from '/mini/assets/ui.js'
 import { IconChevron, IconPin, IconPlus } from '/mini/assets/icons.js'
 
@@ -271,7 +271,7 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
           <datalist id="persons">${persons.map((p) => html`<option value=${p} key=${p} />`)}</datalist>
         <//>
         <div class="field-row">
-          <${Field} label="Дата" error=${errFor('date')}>
+          <${Field} label="Дата" error=${errFor('date')} help=${dateLong(values.date)}>
             <input type="date" value=${values.date} onInput=${set('date')} />
           <//>
           <${Field} label="Початок" error=${errFor('date')}>

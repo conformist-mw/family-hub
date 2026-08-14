@@ -6,9 +6,13 @@
 // JSON API. Without it the same rules ("give it a name", "the end must be after
 // the start", "an empty amount is not zero") would live in two handlers and
 // drift apart. Neither surface may re-implement them.
+//
+// Telling the family group is one of those rules — see notify.go — and so is
+// how an appointment reads once told; see format.go.
 package appointments
 
 import (
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -140,36 +144,58 @@ func SplitStart(startsAt string) (date, hhmm string) {
 	return d, t
 }
 
-// Service performs the appointment writes both surfaces share.
+// Service performs the appointment writes both surfaces share, and posts the
+// result to the family group — see notify.go for why that belongs here.
 type Service struct {
-	store *store.Store
-	loc   *time.Location
+	store  *store.Store
+	loc    *time.Location
+	notify Notifier // nil — bot off or no group configured; writes stay silent
+	log    *slog.Logger
 }
 
-func NewService(st *store.Store, loc *time.Location) *Service {
+// NewService wires the writes. notify may be nil; logger may be nil, in which
+// case the default logger is used.
+func NewService(st *store.Store, loc *time.Location, notify Notifier, logger *slog.Logger) *Service {
 	if loc == nil {
 		loc = time.Local
 	}
-	return &Service{store: st, loc: loc}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Service{store: st, loc: loc, notify: notify, log: logger}
 }
 
 func (s *Service) Get(id int64) (model.Appointment, error) {
 	return s.store.GetAppointment(id)
 }
 
-func (s *Service) Create(f Form) (model.Appointment, error) {
+// by names whoever is making the change, for the group message's byline. It is
+// empty when the surface cannot tell.
+func (s *Service) Create(f Form, by string) (model.Appointment, error) {
 	a, err := f.Parse(s.loc)
 	if err != nil {
 		return a, err
 	}
-	return s.store.CreateAppointment(a)
+	saved, err := s.store.CreateAppointment(a)
+	if err != nil {
+		return saved, err
+	}
+	s.announce(GroupAddText([]model.Appointment{saved}, by, s.loc))
+	return saved, nil
 }
 
 // Update rewrites the editable fields of an existing appointment. Fields the
 // form does not own — the captured `raw` text, the cost-prompt message id, the
 // Home Assistant outbox — are left alone by the store.
-func (s *Service) Update(id int64, f Form) (model.Appointment, error) {
+func (s *Service) Update(id int64, f Form, by string) (model.Appointment, error) {
 	a, err := f.Parse(s.loc)
+	if err != nil {
+		return a, err
+	}
+	// The previous row decides what the group is told: an edit that switches the
+	// status to cancelled is the cancellation, and reading "🔄 Візит змінено"
+	// would bury it.
+	prev, err := s.store.GetAppointment(id)
 	if err != nil {
 		return a, err
 	}
@@ -177,11 +203,36 @@ func (s *Service) Update(id int64, f Form) (model.Appointment, error) {
 	if err := s.store.UpdateAppointment(a); err != nil {
 		return a, err
 	}
+	if a.Status == model.ApptStatusCancelled && prev.Status != model.ApptStatusCancelled {
+		s.announce(GroupCancelText(a, by, s.loc))
+	} else {
+		s.announce(GroupChangeText(a, "змінено", by, s.loc))
+	}
 	return a, nil
 }
 
-func (s *Service) Delete(id int64) error {
-	return s.store.SoftDeleteAppointment(id)
+func (s *Service) Delete(id int64, by string) error {
+	a, err := s.store.GetAppointment(id)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SoftDeleteAppointment(id); err != nil {
+		return err
+	}
+	s.announce(GroupDeleteText(a, by, s.loc))
+	return nil
+}
+
+// announce is best-effort: the write already succeeded, so a Telegram outage
+// must not be reported back as a failed save — that invites a second attempt
+// and a duplicate row. It is logged instead.
+func (s *Service) announce(text string) {
+	if s.notify == nil {
+		return
+	}
+	if err := s.notify.NotifyHTML(text); err != nil {
+		s.log.Error("appointments: notify group", "err", err)
+	}
 }
 
 // DurationOf reports how many minutes an appointment lasts, as the form's

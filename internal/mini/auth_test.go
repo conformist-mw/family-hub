@@ -91,8 +91,28 @@ func TestAuthenticateValidInitData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticate: %+v", err)
 	}
-	if got != 42 {
-		t.Fatalf("user id = %d, want 42", got)
+	if got.ID != 42 {
+		t.Fatalf("user id = %d, want 42", got.ID)
+	}
+	// The name rides along so a Mini App write can be attributed in the group.
+	if got.Name != "Тест" {
+		t.Fatalf("name = %q, want the first_name from initData", got.Name)
+	}
+}
+
+// Telegram omits first_name for an account that has none; the username is the
+// next best byline, and neither missing is still a valid launch.
+func TestAuthenticateNameFallsBackToUsername(t *testing.T) {
+	v := testVerifier([]int64{42}, 0, "")
+	data := launchData(t, 42, testNow.Add(-time.Minute))
+	data.Set("user", `{"id":42,"username":"tester"}`)
+
+	got, err := v.authenticate(request(signInitData(t, testToken, data)))
+	if err != nil {
+		t.Fatalf("authenticate: %+v", err)
+	}
+	if got.Name != "tester" {
+		t.Fatalf("name = %q, want the username", got.Name)
 	}
 }
 
@@ -243,8 +263,8 @@ func TestDevFixture(t *testing.T) {
 		if err != nil {
 			t.Fatalf("fixture rejected: %+v", err)
 		}
-		if got != 42 {
-			t.Fatalf("user id = %d, want 42", got)
+		if got.ID != 42 {
+			t.Fatalf("user id = %d, want 42", got.ID)
 		}
 	})
 

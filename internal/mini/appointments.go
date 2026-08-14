@@ -69,8 +69,9 @@ func (rt *Router) writeError(w http.ResponseWriter, err error, what string) {
 }
 
 func (rt *Router) handleAppointmentCreate(w http.ResponseWriter, r *http.Request) {
-	if _, err := rt.v.authenticate(r); err != nil {
-		rt.fail(w, err)
+	who, bad := rt.v.authenticate(r)
+	if bad != nil {
+		rt.fail(w, bad)
 		return
 	}
 	form, bad := decodeWrite(r)
@@ -78,7 +79,7 @@ func (rt *Router) handleAppointmentCreate(w http.ResponseWriter, r *http.Request
 		rt.fail(w, bad)
 		return
 	}
-	appt, err := rt.appointments.Create(form)
+	appt, err := rt.appointments.Create(form, who.Name)
 	if err != nil {
 		rt.writeError(w, err, "create appointment")
 		return
@@ -87,8 +88,9 @@ func (rt *Router) handleAppointmentCreate(w http.ResponseWriter, r *http.Request
 }
 
 func (rt *Router) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request) {
-	if _, err := rt.v.authenticate(r); err != nil {
-		rt.fail(w, err)
+	who, bad := rt.v.authenticate(r)
+	if bad != nil {
+		rt.fail(w, bad)
 		return
 	}
 	id, bad := pathID(r)
@@ -107,7 +109,7 @@ func (rt *Router) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request
 		rt.fail(w, errNotFound)
 		return
 	}
-	if _, err := rt.appointments.Update(id, form); err != nil {
+	if _, err := rt.appointments.Update(id, form, who.Name); err != nil {
 		rt.writeError(w, err, "update appointment")
 		return
 	}
@@ -115,8 +117,9 @@ func (rt *Router) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request
 }
 
 func (rt *Router) handleAppointmentDelete(w http.ResponseWriter, r *http.Request) {
-	if _, err := rt.v.authenticate(r); err != nil {
-		rt.fail(w, err)
+	who, bad := rt.v.authenticate(r)
+	if bad != nil {
+		rt.fail(w, bad)
 		return
 	}
 	id, bad := pathID(r)
@@ -128,7 +131,7 @@ func (rt *Router) handleAppointmentDelete(w http.ResponseWriter, r *http.Request
 		rt.fail(w, errNotFound)
 		return
 	}
-	if err := rt.appointments.Delete(id); err != nil {
+	if err := rt.appointments.Delete(id, who.Name); err != nil {
 		rt.log.Error("mini: delete appointment", "err", err)
 		rt.fail(w, errInternal)
 		return

@@ -76,9 +76,17 @@ func newVerifier(botToken string, cfg Config, logger *slog.Logger, now func() ti
 	}
 }
 
+// launcher is who opened the Mini App. The name is carried only so a write can
+// be attributed in the family group — nothing in the schema is per-user, and
+// authorisation is the id against the allowlist, never the name.
+type launcher struct {
+	ID   int64
+	Name string
+}
+
 // authenticate resolves the Telegram user behind a request. It never logs the
 // payload itself: initData carries the user's name and username.
-func (v *verifier) authenticate(r *http.Request) (int64, *apiError) {
+func (v *verifier) authenticate(r *http.Request) (launcher, *apiError) {
 	raw := initDataFromHeader(r.Header.Get("Authorization"))
 
 	if raw == "" && v.devUser != 0 {
@@ -86,24 +94,24 @@ func (v *verifier) authenticate(r *http.Request) (int64, *apiError) {
 		// has to be on the allowlist, so the worst it can grant is access
 		// somebody already has.
 		if !v.allowed[v.devUser] {
-			return 0, errForbidden
+			return launcher{}, errForbidden
 		}
-		return v.devUser, nil
+		return launcher{ID: v.devUser}, nil
 	}
 	if raw == "" {
-		return 0, errBadInitData
+		return launcher{}, errBadInitData
 	}
 
-	userID, err := v.parse(raw)
+	who, err := v.parse(raw)
 	if err != nil {
 		v.log.Warn("mini: init data rejected", "reason", err.Error(), "path", r.URL.Path)
-		return 0, errBadInitData
+		return launcher{}, errBadInitData
 	}
-	if !v.allowed[userID] {
-		v.log.Warn("mini: user not allowed", "user_id", userID, "path", r.URL.Path)
-		return 0, errForbidden
+	if !v.allowed[who.ID] {
+		v.log.Warn("mini: user not allowed", "user_id", who.ID, "path", r.URL.Path)
+		return launcher{}, errForbidden
 	}
-	return userID, nil
+	return who, nil
 }
 
 // initDataFromHeader extracts the payload from "Authorization: tma <initData>".
@@ -153,45 +161,53 @@ func (v *verifier) sign(values url.Values) []byte {
 	return mac.Sum(nil)
 }
 
-func (v *verifier) parse(raw string) (int64, error) {
+func (v *verifier) parse(raw string) (launcher, error) {
 	values, err := url.ParseQuery(raw)
 	if err != nil {
-		return 0, initDataError("malformed query string")
+		return launcher{}, initDataError("malformed query string")
 	}
 
 	gotHash := values.Get("hash")
 	if gotHash == "" {
-		return 0, initDataError("missing hash")
+		return launcher{}, initDataError("missing hash")
 	}
 
 	want, err := hex.DecodeString(gotHash)
 	if err != nil {
-		return 0, initDataError("hash is not hex")
+		return launcher{}, initDataError("hash is not hex")
 	}
 	if subtle.ConstantTimeCompare(v.sign(values), want) != 1 {
-		return 0, initDataError("signature mismatch")
+		return launcher{}, initDataError("signature mismatch")
 	}
 
 	// Telegram does not refresh initData while the Mini App stays open, so the
 	// freshness window doubles as the session lifetime.
 	unix, err := strconv.ParseInt(values.Get("auth_date"), 10, 64)
 	if err != nil {
-		return 0, initDataError("bad auth_date")
+		return launcher{}, initDataError("bad auth_date")
 	}
 	switch age := v.now().Sub(time.Unix(unix, 0)); {
 	case age > v.maxAge:
-		return 0, initDataError("stale auth_date")
+		return launcher{}, initDataError("stale auth_date")
 	case age < -maxClockSkew:
-		return 0, initDataError("auth_date in the future")
+		return launcher{}, initDataError("auth_date in the future")
 	}
 
+	// first_name is what the bot's own byline uses, so a visit added in the Mini
+	// App and one captured in a private chat are attributed alike.
 	var user struct {
-		ID int64 `json:"id"`
+		ID        int64  `json:"id"`
+		FirstName string `json:"first_name"`
+		Username  string `json:"username"`
 	}
 	if err := json.Unmarshal([]byte(values.Get("user")), &user); err != nil || user.ID == 0 {
-		return 0, initDataError("no user in init data")
+		return launcher{}, initDataError("no user in init data")
 	}
-	return user.ID, nil
+	name := user.FirstName
+	if name == "" {
+		name = user.Username
+	}
+	return launcher{ID: user.ID, Name: name}, nil
 }
 
 // ParseUserIDs reads a comma-separated allowlist of Telegram user ids,

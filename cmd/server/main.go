@@ -151,6 +151,9 @@ func main() {
 			DevUser:      devUser,
 			WebhookURL:   os.Getenv("TELEGRAM_WEBHOOK_URL"),
 			Loc:          time.Local,
+			// Same value the web UI gets: a visit added on a phone must reach the
+			// family group exactly like one captured by the bot.
+			Notifier: notifier,
 		})
 		if err != nil {
 			logger.Error("mini: init", "err", err)

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"familyhub/internal/model"
 )
@@ -197,6 +198,62 @@ func TestWritesRequireAuthentication(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("unauthenticated write stored %d rows", len(items))
+	}
+}
+
+// group stands in for the family chat.
+type group struct{ sent []string }
+
+func (g *group) NotifyHTML(text string) error {
+	g.sent = append(g.sent, text)
+	return nil
+}
+
+// signedRequest launches the app as a real user would, so the byline has a name
+// to carry — the dev fixture has no initData and therefore no name.
+func signedRequest(t *testing.T, method, path, body string) *http.Request {
+	t.Helper()
+	r := jsonRequest(method, path, body)
+	r.Header.Set("Authorization",
+		"tma "+signInitData(t, testToken, launchData(t, 42, testNow.Add(-time.Minute))))
+	return r
+}
+
+// A visit added on a phone is invisible to the rest of the family until the
+// group hears about it.
+func TestWritesReachTheFamilyGroup(t *testing.T) {
+	st := testStore(t)
+	fam := &group{}
+	h := testRouterWithNotifier(t, st, []int64{42}, 0, fam)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedRequest(t, http.MethodPost, "/mini/api/appointments", validBody))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if len(fam.sent) != 1 {
+		t.Fatalf("group got %d messages, want 1", len(fam.sent))
+	}
+	// Attributed to whoever opened the Mini App, the way the bot attributes a
+	// capture in a private chat.
+	if !strings.Contains(fam.sent[0], "🆕 Новий візит (Тест)") || !strings.Contains(fam.sent[0], "Ортодонт") {
+		t.Errorf("group message = %q", fam.sent[0])
+	}
+
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, signedRequest(t, http.MethodDelete, "/mini/api/appointments/"+itoa(created.ID), ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete: status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if len(fam.sent) != 2 || !strings.Contains(fam.sent[1], "🗑 Візит видалено (Тест)") {
+		t.Errorf("group messages = %q", fam.sent)
 	}
 }
 

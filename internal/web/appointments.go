@@ -1,6 +1,8 @@
 package web
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -98,14 +100,21 @@ func (a *App) handleAppointmentEdit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// The writes go through appointments.Service rather than straight to the store:
+// it owns the validation the Mini App shares, and the message that tells the
+// family group what just happened. A handler that wrote its own SQL would be
+// silent, which is how this page came to be the one place a booking could
+// change without anybody hearing about it.
+
 func (a *App) handleAppointmentCreate(w http.ResponseWriter, r *http.Request) {
-	appt, date, hhmm, costRaw, formErr := parseAppointmentForm(r)
-	if formErr != "" {
-		a.renderAppointmentFormError(w, appt, date, hhmm, costRaw, false, formErr)
+	form, ok := appointmentForm(r)
+	if !ok {
+		a.renderAppointmentFormError(w, model.Appointment{}, form, false, "не вдалося розібрати форму")
 		return
 	}
-	if _, err := a.Store.CreateAppointment(appt); err != nil {
-		a.serverError(w, err)
+	appt, err := a.Appointments.Create(form, actorName(r))
+	if err != nil {
+		a.appointmentWriteError(w, err, appt, form, false)
 		return
 	}
 	http.Redirect(w, r, "/appointments", http.StatusSeeOther)
@@ -113,14 +122,15 @@ func (a *App) handleAppointmentCreate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	appt, date, hhmm, costRaw, formErr := parseAppointmentForm(r)
-	appt.ID = id
-	if formErr != "" {
-		a.renderAppointmentFormError(w, appt, date, hhmm, costRaw, true, formErr)
+	form, ok := appointmentForm(r)
+	if !ok {
+		a.renderAppointmentFormError(w, model.Appointment{ID: id}, form, true, "не вдалося розібрати форму")
 		return
 	}
-	if err := a.Store.UpdateAppointment(appt); err != nil {
-		a.serverError(w, err)
+	appt, err := a.Appointments.Update(id, form, actorName(r))
+	appt.ID = id
+	if err != nil {
+		a.appointmentWriteError(w, err, appt, form, true)
 		return
 	}
 	http.Redirect(w, r, "/appointments", http.StatusSeeOther)
@@ -128,11 +138,50 @@ func (a *App) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleAppointmentDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err := a.Store.SoftDeleteAppointment(id); err != nil {
+	if err := a.Appointments.Delete(id, actorName(r)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		a.serverError(w, err)
 		return
 	}
 	http.Redirect(w, r, "/appointments", http.StatusSeeOther)
+}
+
+// appointmentWriteError separates the person's mistake from ours: a rejected
+// field is re-rendered with the value still in it, a gone row is a 404, and
+// anything else is a server error.
+func (a *App) appointmentWriteError(w http.ResponseWriter, err error, appt model.Appointment, form appointments.Form, isEdit bool) {
+	var invalid appointments.InvalidField
+	switch {
+	case errors.As(err, &invalid):
+		a.renderAppointmentFormError(w, appt, form, isEdit, invalid.Error())
+	case errors.Is(err, sql.ErrNoRows):
+		http.Error(w, "запис не знайдено", http.StatusNotFound)
+	default:
+		a.serverError(w, err)
+	}
+}
+
+// actorName names whoever is signed in, for the byline on the group message.
+// oauth2-proxy is the only thing that knows who that is, and only if it is
+// configured to forward the identity it verified; the value is cosmetic, so an
+// absent header falls back to naming the surface instead of a person.
+func actorName(r *http.Request) string {
+	for _, h := range []string{"X-Forwarded-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email"} {
+		v := strings.TrimSpace(r.Header.Get(h))
+		if v == "" {
+			continue
+		}
+		if local, _, ok := strings.Cut(v, "@"); ok { // an email address
+			v = local
+		}
+		if v != "" {
+			return v
+		}
+	}
+	return "веб"
 }
 
 // appointmentPersons feeds the "хто" datalist. Appointment.Person is free text
@@ -147,11 +196,11 @@ func (a *App) appointmentPersons() []model.Person {
 	return persons
 }
 
-func parseAppointmentForm(r *http.Request) (model.Appointment, string, string, string, string) {
+func appointmentForm(r *http.Request) (appointments.Form, bool) {
 	if err := r.ParseForm(); err != nil {
-		return model.Appointment{}, "", "", "", "не вдалося розібрати форму"
+		return appointments.Form{}, false
 	}
-	form := appointments.Form{
+	return appointments.Form{
 		Title:    r.FormValue("title"),
 		Person:   r.FormValue("person"),
 		Location: r.FormValue("location"),
@@ -161,30 +210,23 @@ func parseAppointmentForm(r *http.Request) (model.Appointment, string, string, s
 		Status:   r.FormValue("status"),
 		Note:     r.FormValue("note"),
 		Cost:     r.FormValue("cost"),
-	}
-	// Echoed back into the re-rendered form so a rejected value stays on screen
-	// to be corrected rather than vanishing.
-	date := strings.TrimSpace(form.Date)
-	hhmm := strings.TrimSpace(form.Time)
-	costRaw := strings.TrimSpace(form.Cost)
-
-	appt, err := form.Parse(time.Local)
-	if err != nil {
-		return appt, date, hhmm, costRaw, err.Error()
-	}
-	return appt, date, hhmm, costRaw, ""
+	}, true
 }
 
 // formatCost renders a stored amount back into the form field.
 func formatCost(c *float64) string { return appointments.FormatCost(c) }
 
-func (a *App) renderAppointmentFormError(w http.ResponseWriter, appt model.Appointment, date, hhmm, costRaw string, isEdit bool, msg string) {
+// renderAppointmentFormError re-renders the form with the rejected values still
+// in it — a value that vanishes on error cannot be corrected, only retyped. The
+// date, time and amount come from the form rather than the parsed appointment
+// precisely because parsing is what failed.
+func (a *App) renderAppointmentFormError(w http.ResponseWriter, appt model.Appointment, form appointments.Form, isEdit bool, msg string) {
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	a.render(w, "appointment_form.html", "Запис", "appointments", appointmentFormData{
 		Appointment: appt,
-		Date:        date,
-		Time:        hhmm,
-		Cost:        costRaw,
+		Date:        strings.TrimSpace(form.Date),
+		Time:        strings.TrimSpace(form.Time),
+		Cost:        strings.TrimSpace(form.Cost),
 		Persons:     a.appointmentPersons(),
 		Statuses:    apptStatusOptions,
 		IsEdit:      isEdit,

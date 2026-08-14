@@ -207,12 +207,26 @@ func (b *Bot) RunPolling(ctx context.Context) {
 	b.b.Start()
 }
 
-// NotifyText posts plain text to the notify chat, split into ≤4000-char
-// chunks (Telegram caps messages at 4096). Implements web.Notifier for the
-// audit page's "send to group" button.
-func (b *Bot) NotifyText(text string) error {
+// NotifyText posts plain text to the notify chat. Implements web.Notifier for
+// the audit page's "send to group" button.
+func (b *Bot) NotifyText(text string) error { return b.notify(text) }
+
+// NotifyHTML posts with Telegram's HTML parse mode, for the group notifications
+// internal/appointments builds — they carry <b> markup and escape the rest.
+// Implements appointments.Notifier, so a visit written down on the web or in the
+// Mini App reaches the group the same way one captured by the bot does.
+func (b *Bot) NotifyHTML(text string) error { return b.notify(text, tele.ModeHTML) }
+
+// notify sends to the notify chat, split into ≤4000-char chunks (Telegram caps
+// messages at 4096). The split falls on line boundaries and every line closes
+// its own tags, so chunking cannot cut HTML in half. No notify chat means
+// nowhere to post, which is not an error.
+func (b *Bot) notify(text string, opts ...any) error {
+	if b.cfg.NotifyChat == 0 {
+		return nil
+	}
 	for _, chunk := range audit.SplitMessage(text, 4000) {
-		if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), chunk); err != nil {
+		if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), chunk, opts...); err != nil {
 			return err
 		}
 	}

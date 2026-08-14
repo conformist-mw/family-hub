@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"familyhub/internal/appointments"
 	"familyhub/internal/db"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -93,6 +94,12 @@ func testStore(t *testing.T) *store.Store {
 // testRouter mounts the Mini App the way main.go does, with the dev fixture on
 // so requests can be made without signing a payload.
 func testRouter(t *testing.T, st *store.Store, allowed []int64, devUser int64) http.Handler {
+	return testRouterWithNotifier(t, st, allowed, devUser, nil)
+}
+
+// testRouterWithNotifier is the same with a family group listening. nil is the
+// production shape when the bot is off.
+func testRouterWithNotifier(t *testing.T, st *store.Store, allowed []int64, devUser int64, notifier appointments.Notifier) http.Handler {
 	t.Helper()
 	h, err := NewRouter(st, discardLogger(), Config{
 		BotToken:     testToken,
@@ -100,6 +107,7 @@ func testRouter(t *testing.T, st *store.Store, allowed []int64, devUser int64) h
 		DevUser:      devUser,
 		Loc:          time.UTC,
 		Now:          func() time.Time { return testNow },
+		Notifier:     notifier,
 	})
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)

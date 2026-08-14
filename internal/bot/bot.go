@@ -128,6 +128,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle("/balance", bot.cmdBalance)
 	tb.Handle("/stats", bot.cmdStats)
 	tb.Handle("/add", bot.cmdAdd)
+	tb.Handle("/app", bot.cmdApp)
 
 	tb.Handle(&tele.Btn{Unique: "rem_visit"}, bot.onReminderTap)
 	tb.Handle(&tele.Btn{Unique: "add_course"}, bot.onAddCourse)
@@ -161,6 +162,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	// Populate the "/" menu — how the group discovers the appointment commands
 	// (best-effort; a network hiccup here must not block startup).
 	cmds := []tele.Command{
+		{Text: "app", Description: "Відкрити застосунок"},
 		{Text: "add", Description: "Відмітити заняття"},
 		{Text: "balance", Description: "Баланс по курсах"},
 		{Text: "stats", Description: "Скільки витрачено"},
@@ -225,12 +227,32 @@ func (b *Bot) notify(text string, opts ...any) error {
 	if b.cfg.NotifyChat == 0 {
 		return nil
 	}
-	for _, chunk := range audit.SplitMessage(text, 4000) {
-		if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), chunk, opts...); err != nil {
+	chunks := audit.SplitMessage(text, 4000)
+	for i, chunk := range chunks {
+		// Only the last chunk carries the app button: one per chunk would put
+		// three of them under a long reconciliation.
+		var err error
+		if i == len(chunks)-1 {
+			_, err = b.sendToGroup(chunk, opts...)
+		} else {
+			_, err = b.b.Send(tele.ChatID(b.cfg.NotifyChat), chunk, opts...)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// sendToGroup is the only way this bot posts to the family group on its own
+// initiative, so the "open the app" button (see miniapp.go) cannot be forgotten
+// on a new kind of message. It returns a nil message when no notify chat is
+// configured — there is nowhere to post, which is not an error.
+func (b *Bot) sendToGroup(what any, opts ...any) (*tele.Message, error) {
+	if b.cfg.NotifyChat == 0 {
+		return nil, nil
+	}
+	return b.b.Send(tele.ChatID(b.cfg.NotifyChat), what, b.withAppButton(opts)...)
 }
 
 // RegisterWebhook tells Telegram to deliver updates to our public URL.

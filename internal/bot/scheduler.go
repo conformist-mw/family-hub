@@ -148,7 +148,7 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 
 	e := sl.Enrollment
 	text := fmt.Sprintf("🔴 %s · %s сьогодні у %s: %s", e.Person, e.Name, sl.Slot.Time, emptyBalanceText(bal))
-	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), text); err != nil {
+	if _, err := b.sendToGroup(text); err != nil {
 		b.logger.Error("bot: send balance warning", "err", err, "eid", eid)
 		return
 	}
@@ -192,7 +192,7 @@ func (b *Bot) sendReminderFor(e model.Enrollment, sl model.Slot, date string) {
 	text := fmt.Sprintf("%s · %s у %s — було?", e.Person, e.Name, sl.Time)
 
 	m := buildReminderMarkup(e.ID, date)
-	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), text, m); err != nil {
+	if _, err := b.sendToGroup(text, m); err != nil {
 		b.logger.Error("bot: send reminder", "err", err, "eid", e.ID)
 	}
 }

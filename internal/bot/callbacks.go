@@ -29,14 +29,14 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 	}
 	if exists {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Вже відмічено"})
-		return c.Edit(reminderFinalText(c.Message().Text, "вже відмічено"), &tele.ReplyMarkup{})
+		return c.Edit(reminderFinalText(c.Message().Text, "вже відмічено"), b.appMarkup())
 	}
 	visitID, err := b.store.CreateVisit(eid, date, status, "")
 	if errors.Is(err, store.ErrVisitExists) {
 		// Lost a double-tap race: another handler inserted between our
 		// existence check and this insert. Same outcome as "already marked".
 		_ = c.Respond(&tele.CallbackResponse{Text: "Вже відмічено"})
-		return c.Edit(reminderFinalText(c.Message().Text, "вже відмічено"), &tele.ReplyMarkup{})
+		return c.Edit(reminderFinalText(c.Message().Text, "вже відмічено"), b.appMarkup())
 	}
 	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
@@ -51,7 +51,7 @@ func (b *Bot) onReminderTap(c tele.Context) error {
 	if line := b.balanceLineFor(eid); line != "" {
 		text += "\n" + line
 	}
-	return c.Edit(text, &tele.ReplyMarkup{})
+	return c.Edit(text, b.appMarkup())
 }
 
 // reminderFinalText turns the reminder question into its final state: the
@@ -197,12 +197,12 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 	}
 	if exists {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Запис на цю дату вже є"})
-		return c.Edit("Запис на цю дату вже є.", &tele.ReplyMarkup{})
+		return c.Edit("Запис на цю дату вже є.", b.appMarkup())
 	}
 	visitID, err := b.store.CreateVisit(eid, date, status, "")
 	if errors.Is(err, store.ErrVisitExists) {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Запис на цю дату вже є"})
-		return c.Edit("Запис на цю дату вже є.", &tele.ReplyMarkup{})
+		return c.Edit("Запис на цю дату вже є.", b.appMarkup())
 	}
 	if err != nil {
 		b.logger.Error("bot: create visit", "err", err)
@@ -220,12 +220,12 @@ func (b *Bot) onAddStatus(c tele.Context) error {
 	if line := b.balanceLineFor(eid); line != "" {
 		text += "\n" + line
 	}
-	return c.Edit(text, &tele.ReplyMarkup{})
+	return c.Edit(text, b.appMarkup())
 }
 
 func (b *Bot) onAddCancel(c tele.Context) error {
 	_ = c.Respond(&tele.CallbackResponse{})
-	return c.Edit("Скасовано.", &tele.ReplyMarkup{})
+	return c.Edit("Скасовано.", b.appMarkup())
 }
 
 // reasonOther marks the "Інше" reason button: the visit stays without a
@@ -307,7 +307,7 @@ func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
 		// The visit was deleted (e.g. via the web UI) between the two steps.
 		b.logger.Error("bot: get visit", "err", err, "visit", visitID)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Запис не знайдено"})
-		return c.Edit("Запис не знайдено — можливо, видалено.", &tele.ReplyMarkup{})
+		return c.Edit("Запис не знайдено — можливо, видалено.", b.appMarkup())
 	}
 	_ = c.Respond(&tele.CallbackResponse{Text: "Записано"})
 	reasonText := reason
@@ -319,7 +319,7 @@ func (b *Bot) finishVisit(c tele.Context, visitID int64, reason string) error {
 	if line := b.balanceLineFor(v.EnrollmentID); line != "" {
 		text += "\n" + line
 	}
-	return c.Edit(text, &tele.ReplyMarkup{})
+	return c.Edit(text, b.appMarkup())
 }
 
 // dateDayMonth drops the year: the balance line only ever points at dates a

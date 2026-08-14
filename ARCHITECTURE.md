@@ -177,6 +177,12 @@ data/          # local SQLite (gitignored)
   Assistant keys on it.
 - Screens: Головна (balances, recent payments, next visits), Записи (upcoming
   list, read card, edit form), Заняття (courses and their editable schedule).
+- The date field keeps the native picker and spells the chosen date out under
+  it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
+  renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a
+  US-configured Mac — and the page cannot change that, so `10/08` is a reading
+  ambiguity a written-out month simply does not have. It submits ISO either
+  way; this is display only.
 
 ## Importer
 
@@ -201,8 +207,18 @@ data/          # local SQLite (gitignored)
   `X-Telegram-Bot-Api-Secret-Token` header is the second layer.
 - Allowlist via `TELEGRAM_ALLOWED_CHATS` (comma-separated chat IDs).
   Unknown chats receive a short "доступ запрещён".
-- Commands: `/start`, `/help`, `/balance`, `/stats`, `/add` (lessons) and
-  `/visit`, `/week`, `/list` (appointments). The "/" menu is set on startup.
+- Commands: `/start`, `/help`, `/balance`, `/stats`, `/add` (lessons),
+  `/visit`, `/week`, `/list` (appointments) and `/app` (Mini App). The "/"
+  menu is set on startup.
+- **Opening the Mini App from the group** (`internal/bot/miniapp.go`): a menu
+  button and an inline `web_app` button are both private-chat only, so what
+  works in a group is a `t.me/<bot>?startapp` deep link behind a plain `url`
+  button. It rides every message `sendToGroup` posts — the point is that
+  whatever arrived last is the way in — and replaces the keyboard-clearing
+  `&tele.ReplyMarkup{}` at the end of the lesson and cost-prompt flows, so an
+  answered reminder stays an entry point too. The link comes from
+  `b.Me.Username`, not an env var, and needs the Main Mini App set in
+  BotFather; without it `?startapp` opens the chat with the bot.
 - `/add` is an inline three-step flow (course chips → date chips →
   status buttons). The state is encoded into callback data; each tap
   edits the same message to advance.

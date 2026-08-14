@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	tele "gopkg.in/telebot.v3"
-
 	"familyhub/internal/model"
 )
 
@@ -71,7 +69,7 @@ func (b *Bot) sendDueBillingReminders() {
 		if !claimed {
 			continue
 		}
-		if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), billingReminderText(bal)); err != nil {
+		if _, err := b.sendToGroup(billingReminderText(bal)); err != nil {
 			b.logger.Error("bot: send billing reminder", "err", err, "eid", bal.ID)
 		}
 	}

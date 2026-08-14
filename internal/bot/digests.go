@@ -67,7 +67,7 @@ func (b *Bot) sendDailyDigest(now time.Time) {
 		return // no visits today — stay quiet rather than spam
 	}
 	text := "☀️ Сьогодні:\n\n" + b.formatList(items)
-	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), text, tele.ModeHTML); err != nil {
+	if _, err := b.sendToGroup(text, tele.ModeHTML); err != nil {
 		b.logger.Error("bot: send daily digest", "err", err)
 	}
 }
@@ -77,7 +77,7 @@ func (b *Bot) sendWeeklyDigest() {
 	if empty {
 		return // quiet week — no message
 	}
-	if _, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat), b.weekText(items), tele.ModeHTML); err != nil {
+	if _, err := b.sendToGroup(b.weekText(items), tele.ModeHTML); err != nil {
 		b.logger.Error("bot: send weekly digest", "err", err)
 	}
 }

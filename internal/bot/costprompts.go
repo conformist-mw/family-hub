@@ -67,11 +67,13 @@ func (b *Bot) sendDueCostPrompts(now time.Time) {
 		return
 	}
 	for _, a := range items {
-		msg, err := b.b.Send(tele.ChatID(b.cfg.NotifyChat),
-			costPromptText(b.formatAppt(a)), costPromptMarkup(a.ID), tele.ModeHTML)
+		msg, err := b.sendToGroup(costPromptText(b.formatAppt(a)), costPromptMarkup(a.ID), tele.ModeHTML)
 		if err != nil {
 			b.logger.Error("bot: send cost prompt", "err", err, "id", a.ID)
 			continue // no msg id stored — the next tick tries again
+		}
+		if msg == nil {
+			continue // no notify chat: nothing was asked, so nothing to remember
 		}
 		// Store the message id before anything else can happen to it: this is
 		// also the "already asked" flag, so a failure here would mean asking
@@ -105,9 +107,9 @@ func (b *Bot) onCostSkip(c tele.Context) error {
 	_ = c.Respond()
 	a, err := b.store.GetAppointment(id)
 	if err != nil {
-		return c.Edit("Запис не знайдено.", &tele.ReplyMarkup{})
+		return c.Edit("Запис не знайдено.", b.appMarkup())
 	}
-	return c.Edit(b.formatAppt(a)+"\n\nБез суми.", &tele.ReplyMarkup{}, tele.ModeHTML)
+	return c.Edit(b.formatAppt(a)+"\n\nБез суми.", b.appMarkup(), tele.ModeHTML)
 }
 
 // costReply handles a reply to a cost prompt. It reports whether the message
@@ -136,7 +138,7 @@ func (b *Bot) costReply(c tele.Context) (bool, error) {
 	a.Cost = &amount
 	if _, err := b.b.Edit(
 		tele.StoredMessage{MessageID: strconv.Itoa(msg.ReplyTo.ID), ChatID: msg.Chat.ID},
-		b.formatAppt(a), &tele.ReplyMarkup{}, tele.ModeHTML,
+		b.formatAppt(a), b.appMarkup(), tele.ModeHTML,
 	); err != nil {
 		b.logger.Warn("bot: edit cost prompt", "err", err, "id", a.ID)
 	}

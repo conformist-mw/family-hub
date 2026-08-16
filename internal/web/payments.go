@@ -1,13 +1,15 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
 
 	"familyhub/internal/model"
+	"familyhub/internal/payments"
 	"familyhub/internal/store"
+	"familyhub/internal/valid"
 )
 
 type paymentsListData struct {
@@ -86,13 +88,14 @@ func (a *App) handlePaymentNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
-	p, formErr := a.parsePaymentForm(r)
-	if formErr != "" {
-		a.renderPaymentFormError(w, p, false, formErr)
+	enrollmentID, form, err := paymentForm(r)
+	if err != nil {
+		a.renderPaymentFormError(w, model.Payment{}, false, "не вдалося розібрати форму")
 		return
 	}
-	if _, err := a.Store.CreatePayment(p); err != nil {
-		a.serverError(w, err)
+	p, err := a.Payments.Create(enrollmentID, form)
+	if err != nil {
+		a.paymentWriteError(w, p, false, err)
 		return
 	}
 	http.Redirect(w, r, "/payments", http.StatusSeeOther)
@@ -120,14 +123,14 @@ func (a *App) handlePaymentEdit(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handlePaymentUpdate(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	p, formErr := a.parsePaymentForm(r)
-	p.ID = id
-	if formErr != "" {
-		a.renderPaymentFormError(w, p, true, formErr)
+	enrollmentID, form, err := paymentForm(r)
+	if err != nil {
+		a.renderPaymentFormError(w, model.Payment{ID: id}, true, "не вдалося розібрати форму")
 		return
 	}
-	if err := a.Store.UpdatePayment(p); err != nil {
-		a.serverError(w, err)
+	p, err := a.Payments.Update(id, enrollmentID, form)
+	if err != nil {
+		a.paymentWriteError(w, p, true, err)
 		return
 	}
 	http.Redirect(w, r, "/payments", http.StatusSeeOther)
@@ -135,71 +138,40 @@ func (a *App) handlePaymentUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handlePaymentDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err := a.Store.DeletePayment(id); err != nil {
+	if err := a.Payments.Delete(id); err != nil {
 		a.serverError(w, err)
 		return
 	}
 	http.Redirect(w, r, "/payments", http.StatusSeeOther)
 }
 
-func (a *App) parsePaymentForm(r *http.Request) (model.Payment, string) {
+// paymentForm lifts the posted fields into the shared form. Validation is not
+// done here — it belongs to internal/payments, so this form and the Mini App's
+// cannot disagree about what a payment for a monthly course must carry.
+func paymentForm(r *http.Request) (int64, payments.Form, error) {
 	if err := r.ParseForm(); err != nil {
-		return model.Payment{}, "не вдалося розібрати форму"
+		return 0, payments.Form{}, err
 	}
 	enrollmentID, _ := strconv.ParseInt(r.FormValue("enrollment_id"), 10, 64)
-	p := model.Payment{
-		EnrollmentID: enrollmentID,
-		Date:         r.FormValue("date"),
-		Comment:      normalizeName(r.FormValue("comment")),
-	}
-	if p.EnrollmentID == 0 {
-		return p, "вибери курс"
-	}
-	if _, err := model.ParseDate(p.Date); err != nil {
-		return p, "вкажи коректну дату оплати"
-	}
-	amount, err := strconv.ParseFloat(r.FormValue("amount"), 64)
-	if err != nil || amount < 0 {
-		return p, "вкажи коректну суму"
-	}
-	p.Amount = amount
-
-	enr, err := a.Store.GetEnrollment(enrollmentID)
-	if err != nil {
-		return p, "курс не знайдено"
-	}
-
-	if enr.BillingType == model.BillingMonthly {
-		from, until, err := monthRange(r.FormValue("covers_month"))
-		if err != nil {
-			return p, "вкажи місяць, за який оплата"
-		}
-		p.CoversFrom = &from
-		p.CoversUntil = &until
-	} else {
-		lessons, err := strconv.ParseInt(r.FormValue("lessons_paid"), 10, 64)
-		if err != nil || lessons <= 0 {
-			return p, "вкажи кількість оплачених занять"
-		}
-		p.LessonsPaid = &lessons
-	}
-	return p, ""
+	return enrollmentID, payments.Form{
+		Date:        r.FormValue("date"),
+		Amount:      r.FormValue("amount"),
+		Lessons:     r.FormValue("lessons_paid"),
+		CoversMonth: r.FormValue("covers_month"),
+		Comment:     normalizeName(r.FormValue("comment")),
+	}, nil
 }
 
-// monthRange expands "2026-09" into the first and last day of that month.
-//
-// The form takes a month rather than two free dates so a coverage range is
-// always exactly one calendar month. That is what keeps the "за оплачені
-// періоди" chart honest: a single payment spanning September to December would
-// otherwise land wholly in September. The columns stay a date range, so a
-// free-form period can come back without a migration.
-func monthRange(v string) (string, string, error) {
-	first, err := time.ParseInLocation("2006-01", v, time.Local)
-	if err != nil {
-		return "", "", err
+// paymentWriteError puts a rejected write back on the screen: a validation
+// failure is the person's to fix and re-renders the form with what they typed,
+// anything else is ours.
+func (a *App) paymentWriteError(w http.ResponseWriter, p model.Payment, isEdit bool, err error) {
+	var invalid valid.FieldError
+	if errors.As(err, &invalid) {
+		a.renderPaymentFormError(w, p, isEdit, invalid.Message)
+		return
 	}
-	last := first.AddDate(0, 1, -1)
-	return first.Format("2006-01-02"), last.Format("2006-01-02"), nil
+	a.serverError(w, err)
 }
 
 func (a *App) renderPaymentFormError(w http.ResponseWriter, p model.Payment, isEdit bool, msg string) {

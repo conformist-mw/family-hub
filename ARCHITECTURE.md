@@ -170,13 +170,21 @@ data/          # local SQLite (gitignored)
   served `no-store` and their URLs carry `?v=<process start>`: without an
   explicit header Cloudflare and friends cache `.js` for hours, and a deployed
   change simply never arrives.
-- Write rules live above the store in `internal/appointments` and
-  `internal/schedule`, shared with the web form so the two surfaces cannot
-  drift on what a valid appointment or slot is. `store.UpdateSlot` moves a
-  slot rather than delete-and-recreate: the ICS uid is `slot-<id>`, and Home
-  Assistant keys on it.
+- Write rules live above the store in `internal/appointments`,
+  `internal/schedule` and `internal/payments`, shared with the web form so the
+  two surfaces cannot drift on what a valid appointment, slot or payment is.
+  `store.UpdateSlot` moves a slot rather than delete-and-recreate: the ICS uid
+  is `slot-<id>`, and Home Assistant keys on it.
 - Screens: Головна (balances, recent payments, next visits), Записи (upcoming
-  list, read card, edit form), Заняття (courses and their editable schedule).
+  list, read card, edit form), Заняття (courses, their editable schedule, and
+  recording a payment against one).
+- A payment is written under its course (`POST
+  /mini/api/courses/{id}/payments`), never by picking one from a list: the
+  course is already decided by the card that was tapped. Which question the
+  form asks — how many lessons, or which month — follows the enrollment's
+  billing type, and the server re-derives it from the enrollment rather than
+  trusting the body. Months are four chips (previous through two ahead), not
+  an `<input type="month">`, which iOS renders as a bare text box.
 - The date field keeps the native picker and spells the chosen date out under
   it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
   renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a

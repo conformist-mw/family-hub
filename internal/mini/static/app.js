@@ -5,6 +5,7 @@ import { Loading, Failure } from '/mini/assets/ui.js'
 import { IconHome, IconCalendar, IconBook } from '/mini/assets/icons.js'
 import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
+import { PaymentForm } from '/mini/assets/payments.js'
 import { Home } from '/mini/assets/home.js'
 
 // Tabs are the top-level navigation; a form is a nested screen inside whichever
@@ -154,6 +155,14 @@ function App() {
         onCancel=${pop} />`
   }
 
+  if (screen && screen.name === 'paymentForm') {
+    return html`
+      <${PaymentForm}
+        course=${screen.course}
+        onSaved=${() => { closeAll(); loadCourses(); loadHome() }}
+        onCancel=${pop} />`
+  }
+
   let body
   if (tab === 'home') {
     if (home.phase === 'loading') body = html`<${Loading} />`
@@ -185,7 +194,8 @@ function App() {
           courses=${courses.courses}
           weekdays=${courses.weekdays}
           onEditSlot=${(course, slot) => push({ name: 'slotForm', course, slot })}
-          onAddSlot=${(course) => push({ name: 'slotForm', course, slot: null })} />`
+          onAddSlot=${(course) => push({ name: 'slotForm', course, slot: null })}
+          onAddPayment=${(course) => push({ name: 'paymentForm', course })} />`
   }
 
   return html`

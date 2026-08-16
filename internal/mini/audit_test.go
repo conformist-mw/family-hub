@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"familyhub/internal/model"
@@ -181,4 +182,61 @@ func TestAuditRequiresAuthentication(t *testing.T) {
 	testRouter(t, st, []int64{42}, 0).ServeHTTP(rec,
 		httptest.NewRequest(http.MethodGet, "/mini/api/courses/"+itoa(id)+"/audit", nil))
 	assertAPIError(t, rec, http.StatusBadRequest, "bad_init_data")
+}
+
+// Sharing the reconciliation is the reason it gets read out loud, and in
+// Telegram the family chat is one tap away.
+func TestAuditSendReachesTheFamilyGroup(t *testing.T) {
+	st := testStore(t)
+	id := seedLedger(t, st)
+	fam := &group{}
+	h := testRouterWithNotifier(t, st, []int64{42}, 42, fam)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost,
+		"/mini/api/courses/"+itoa(id)+"/audit/send?range=all", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if len(fam.sent) != 1 {
+		t.Fatalf("group got %d messages, want 1", len(fam.sent))
+	}
+	// The text is rebuilt from the period, not taken from the request, so what
+	// the group reads is this app's answer.
+	sent := fam.sent[0]
+	for _, want := range []string{"Демид · Логопед", "Період: за весь час", "оплата +10 занять", "Залишок: 8"} {
+		if !strings.Contains(sent, want) {
+			t.Errorf("message is missing %q:\n%s", want, sent)
+		}
+	}
+}
+
+// With no bot there is nowhere to post, and the screen hides the button on the
+// same signal.
+func TestAuditSendWithoutABot(t *testing.T) {
+	st := testStore(t)
+	id := seedLedger(t, st)
+	h := testRouter(t, st, []int64{42}, 42) // no notifier
+
+	if body := fetchAudit(t, h, "/mini/api/courses/"+itoa(id)+"/audit"); body.CanSend {
+		t.Error("canSend is true with no bot")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mini/api/courses/"+itoa(id)+"/audit/send", nil))
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "bot_off")
+}
+
+func TestAuditSendRequiresAuthentication(t *testing.T) {
+	st := testStore(t)
+	id := seedLedger(t, st)
+	fam := &group{}
+	h := testRouterWithNotifier(t, st, []int64{42}, 0, fam) // fixture off
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost,
+		"/mini/api/courses/"+itoa(id)+"/audit/send?range=all", nil))
+	assertAPIError(t, rec, http.StatusBadRequest, "bad_init_data")
+	if len(fam.sent) != 0 {
+		t.Fatalf("unauthenticated request posted %d messages", len(fam.sent))
+	}
 }

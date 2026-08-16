@@ -201,10 +201,17 @@ func TestWritesRequireAuthentication(t *testing.T) {
 	}
 }
 
-// group stands in for the family chat.
+// group stands in for the family chat. Both modes land in the same slice: what
+// matters to a test is that the family was told, not which parse mode carried
+// it.
 type group struct{ sent []string }
 
 func (g *group) NotifyHTML(text string) error {
+	g.sent = append(g.sent, text)
+	return nil
+}
+
+func (g *group) NotifyText(text string) error {
 	g.sent = append(g.sent, text)
 	return nil
 }

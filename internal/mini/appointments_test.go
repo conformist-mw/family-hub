@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"familyhub/internal/appointments"
 	"familyhub/internal/db"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -99,7 +98,7 @@ func testRouter(t *testing.T, st *store.Store, allowed []int64, devUser int64) h
 
 // testRouterWithNotifier is the same with a family group listening. nil is the
 // production shape when the bot is off.
-func testRouterWithNotifier(t *testing.T, st *store.Store, allowed []int64, devUser int64, notifier appointments.Notifier) http.Handler {
+func testRouterWithNotifier(t *testing.T, st *store.Store, allowed []int64, devUser int64, notifier Notifier) http.Handler {
 	t.Helper()
 	h, err := NewRouter(st, discardLogger(), Config{
 		BotToken:     testToken,

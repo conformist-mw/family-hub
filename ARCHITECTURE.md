@@ -204,7 +204,14 @@ data/          # local SQLite (gitignored)
   string is formatted server-side — summary and forecast arrive as ready-made
   lines, so the client only picks a period and renders. A rejected period does
   not blank the screen: the default one is returned with a `notice` saying
-  why (which is not the API error contract — the payload is valid).
+  why (which is not the API error contract — the payload is valid). The screen
+  also copies the text version and posts it to the family group
+  (`POST .../audit/send`), which rebuilds the reconciliation from the period
+  instead of trusting a body — what reaches the group is the app's answer.
+  That is the one action needing the bot rather than the database, so it
+  answers `bot_off` (503) when there is none and `canSend` tells the screen to
+  hide the button. `mini.Config.Notifier` therefore carries both modes: HTML
+  for the write notifications, plain text for this.
 - The date field keeps the native picker and spells the chosen date out under
   it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
   renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a

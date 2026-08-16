@@ -1,5 +1,5 @@
 import { html, useState, useEffect, useCallback } from '/mini/assets/vendor/preact-htm.module.js'
-import { api, todayISO, dateLong } from '/mini/assets/api.js'
+import { api, haptic, todayISO, dateLong } from '/mini/assets/api.js'
 import { Loading, Failure } from '/mini/assets/ui.js'
 
 // The reconciliation for one course: what was paid, what happened, and — when
@@ -35,15 +35,41 @@ function Row({ row }) {
     </div>`
 }
 
+// Copying goes through the clipboard API; the fallback is the old selection
+// trick, for a webview that refuses it. The textarea is off-screen because
+// something has to hold the text for that fallback to select.
+async function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch (_) {
+      // fall through to the selection trick
+    }
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  return ok
+}
+
 export function Audit({ course, onClose }) {
   const [range, setRange] = useState('last_payment')
   // A custom period is two dates and a button, so it stays folded away until
   // asked for — the three presets answer the everyday question.
   const [custom, setCustom] = useState(null)
   const [state, setState] = useState({ phase: 'loading' })
+  // What the two share buttons are saying right now: '', 'copied', 'sending',
+  // 'sent', or an error message.
+  const [share, setShare] = useState('')
 
   const load = useCallback(async (params) => {
     setState({ phase: 'loading' })
+    setShare('')
     const qs = new URLSearchParams(params).toString()
     try {
       setState({ phase: 'ready', data: await api(`/courses/${course.id}/audit?${qs}`) })
@@ -66,6 +92,29 @@ export function Audit({ course, onClose }) {
   const showCustom = () => load({ range: 'custom', from: custom.from, to: custom.to })
 
   const d = state.data
+  // The period the server settled on, not the one asked for: a rejected custom
+  // range fell back, and the group must be told what is on the screen.
+  const period = () => {
+    const p = { range: d.range }
+    if (d.range === 'custom') { p.from = d.from; p.to = d.to }
+    return new URLSearchParams(p).toString()
+  }
+
+  const copy = async () => {
+    setShare((await copyText(d.text)) ? 'copied' : 'Не вдалося скопіювати')
+  }
+
+  const send = async () => {
+    if (!confirm('Відправити звірку в сімейний чат?')) return
+    setShare('sending')
+    try {
+      await api(`/courses/${course.id}/audit/send?${period()}`, { method: 'POST' })
+      haptic()
+      setShare('sent')
+    } catch (err) {
+      setShare(err.message)
+    }
+  }
   return html`
     <main class="screen">
       <h1 class="screen-title">Звірка</h1>
@@ -128,6 +177,21 @@ export function Audit({ course, onClose }) {
               ${d.rows.map((r, i) => html`<${Row} row=${r} key=${i} />`)}
             </div>`
           : html`<p class="sec-empty">За період нічого не було.</p>`}`}
+
+      ${d &&
+      html`
+        <div class="actions">
+          <button class="btn btn-primary" onClick=${copy}>
+            ${share === 'copied' ? 'Скопійовано ✓' : 'Скопіювати'}
+          </button>
+          ${d.canSend &&
+          html`
+            <button class="btn" onClick=${send} disabled=${share === 'sending'}>
+              ${share === 'sending' ? 'Надсилаю…' : share === 'sent' ? 'Надіслано ✓' : 'У чат'}
+            </button>`}
+        </div>
+        ${share && !['copied', 'sending', 'sent'].includes(share) &&
+        html`<p class="field-error">${share}</p>`}`}
 
       <div class="actions">
         <button class="btn" onClick=${onClose}>Закрити</button>

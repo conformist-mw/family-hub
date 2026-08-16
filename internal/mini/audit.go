@@ -42,6 +42,12 @@ type auditDTO struct {
 	Summary  []string      `json:"summary"`
 	Forecast []string      `json:"forecast"`
 	Rows     []auditRowDTO `json:"rows"`
+	// Text is the same reconciliation as a pasteable block — what the copy
+	// button puts on the clipboard and what the send button posts, so the
+	// three can never say different things.
+	Text string `json:"text"`
+	// CanSend is false when the bot is off and there is nowhere to post.
+	CanSend bool `json:"canSend"`
 	// Notice says the asked-for period was rejected and the default one is on
 	// screen instead. Not the API's error contract — the payload is valid.
 	Notice string `json:"notice"`
@@ -70,7 +76,50 @@ func (rt *Router) handleAudit(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errInternal)
 		return
 	}
-	rt.writeJSON(w, http.StatusOK, auditPage(page))
+	dto := auditPage(page)
+	dto.CanSend = rt.notify != nil
+	rt.writeJSON(w, http.StatusOK, dto)
+}
+
+// handleAuditSend posts the reconciliation to the family group. It rebuilds
+// the page from the same period the screen is showing rather than taking the
+// text from the client: what reaches the group is then this app's answer, not
+// whatever a request body claimed it was.
+func (rt *Router) handleAuditSend(w http.ResponseWriter, r *http.Request) {
+	if _, err := rt.v.authenticate(r); err != nil {
+		rt.fail(w, err)
+		return
+	}
+	if rt.notify == nil {
+		rt.fail(w, errBotOff)
+		return
+	}
+	id, bad := pathID(r)
+	if bad != nil {
+		rt.fail(w, bad)
+		return
+	}
+	if _, err := rt.store.GetEnrollment(id); err != nil {
+		rt.fail(w, errNotFound)
+		return
+	}
+	q := r.URL.Query()
+	page, err := rt.audit.Build(id, audit.Params{
+		Range: q.Get("range"), From: q.Get("from"), To: q.Get("to"),
+	})
+	if err != nil {
+		rt.log.Error("mini: audit send", "err", err, "enrollment", id)
+		rt.fail(w, errInternal)
+		return
+	}
+	// Unlike a write notification, this one is the whole point of the tap, so
+	// a failure is reported rather than logged and swallowed.
+	if err := rt.notify.NotifyText(page.Text); err != nil {
+		rt.log.Error("mini: notify group", "err", err)
+		rt.fail(w, errInternal)
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
 }
 
 func auditPage(page audit.Page) auditDTO {
@@ -85,6 +134,7 @@ func auditPage(page audit.Page) auditDTO {
 		Summary:  auditSummary(page),
 		Forecast: auditForecast(page),
 		Rows:     auditRows(page),
+		Text:     page.Text,
 		Notice:   page.Error,
 	}
 	if e.Description != "" {

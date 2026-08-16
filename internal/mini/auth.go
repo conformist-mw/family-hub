@@ -40,6 +40,9 @@ var (
 	errBadRequest  = &apiError{Code: "bad_request", Message: "некоректний запит", status: http.StatusBadRequest}
 	errNotFound    = &apiError{Code: "not_found", Message: "запис не знайдено", status: http.StatusNotFound}
 	errInternal    = &apiError{Code: "internal", Message: "внутрішня помилка", status: http.StatusInternalServerError}
+	// errBotOff answers the one action that needs the bot itself rather than
+	// the database: posting to the family group.
+	errBotOff = &apiError{Code: "bot_off", Message: "бот вимкнений", status: http.StatusServiceUnavailable}
 )
 
 // maxClockSkew tolerates an auth_date slightly in the future rather than

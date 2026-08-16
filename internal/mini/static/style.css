@@ -333,7 +333,15 @@ button.row {
 }
 .pill-done { background: var(--accent-weak); color: var(--accent); }
 .pill-cancelled { background: var(--danger-weak); color: var(--danger); }
+/* The ledger's other two visit statuses. Neither is good or bad news — the
+   lesson simply did not happen as planned — so they stay the neutral pill. */
+.pill-rescheduled,
+.pill-skipped { background: var(--warn-weak); color: var(--warn); }
 .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* A scheduled lesson nothing has paid for yet: the one row in the ledger the
+   eye should catch on. */
+.row-owed { box-shadow: inset 2px 0 0 var(--danger); padding-left: 10px; }
 
 /* Forms ---------------------------------------------------------------- */
 

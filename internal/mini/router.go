@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"familyhub/internal/appointments"
+	"familyhub/internal/audit"
+	"familyhub/internal/payments"
 	"familyhub/internal/schedule"
 	"familyhub/internal/store"
 )
@@ -59,10 +61,12 @@ type Config struct {
 	WebhookURL string
 	// Loc is the wall-clock zone appointments are stored in.
 	Loc *time.Location
-	// Notifier posts a write to the family group. The bot implements it and
-	// nothing here imports it; nil means no group message, the same as a
-	// disabled bot.
-	Notifier appointments.Notifier
+	// Notifier posts to the family group. The bot implements it and nothing
+	// here imports it; nil means no group message, the same as a disabled bot.
+	// Both modes are needed: HTML for the write notifications, which carry
+	// <b> markup, and plain text for the reconciliation, which is a pasteable
+	// block that must not be parsed as markup at all.
+	Notifier Notifier
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -74,12 +78,23 @@ func (c Config) devFixtureUser() int64 {
 	return c.DevUser
 }
 
+// Notifier is the whole of what this package needs from the bot. It is a
+// superset of appointments.Notifier and payments.Notifier, so the same value
+// satisfies both services.
+type Notifier interface {
+	NotifyHTML(text string) error
+	NotifyText(text string) error
+}
+
 type Router struct {
 	store *store.Store
 	// appointments holds the write rules shared with the web UI, so the two
 	// surfaces cannot drift on what a valid appointment is.
 	appointments *appointments.Service
+	payments     *payments.Service
 	schedule     *schedule.Service
+	audit        *audit.Service
+	notify       Notifier // nil — bot off; the send-to-group button stays hidden
 	log          *slog.Logger
 	v            *verifier
 	loc          *time.Location
@@ -107,7 +122,10 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	rt := &Router{
 		store:        st,
 		appointments: appointments.NewService(st, cfg.Loc, cfg.Notifier, logger),
+		payments:     payments.NewService(st, cfg.Notifier, logger),
 		schedule:     schedule.NewService(st),
+		audit:        audit.NewService(st, func() time.Time { return cfg.Now().In(cfg.Loc) }),
+		notify:       cfg.Notifier,
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
 		loc:          cfg.Loc,
@@ -136,6 +154,11 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/api/persons", rt.handlePersons)
 	mux.HandleFunc("GET /mini/api/courses", rt.handleCourses)
 	mux.HandleFunc("POST /mini/api/courses/{id}/slots", rt.handleSlotCreate)
+	mux.HandleFunc("POST /mini/api/courses/{id}/payments", rt.handlePaymentCreate)
+	mux.HandleFunc("GET /mini/api/courses/{id}/audit", rt.handleAudit)
+	mux.HandleFunc("POST /mini/api/courses/{id}/audit/send", rt.handleAuditSend)
+	mux.HandleFunc("PUT /mini/api/payments/{id}", rt.handlePaymentUpdate)
+	mux.HandleFunc("DELETE /mini/api/payments/{id}", rt.handlePaymentDelete)
 	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)
 	mux.HandleFunc("DELETE /mini/api/slots/{id}", rt.handleSlotDelete)
 	return mux, nil

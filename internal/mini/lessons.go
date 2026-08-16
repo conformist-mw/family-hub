@@ -28,9 +28,13 @@ type courseDTO struct {
 	// The same three strings the home screen shows. A person who came here to
 	// move a lesson is the person who wants to know whether it is paid for,
 	// and switching tabs to find out is a tab too many.
-	State    string    `json:"state"`   // ok | low | empty
-	Balance  string    `json:"balance"` // "залишилось 6 занять"
-	Absence  string    `json:"absence"`
+	State   string `json:"state"`   // ok | low | empty
+	Balance string `json:"balance"` // "залишилось 6 занять"
+	Absence string `json:"absence"`
+	// Billing is monthly | per_lesson. The payment form asks for a month or a
+	// number of lessons accordingly — the server checks it against the
+	// enrollment all the same, this only decides which field is drawn.
+	Billing  string    `json:"billing"`
 	Schedule []slotDTO `json:"schedule"`
 }
 
@@ -81,6 +85,7 @@ func (rt *Router) handleCourses(w http.ResponseWriter, r *http.Request) {
 			Name:     e.Name,
 			Person:   e.Person,
 			Note:     e.Description,
+			Billing:  e.BillingType,
 			Schedule: slotDTOs(slots),
 		}
 		// A course with no balance row yet keeps State empty, and the client

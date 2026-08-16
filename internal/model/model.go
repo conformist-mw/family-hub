@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 const (
 	BillingPerLesson = "per_lesson"
@@ -65,6 +68,30 @@ var MonthsGenitive = [13]string{
 var MonthsShort = [13]string{
 	"", "січ", "лют", "бер", "кві", "тра", "чер",
 	"лип", "сер", "вер", "жов", "лис", "гру",
+}
+
+// MonthsNominative names a month on its own — "за вересень" — rather than a
+// day inside it, which is what the genitive form above is for.
+var MonthsNominative = [13]string{
+	"", "січень", "лютий", "березень", "квітень", "травень", "червень",
+	"липень", "серпень", "вересень", "жовтень", "листопад", "грудень",
+}
+
+// Plural picks the Ukrainian form: 1 заняття, 2 заняття, 5 занять. The teens
+// are the trap — 11 takes the same form as 5, not the same as 1.
+func Plural(n int, one, few, many string) string {
+	form := many
+	switch mod100 := n % 100; {
+	case mod100 >= 11 && mod100 <= 14:
+	default:
+		switch n % 10 {
+		case 1:
+			form = one
+		case 2, 3, 4:
+			form = few
+		}
+	}
+	return strconv.Itoa(n) + " " + form
 }
 
 type Person struct {
@@ -158,12 +185,16 @@ type Payment struct {
 	Person       string
 	Class        string
 	ClassDesc    string
-	Date         string
-	Amount       float64
-	LessonsPaid  *int64
-	CoversFrom   *string
-	CoversUntil  *string
-	Comment      string
+	// Billing is the course's billing type, joined in on read. It says which
+	// half of this row is meaningful — LessonsPaid or the coverage range — and
+	// therefore which field an edit form has to offer.
+	Billing     string
+	Date        string
+	Amount      float64
+	LessonsPaid *int64
+	CoversFrom  *string
+	CoversUntil *string
+	Comment     string
 }
 
 // CoversMonth renders the coverage range as the "YYYY-MM" an <input type=month>

@@ -86,10 +86,11 @@ internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
   store/       # repository layer (one file per concern)
-  audit/       # pure reconciliation logic: ledger, forecast, text rendering
+  audit/       # reconciliation: ledger, forecast, text, and the page both surfaces show
   web/         # http handlers, templates, static
   mini/        # Telegram Mini App: JSON API + Preact/htm frontend under /mini
   appointments/# appointment write rules, shared by web and mini
+  payments/    # payment write rules and the group message, shared by web and mini
   schedule/    # weekly-slot write rules, shared by web and mini
   valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
@@ -120,7 +121,9 @@ data/          # local SQLite (gitignored)
     last payment / this month / all time / custom), a forecast of upcoming
     lessons (grey; unpaid ones flagged with the top-up amount; trainer
     absences excluded), copy-as-text, and "send to group" via the bot
-    (`POST .../audit/send`). Pure logic lives in `internal/audit`; the bot
+    (`POST .../audit/send`). The ledger, the forecast and the assembly of
+    the whole view live in `internal/audit`, shared with the Mini App's
+    Звірка screen, so the two cannot disagree about what a period means; the bot
     is reached through the small `web.Notifier` interface (`NotifyText` for
     this button, `NotifyHTML` for the appointment notifications below), so
     `internal/web` never imports telebot and the button hides when the bot
@@ -170,13 +173,45 @@ data/          # local SQLite (gitignored)
   served `no-store` and their URLs carry `?v=<process start>`: without an
   explicit header Cloudflare and friends cache `.js` for hours, and a deployed
   change simply never arrives.
-- Write rules live above the store in `internal/appointments` and
-  `internal/schedule`, shared with the web form so the two surfaces cannot
-  drift on what a valid appointment or slot is. `store.UpdateSlot` moves a
-  slot rather than delete-and-recreate: the ICS uid is `slot-<id>`, and Home
-  Assistant keys on it.
+- Write rules live above the store in `internal/appointments`,
+  `internal/schedule` and `internal/payments`, shared with the web form so the
+  two surfaces cannot drift on what a valid appointment, slot or payment is.
+  `store.UpdateSlot` moves a slot rather than delete-and-recreate: the ICS uid
+  is `slot-<id>`, and Home Assistant keys on it.
 - Screens: Головна (balances, recent payments, next visits), Записи (upcoming
-  list, read card, edit form), Заняття (courses and their editable schedule).
+  list, read card, edit form), Заняття (courses, their editable schedule,
+  recording a payment against one, and its reconciliation).
+- A payment is written under its course (`POST
+  /mini/api/courses/{id}/payments`), never by picking one from a list: the
+  course is already decided by the card that was tapped. Which question the
+  form asks — how many lessons, or which month — follows the enrollment's
+  billing type, and the server re-derives it from the enrollment rather than
+  trusting the body. Months are four chips (previous through two ahead), not
+  an `<input type="month">`, which iOS renders as a bare text box.
+- Editing and deleting a payment are keyed by the payment instead
+  (`PUT`/`DELETE /mini/api/payments/{id}`), reached by tapping a row in
+  Останні оплати — the one editable thing on an otherwise read-only home
+  screen, because a wrong amount is noticed while reading that list. The
+  course a payment belongs to is not editable from a phone: the update takes
+  it from the stored row, and moving a payment between courses stays on the
+  web. The row carries the form's values as well as its display strings, so
+  the editor opens filled without a second request. The delete is a hard one —
+  `payments` has no `deleted_at`, and a row still in the table is still in the
+  balance.
+- Звірка (`GET /mini/api/courses/{id}/audit`) is the web reconciliation on a
+  phone: the same three presets plus a custom period, the ledger as rows rather
+  than a table, and the forecast when the period reaches past today. Every
+  string is formatted server-side — summary and forecast arrive as ready-made
+  lines, so the client only picks a period and renders. A rejected period does
+  not blank the screen: the default one is returned with a `notice` saying
+  why (which is not the API error contract — the payload is valid). The screen
+  also copies the text version and posts it to the family group
+  (`POST .../audit/send`), which rebuilds the reconciliation from the period
+  instead of trusting a body — what reaches the group is the app's answer.
+  That is the one action needing the bot rather than the database, so it
+  answers `bot_off` (503) when there is none and `canSend` tells the screen to
+  hide the button. `mini.Config.Notifier` therefore carries both modes: HTML
+  for the write notifications, plain text for this.
 - The date field keeps the native picker and spells the chosen date out under
   it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
   renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a
@@ -248,6 +283,11 @@ data/          # local SQLite (gitignored)
   outage as a failed save invites a duplicate. The byline is the Telegram
   `first_name` for the bot and the Mini App; on the web it is whatever
   oauth2-proxy forwards, falling back to "веб".
+- **And about every payment**, on the same terms: `payments.Service` announces
+  an add, an edit and a delete, so "я вже заплатила за футбол" and "треба
+  заплатити за футбол" stop being true in the same evening. The message names
+  the course, the child, the amount and what it bought — a pack of lessons or
+  a named month (`internal/payments/notify.go`).
 - `/list` is one self-editing message: a calendar week at a time, tap a number
   for the card → edit / cancel, all state encoded in the callback data. Text
   edits (reschedule, rename, change who) are private-chat only, because in a

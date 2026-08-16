@@ -1,11 +1,9 @@
 package web
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
 
 	"familyhub/internal/audit"
 	"familyhub/internal/model"
@@ -38,106 +36,32 @@ type auditPageData struct {
 	Error       string
 }
 
-// resolveAuditRange turns the range/from/to query params into concrete
-// bounds. Defaults to "since the last payment"; an enrollment with no payments
-// falls back to all-time. Only a custom range may extend into the future —
-// that is how the forecast is reached.
-func (a *App) resolveAuditRange(enrollmentID int64, q url.Values) (rng, from, to, label string, err error) {
-	td := today()
-	rng = q.Get("range")
-	if rng == "" {
-		rng = "last_payment"
-	}
-	switch rng {
-	case "last_payment":
-		lp, lerr := a.Store.LastPaymentDate(enrollmentID)
-		if lerr != nil {
-			return "", "", "", "", lerr
-		}
-		if lp == "" {
-			rng = "all"
-			return rng, "", td, "за весь час", nil
-		}
-		return rng, lp, td, "з останньої оплати (" + dateShort(lp) + ")", nil
-	case "month":
-		from = time.Now().Format("2006-01") + "-01"
-		return rng, from, td, "цей місяць", nil
-	case "all":
-		return rng, "", td, "за весь час", nil
-	case "custom":
-		from, to = q.Get("from"), q.Get("to")
-		if _, e1 := model.ParseDate(from); e1 != nil {
-			return rng, "", "", "", fmt.Errorf("вкажи коректні дати")
-		}
-		if _, e2 := model.ParseDate(to); e2 != nil {
-			return rng, "", "", "", fmt.Errorf("вкажи коректні дати")
-		}
-		if from > to {
-			return rng, "", "", "", fmt.Errorf("початок періоду пізніше кінця")
-		}
-		return rng, from, to, dateShort(from) + " — " + dateShort(to), nil
-	default:
-		return "", "", "", "", fmt.Errorf("невідомий період")
-	}
-}
-
-// buildAuditPage assembles everything the page and the text version share.
+// buildAuditPage asks audit.Service for the reconciliation and dresses it for
+// this template. The period rules and the reads live there, shared with the
+// Mini App, so the two screens cannot end up disagreeing about what "з
+// останньої оплати" means.
 func (a *App) buildAuditPage(enrollmentID int64, q url.Values) (auditPageData, error) {
-	e, err := a.Store.GetEnrollment(enrollmentID)
+	page, err := a.Audit.Build(enrollmentID, audit.Params{
+		Range: q.Get("range"), From: q.Get("from"), To: q.Get("to"),
+	})
 	if err != nil {
 		return auditPageData{}, err
 	}
-	data := auditPageData{E: e, PerLesson: e.BillingType != model.BillingMonthly, Statuses: statusOptions}
-
-	rng, from, to, label, err := a.resolveAuditRange(enrollmentID, q)
-	if err != nil {
-		// Bad custom input: keep the page usable on the default period.
-		data.Error = err.Error()
-		rng, from, to, label, err = a.resolveAuditRange(enrollmentID, url.Values{})
-		if err != nil {
-			return data, err
-		}
-	}
-	data.Range, data.From, data.To = rng, from, to
-	td := today()
-	data.PeriodLabel = label
-	if rng != "custom" { // the custom label already carries both dates
-		data.PeriodLabel += " по " + dateShort(to)
-	}
-
-	d, err := a.Store.AuditData(enrollmentID, from, to)
-	if err != nil {
-		return data, err
-	}
-	data.Rows, data.Summary = audit.BuildLedger(d)
-
-	if to > td {
-		coversUntil := ""
-		if e.BillingType == model.BillingMonthly {
-			bal, berr := a.Store.BalanceFor(enrollmentID)
-			if berr != nil {
-				return data, berr
-			}
-			coversUntil = bal.CoversUntil
-		}
-		hasToday, herr := a.Store.VisitExistsForDate(enrollmentID, td)
-		if herr != nil {
-			return data, herr
-		}
-		data.Forecast = audit.BuildForecast(e, d.Slots, d.Absences,
-			data.Summary.Closing, coversUntil, td, to, hasToday)
-	}
-
-	data.Text = audit.RenderText(audit.View{
-		Title:       e.Person + " · " + e.Name,
-		PeriodLabel: data.PeriodLabel,
-		BillingType: e.BillingType,
-		Rows:        data.Rows,
-		Summary:     data.Summary,
-		Forecast:    data.Forecast,
-	})
-	data.CanSend = a.Notifier != nil
-	return data, nil
+	return auditPageData{
+		E:           page.Enrollment,
+		Range:       page.Range,
+		From:        page.From,
+		To:          page.To,
+		PeriodLabel: page.PeriodLabel,
+		Rows:        page.Rows,
+		Summary:     page.Summary,
+		Forecast:    page.Forecast,
+		PerLesson:   page.PerLesson,
+		Statuses:    statusOptions,
+		Text:        page.Text,
+		CanSend:     a.Notifier != nil,
+		Error:       page.Error,
+	}, nil
 }
 
 func (a *App) handleAudit(w http.ResponseWriter, r *http.Request) {

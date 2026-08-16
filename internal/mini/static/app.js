@@ -5,6 +5,8 @@ import { Loading, Failure } from '/mini/assets/ui.js'
 import { IconHome, IconCalendar, IconBook } from '/mini/assets/icons.js'
 import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
+import { PaymentForm } from '/mini/assets/payments.js'
+import { Audit } from '/mini/assets/audit.js'
 import { Home } from '/mini/assets/home.js'
 
 // Tabs are the top-level navigation; a form is a nested screen inside whichever
@@ -154,6 +156,19 @@ function App() {
         onCancel=${pop} />`
   }
 
+  if (screen && screen.name === 'paymentForm') {
+    return html`
+      <${PaymentForm}
+        course=${screen.course}
+        payment=${screen.payment}
+        onSaved=${() => { closeAll(); loadCourses(); loadHome() }}
+        onCancel=${pop} />`
+  }
+
+  if (screen && screen.name === 'audit') {
+    return html`<${Audit} course=${screen.course} onClose=${pop} />`
+  }
+
   let body
   if (tab === 'home') {
     if (home.phase === 'loading') body = html`<${Loading} />`
@@ -163,7 +178,8 @@ function App() {
         <${Home}
           data=${home.data}
           onOpenVisits=${() => setTab('appointments')}
-          onOpenCourses=${() => setTab('courses')} />`
+          onOpenCourses=${() => setTab('courses')}
+          onOpenPayment=${(payment) => push({ name: 'paymentForm', payment })} />`
   } else if (tab === 'appointments') {
     if (appointments.phase === 'loading') body = html`<${Loading} />`
     else if (appointments.phase === 'error')
@@ -185,7 +201,9 @@ function App() {
           courses=${courses.courses}
           weekdays=${courses.weekdays}
           onEditSlot=${(course, slot) => push({ name: 'slotForm', course, slot })}
-          onAddSlot=${(course) => push({ name: 'slotForm', course, slot: null })} />`
+          onAddSlot=${(course) => push({ name: 'slotForm', course, slot: null })}
+          onAddPayment=${(course) => push({ name: 'paymentForm', course })}
+          onOpenAudit=${(course) => push({ name: 'audit', course })} />`
   }
 
   return html`

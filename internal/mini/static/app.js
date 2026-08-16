@@ -159,6 +159,7 @@ function App() {
     return html`
       <${PaymentForm}
         course=${screen.course}
+        payment=${screen.payment}
         onSaved=${() => { closeAll(); loadCourses(); loadHome() }}
         onCancel=${pop} />`
   }
@@ -172,7 +173,8 @@ function App() {
         <${Home}
           data=${home.data}
           onOpenVisits=${() => setTab('appointments')}
-          onOpenCourses=${() => setTab('courses')} />`
+          onOpenCourses=${() => setTab('courses')}
+          onOpenPayment=${(payment) => push({ name: 'paymentForm', payment })} />`
   } else if (tab === 'appointments') {
     if (appointments.phase === 'loading') body = html`<${Loading} />`
     else if (appointments.phase === 'error')

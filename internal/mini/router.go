@@ -109,7 +109,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	rt := &Router{
 		store:        st,
 		appointments: appointments.NewService(st, cfg.Loc, cfg.Notifier, logger),
-		payments:     payments.NewService(st),
+		payments:     payments.NewService(st, cfg.Notifier, logger),
 		schedule:     schedule.NewService(st),
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
@@ -140,6 +140,8 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/api/courses", rt.handleCourses)
 	mux.HandleFunc("POST /mini/api/courses/{id}/slots", rt.handleSlotCreate)
 	mux.HandleFunc("POST /mini/api/courses/{id}/payments", rt.handlePaymentCreate)
+	mux.HandleFunc("PUT /mini/api/payments/{id}", rt.handlePaymentUpdate)
+	mux.HandleFunc("DELETE /mini/api/payments/{id}", rt.handlePaymentDelete)
 	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)
 	mux.HandleFunc("DELETE /mini/api/slots/{id}", rt.handleSlotDelete)
 	return mux, nil

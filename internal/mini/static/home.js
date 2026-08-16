@@ -2,9 +2,11 @@ import { html } from '/mini/assets/vendor/preact-htm.module.js'
 import { Bar } from '/mini/assets/ui.js'
 import { IconClock, IconInfo } from '/mini/assets/icons.js'
 
-// "What is going on right now" in one scroll. Nothing here is editable — it is
-// the screen you open to find out whether anything needs doing, and the tabs
-// are where the doing happens.
+// "What is going on right now" in one scroll. Almost nothing here is editable
+// — it is the screen you open to find out whether anything needs doing, and
+// the tabs are where the doing happens. The exception is a payment row: a
+// wrong amount is noticed while reading this list, and sending the reader off
+// to hunt the same row down under another tab would be the long way round.
 //
 // The order changed: the next visit is a card rather than the first line of a
 // list, and the courses that are running out are lifted above the ones that
@@ -53,7 +55,7 @@ function CourseCard({ course }) {
     </div>`
 }
 
-export function Home({ data, onOpenVisits, onOpenCourses }) {
+export function Home({ data, onOpenVisits, onOpenCourses, onOpenPayment }) {
   const { today = '', upcoming = [], courses = [], payments = [] } = data
 
   // The first upcoming visit is the card; the rest stay a list. Splitting it
@@ -115,14 +117,14 @@ export function Home({ data, onOpenVisits, onOpenCourses }) {
         <div class="card card-rows">
           ${payments.map(
             (p) => html`
-              <div class="row" key=${p.id}>
+              <button class="row" key=${p.id} onClick=${() => onOpenPayment(p)}>
                 <div class="row-when row-date">${p.date}</div>
                 <div class="row-main">
                   <span>${p.course}<span class="muted"> · ${p.person}</span></span>
                   ${p.detail && html`<span class="meta">${p.detail}</span>`}
                 </div>
                 <div class="row-amount">${p.amount}</div>
-              </div>`,
+              </button>`,
           )}
         </div>
       <//>

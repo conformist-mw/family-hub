@@ -21,7 +21,7 @@ func (s *Store) ListPayments(f PaymentFilter) ([]model.Payment, error) {
 		args = append(args, f.PersonID)
 	}
 	q := `
-		SELECT pm.id, pm.enrollment_id, p.name, e.name, e.description, pm.date, pm.amount,
+		SELECT pm.id, pm.enrollment_id, p.name, e.name, e.description, e.billing_type, pm.date, pm.amount,
 		       pm.lessons_paid, pm.covers_from, pm.covers_until, pm.comment
 		FROM payments pm
 		JOIN enrollments e ON e.id = pm.enrollment_id
@@ -45,7 +45,7 @@ func (s *Store) ListPayments(f PaymentFilter) ([]model.Payment, error) {
 	var out []model.Payment
 	for rows.Next() {
 		var pm model.Payment
-		if err := rows.Scan(&pm.ID, &pm.EnrollmentID, &pm.Person, &pm.Class, &pm.ClassDesc, &pm.Date, &pm.Amount,
+		if err := rows.Scan(&pm.ID, &pm.EnrollmentID, &pm.Person, &pm.Class, &pm.ClassDesc, &pm.Billing, &pm.Date, &pm.Amount,
 			&pm.LessonsPaid, &pm.CoversFrom, &pm.CoversUntil, &pm.Comment); err != nil {
 			return nil, err
 		}
@@ -93,13 +93,13 @@ func (s *Store) TotalPaid(personID int64) (float64, error) {
 func (s *Store) GetPayment(id int64) (model.Payment, error) {
 	var pm model.Payment
 	err := s.db.QueryRow(`
-		SELECT pm.id, pm.enrollment_id, p.name, e.name, e.description, pm.date, pm.amount,
+		SELECT pm.id, pm.enrollment_id, p.name, e.name, e.description, e.billing_type, pm.date, pm.amount,
 		       pm.lessons_paid, pm.covers_from, pm.covers_until, pm.comment
 		FROM payments pm
 		JOIN enrollments e ON e.id = pm.enrollment_id
 		JOIN persons p     ON p.id = e.person_id
 		WHERE pm.id = ?`, id).Scan(
-		&pm.ID, &pm.EnrollmentID, &pm.Person, &pm.Class, &pm.ClassDesc, &pm.Date, &pm.Amount,
+		&pm.ID, &pm.EnrollmentID, &pm.Person, &pm.Class, &pm.ClassDesc, &pm.Billing, &pm.Date, &pm.Amount,
 		&pm.LessonsPaid, &pm.CoversFrom, &pm.CoversUntil, &pm.Comment)
 	return pm, err
 }

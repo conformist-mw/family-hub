@@ -2,9 +2,9 @@ import { html, useState } from '/mini/assets/vendor/preact-htm.module.js'
 import { api, haptic, guardUnsaved, todayISO, dateLong } from '/mini/assets/api.js'
 import { Field, Actions } from '/mini/assets/ui.js'
 
-// Recording money against a course. Opened from the course card, so the course
-// is already decided and this form never asks which one — the one question the
-// web form has to ask first.
+// Recording money against a course, and fixing it afterwards. Opened from the
+// course card, so a new payment never asks which course; opened from a row on
+// the home screen, so an existing one is already the row that looked wrong.
 
 // Nominative month names, for a chip that names a month on its own rather than
 // a day inside it ("вересень", not "6 вересня"). Duplicated from Go for the
@@ -21,28 +21,40 @@ const MONTHS = [
 // four beats an <input type="month">, which iOS renders as a bare text box.
 //
 // Built from a plain year/month pair rather than Date arithmetic so nothing
-// can be shifted by a timezone; the offsets are normalised by hand.
-function monthOptions(iso) {
+// can be shifted by a timezone; the offsets are normalised by hand. An edit
+// whose month falls outside the four is added, so the form can always show
+// what the row actually holds.
+function monthOptions(iso, extra) {
   const [y, m] = iso.split('-').map(Number)
-  return [-1, 0, 1, 2].map((delta) => {
+  const values = [-1, 0, 1, 2].map((delta) => {
     const index = m - 1 + delta
-    const year = y + Math.floor(index / 12)
-    const month = ((index % 12) + 12) % 12
-    const value = `${year}-${String(month + 1).padStart(2, '0')}`
-    // The year is only worth saying when it is not the one we are in.
-    return { value, label: year === y ? MONTHS[month] : `${MONTHS[month]} ${year}` }
+    return { year: y + Math.floor(index / 12), month: ((index % 12) + 12) % 12 }
   })
+  if (extra && !values.some((v) => monthValue(v) === extra)) {
+    const [ey, em] = extra.split('-').map(Number)
+    if (Number.isFinite(ey) && Number.isFinite(em)) values.unshift({ year: ey, month: em - 1 })
+  }
+  return values.map((v) => ({
+    value: monthValue(v),
+    // The year is only worth saying when it is not the one we are in.
+    label: v.year === y ? MONTHS[v.month] : `${MONTHS[v.month]} ${v.year}`,
+  }))
 }
 
-export function PaymentForm({ course, onSaved, onCancel }) {
-  const monthly = course.billing === 'monthly'
+const monthValue = ({ year, month }) => `${year}-${String(month + 1).padStart(2, '0')}`
+
+export function PaymentForm({ course, payment, onSaved, onCancel }) {
+  const isEdit = Boolean(payment && payment.id)
+  // A new payment takes the billing from the course card it was opened from;
+  // an existing one from the row, which carries its course's billing type.
+  const monthly = (isEdit ? payment.billing : course.billing) === 'monthly'
   const today = todayISO()
   const [values, setValues] = useState(() => ({
-    date: today,
-    amount: '',
-    lessons: '',
-    month: today.slice(0, 7),
-    comment: '',
+    date: isEdit ? payment.dateISO : today,
+    amount: isEdit ? payment.value : '',
+    lessons: isEdit ? payment.lessons : '',
+    month: (isEdit && payment.month) || today.slice(0, 7),
+    comment: (isEdit && payment.comment) || '',
   }))
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -72,7 +84,8 @@ export function PaymentForm({ course, onSaved, onCancel }) {
       comment: values.comment,
     }
     try {
-      await api(`/courses/${course.id}/payments`, { method: 'POST', body })
+      if (isEdit) await api(`/payments/${payment.id}`, { method: 'PUT', body })
+      else await api(`/courses/${course.id}/payments`, { method: 'POST', body })
       haptic()
       done()
       onSaved()
@@ -82,16 +95,33 @@ export function PaymentForm({ course, onSaved, onCancel }) {
     }
   }
 
+  const remove = async () => {
+    // Deleting a payment moves the balance, and unlike a visit it leaves no
+    // row behind — hence the question.
+    if (!confirm('Видалити цю оплату? Баланс перерахується.')) return
+    setSaving(true)
+    try {
+      await api(`/payments/${payment.id}`, { method: 'DELETE' })
+      done()
+      onSaved()
+    } catch (err) {
+      setError(err)
+      setSaving(false)
+    }
+  }
+
   const errFor = (f) => (error && error.field === f ? error.message : null)
+  const head = isEdit ? `${payment.course} · ${payment.person}` : `${course.name} · ${course.person}`
 
   return html`
     <form class="form" onSubmit=${submit}>
       <p class="form-head">
-        <span class="form-head-title">Нова оплата</span>
-        <span class="form-head-when">${course.name} · ${course.person}</span>
+        <span class="form-head-title">${isEdit ? 'Оплата' : 'Нова оплата'}</span>
+        <span class="form-head-when">${head}</span>
       </p>
 
-      ${course.balance && html`<p class="sec-empty">Зараз: <span class="state-${course.state}">${course.balance}</span></p>`}
+      ${!isEdit && course.balance &&
+      html`<p class="sec-empty">Зараз: <span class="state-${course.state}">${course.balance}</span></p>`}
 
       <div class="card card-rows">
         <${Field} label="Сума, ₴" error=${errFor('amount')}>
@@ -112,7 +142,7 @@ export function PaymentForm({ course, onSaved, onCancel }) {
         <div class="card">
           <span class="label">За який місяць</span>
           <div class="chips">
-            ${monthOptions(today).map(
+            ${monthOptions(today, isEdit ? payment.month : '').map(
               (m) => html`
                 <button type="button" key=${m.value}
                   class="chip ${values.month === m.value ? 'chip-on' : ''}"
@@ -130,6 +160,7 @@ export function PaymentForm({ course, onSaved, onCancel }) {
       </div>
 
       ${error && !error.field && html`<p class="field-error">${error.message}</p>`}
-      <${Actions} saving=${saving} onCancel=${() => { done(); onCancel() }} />
+      <${Actions} saving=${saving} onCancel=${() => { done(); onCancel() }}
+        onDelete=${isEdit ? remove : null} deleteLabel="Видалити оплату" />
     </form>`
 }

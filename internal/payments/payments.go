@@ -9,6 +9,7 @@
 package payments
 
 import (
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -81,12 +82,24 @@ func monthRange(v string) (string, string, error) {
 	return first.Format("2006-01-02"), last.Format("2006-01-02"), nil
 }
 
-// Service performs the payment writes both surfaces share.
+// Service performs the payment writes both surfaces share, and tells the
+// family group about them — see notify.go for why that belongs here.
 type Service struct {
-	store *store.Store
+	store  *store.Store
+	notify Notifier // nil — bot off or no group configured; writes stay silent
+	log    *slog.Logger
 }
 
-func NewService(st *store.Store) *Service { return &Service{store: st} }
+// NewService wires the writes. notify may be nil; logger may be nil, in which
+// case the default logger is used.
+func NewService(st *store.Store, notify Notifier, logger *slog.Logger) *Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Service{store: st, notify: notify, log: logger}
+}
+
+func (s *Service) Get(id int64) (model.Payment, error) { return s.store.GetPayment(id) }
 
 // Prepare resolves the course and validates the form against how it is billed.
 // The returned payment is what would be stored; on a validation failure it
@@ -101,10 +114,16 @@ func (s *Service) Prepare(enrollmentID int64, f Form) (model.Payment, error) {
 	}
 	p, err := f.Parse(enrollment.BillingType)
 	p.EnrollmentID = enrollmentID
+	// The join columns the store would fill on the way back out, filled on the
+	// way in: the group message names the course and the child, and re-reading
+	// the row just to say so would be a query for nothing.
+	p.Class, p.ClassDesc, p.Person = enrollment.Name, enrollment.Description, enrollment.Person
 	return p, err
 }
 
-func (s *Service) Create(enrollmentID int64, f Form) (model.Payment, error) {
+// by names whoever is making the change, for the group message's byline. It is
+// empty when the surface cannot tell.
+func (s *Service) Create(enrollmentID int64, f Form, by string) (model.Payment, error) {
 	p, err := s.Prepare(enrollmentID, f)
 	if err != nil {
 		return p, err
@@ -114,16 +133,45 @@ func (s *Service) Create(enrollmentID int64, f Form) (model.Payment, error) {
 		return p, err
 	}
 	p.ID = id
+	s.announce(GroupAddText(p, by))
 	return p, nil
 }
 
-func (s *Service) Update(id, enrollmentID int64, f Form) (model.Payment, error) {
+func (s *Service) Update(id, enrollmentID int64, f Form, by string) (model.Payment, error) {
 	p, err := s.Prepare(enrollmentID, f)
 	p.ID = id
 	if err != nil {
 		return p, err
 	}
-	return p, s.store.UpdatePayment(p)
+	if err := s.store.UpdatePayment(p); err != nil {
+		return p, err
+	}
+	s.announce(GroupChangeText(p, by))
+	return p, nil
 }
 
-func (s *Service) Delete(id int64) error { return s.store.DeletePayment(id) }
+func (s *Service) Delete(id int64, by string) error {
+	// Read before deleting: the group is told what went, and afterwards there
+	// is nothing left to describe.
+	p, err := s.store.GetPayment(id)
+	if err != nil {
+		return err
+	}
+	if err := s.store.DeletePayment(id); err != nil {
+		return err
+	}
+	s.announce(GroupDeleteText(p, by))
+	return nil
+}
+
+// announce is best-effort: the write already succeeded, so a Telegram outage
+// must not be reported back as a failed save — that invites a second attempt
+// and a duplicate row. It is logged instead.
+func (s *Service) announce(text string) {
+	if s.notify == nil {
+		return
+	}
+	if err := s.notify.NotifyHTML(text); err != nil {
+		s.log.Error("payments: notify group", "err", err)
+	}
+}

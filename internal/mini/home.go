@@ -38,6 +38,16 @@ type homePaymentDTO struct {
 	Course string `json:"course"`
 	Person string `json:"person"`
 	Detail string `json:"detail"` // "10 занять" or "до 31.08"
+	// Below is what the editor binds to, so tapping a row opens a filled form
+	// with no second request — the same trade the appointments list makes.
+	// Display and form values are separate fields on purpose: "5000 ₴" is not
+	// something an input can take back.
+	Billing string `json:"billing"` // monthly | per_lesson
+	DateISO string `json:"dateISO"`
+	Value   string `json:"value"` // amount as typed: "5000"
+	Lessons string `json:"lessons"`
+	Month   string `json:"month"` // "2026-09"
+	Comment string `json:"comment"`
 }
 
 type homeVisitDTO struct {
@@ -156,7 +166,7 @@ func balanceLine(b model.Balance) string {
 	if b.BillingType == model.BillingMonthly {
 		switch {
 		case b.CoveredNow:
-			return "абонемент до " + shortDate(b.CoversUntil) + ", " + plural(b.DaysLeft, "день", "дні", "днів")
+			return "абонемент до " + shortDate(b.CoversUntil) + ", " + model.Plural(b.DaysLeft, "день", "дні", "днів")
 		case b.PrepaidFrom != "":
 			return "оплачено з " + shortDate(b.PrepaidFrom) + " до " + shortDate(b.CoversUntil)
 		default:
@@ -165,11 +175,11 @@ func balanceLine(b model.Balance) string {
 	}
 	switch {
 	case b.Remaining < 0:
-		return "борг " + plural(-b.Remaining, "заняття", "заняття", "занять")
+		return "борг " + model.Plural(-b.Remaining, "заняття", "заняття", "занять")
 	case b.Remaining == 0:
 		return "оплачених занять немає"
 	default:
-		return "залишилось " + plural(b.Remaining, "заняття", "заняття", "занять")
+		return "залишилось " + model.Plural(b.Remaining, "заняття", "заняття", "занять")
 	}
 }
 
@@ -185,15 +195,21 @@ func homePaymentRows(payments []model.Payment) []homePaymentDTO {
 	out := make([]homePaymentDTO, 0, len(payments))
 	for _, p := range payments {
 		row := homePaymentDTO{
-			ID:     p.ID,
-			Date:   shortDate(p.Date),
-			Amount: money(p.Amount),
-			Course: p.Class,
-			Person: p.Person,
+			ID:      p.ID,
+			Date:    shortDate(p.Date),
+			Amount:  money(p.Amount),
+			Course:  p.Class,
+			Person:  p.Person,
+			Billing: p.Billing,
+			DateISO: p.Date,
+			Value:   strconv.FormatFloat(p.Amount, 'f', -1, 64),
+			Month:   p.CoversMonth(),
+			Comment: p.Comment,
 		}
 		switch {
 		case p.LessonsPaid != nil && *p.LessonsPaid > 0:
-			row.Detail = plural(int(*p.LessonsPaid), "заняття", "заняття", "занять")
+			row.Detail = model.Plural(int(*p.LessonsPaid), "заняття", "заняття", "занять")
+			row.Lessons = strconv.FormatInt(*p.LessonsPaid, 10)
 		case p.CoversUntil != nil && *p.CoversUntil != "":
 			row.Detail = "до " + shortDate(*p.CoversUntil)
 		}
@@ -235,20 +251,4 @@ func money(v float64) string {
 		return strconv.FormatInt(int64(v), 10) + " ₴"
 	}
 	return fmt.Sprintf("%.2f ₴", v)
-}
-
-// plural picks the Ukrainian form: 1 заняття, 2 заняття, 5 занять.
-func plural(n int, one, few, many string) string {
-	form := many
-	switch mod100 := n % 100; {
-	case mod100 >= 11 && mod100 <= 14:
-	default:
-		switch n % 10 {
-		case 1:
-			form = one
-		case 2, 3, 4:
-			form = few
-		}
-	}
-	return strconv.Itoa(n) + " " + form
 }

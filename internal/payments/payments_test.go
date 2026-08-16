@@ -2,6 +2,7 @@ package payments
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"familyhub/internal/model"
@@ -114,5 +115,55 @@ func TestParseAcceptsZeroAmount(t *testing.T) {
 	}
 	if p.Amount != 0 {
 		t.Errorf("amount = %v", p.Amount)
+	}
+}
+
+func TestGroupTextNamesWhatTheMoneyBought(t *testing.T) {
+	lessons := int64(10)
+	from, until := "2026-09-01", "2026-09-30"
+	cases := []struct {
+		name string
+		p    model.Payment
+		want string
+	}{
+		{
+			"a pack of lessons",
+			model.Payment{Class: "Логопед", Person: "Демид", Amount: 5000, LessonsPaid: &lessons},
+			"💸 Оплата (Олег):\n💳 <b>Логопед</b> · Демид — 5000 ₴ · 10 занять",
+		},
+		{
+			"a month",
+			model.Payment{Class: "Футбол", Person: "Єгор", Amount: 3200, CoversFrom: &from, CoversUntil: &until},
+			"💸 Оплата (Олег):\n💳 <b>Футбол</b> · Єгор — 3200 ₴ · за вересень",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := GroupAddText(tc.p, "Олег"); got != tc.want {
+				t.Errorf("got  %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Telegram parses these as HTML, so a course named with an ampersand must not
+// be able to break the message — or, worse, inject markup.
+func TestGroupTextEscapes(t *testing.T) {
+	p := model.Payment{Class: "Танці & спорт", Person: "<b>Демид</b>", Amount: 100}
+	got := GroupDeleteText(p, "Оля & Олег")
+	if strings.Contains(got, "<b>Демид</b>") || !strings.Contains(got, "Танці &amp; спорт") {
+		t.Errorf("unescaped: %q", got)
+	}
+	if !strings.Contains(got, "(Оля &amp; Олег)") {
+		t.Errorf("byline not escaped: %q", got)
+	}
+}
+
+// No byline is better than a made-up one, and the surfaces that cannot name
+// the author send an empty string.
+func TestGroupTextWithoutAuthor(t *testing.T) {
+	got := GroupChangeText(model.Payment{Class: "Логопед", Amount: 500}, "")
+	if !strings.HasPrefix(got, "🔄 Оплату змінено:\n") {
+		t.Errorf("got %q", got)
 	}
 }

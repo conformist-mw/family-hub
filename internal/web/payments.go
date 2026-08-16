@@ -93,7 +93,7 @@ func (a *App) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
 		a.renderPaymentFormError(w, model.Payment{}, false, "не вдалося розібрати форму")
 		return
 	}
-	p, err := a.Payments.Create(enrollmentID, form)
+	p, err := a.Payments.Create(enrollmentID, form, actorName(r))
 	if err != nil {
 		a.paymentWriteError(w, p, false, err)
 		return
@@ -128,7 +128,7 @@ func (a *App) handlePaymentUpdate(w http.ResponseWriter, r *http.Request) {
 		a.renderPaymentFormError(w, model.Payment{ID: id}, true, "не вдалося розібрати форму")
 		return
 	}
-	p, err := a.Payments.Update(id, enrollmentID, form)
+	p, err := a.Payments.Update(id, enrollmentID, form, actorName(r))
 	if err != nil {
 		a.paymentWriteError(w, p, true, err)
 		return
@@ -138,7 +138,7 @@ func (a *App) handlePaymentUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handlePaymentDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err := a.Payments.Delete(id); err != nil {
+	if err := a.Payments.Delete(id, actorName(r)); err != nil {
 		a.serverError(w, err)
 		return
 	}

@@ -37,7 +37,7 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 		// time.Local is the zone appointments are written in — TZ comes from the
 		// container env, the same source the bot and the Mini App read.
 		Appointments: appointments.NewService(st, time.Local, notifier, logger),
-		Payments:     payments.NewService(st),
+		Payments:     payments.NewService(st, notifier, logger),
 		Notifier:     notifier,
 		templates:    parseTemplates(),
 	}

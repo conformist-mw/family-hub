@@ -185,6 +185,16 @@ data/          # local SQLite (gitignored)
   billing type, and the server re-derives it from the enrollment rather than
   trusting the body. Months are four chips (previous through two ahead), not
   an `<input type="month">`, which iOS renders as a bare text box.
+- Editing and deleting a payment are keyed by the payment instead
+  (`PUT`/`DELETE /mini/api/payments/{id}`), reached by tapping a row in
+  Останні оплати — the one editable thing on an otherwise read-only home
+  screen, because a wrong amount is noticed while reading that list. The
+  course a payment belongs to is not editable from a phone: the update takes
+  it from the stored row, and moving a payment between courses stays on the
+  web. The row carries the form's values as well as its display strings, so
+  the editor opens filled without a second request. The delete is a hard one —
+  `payments` has no `deleted_at`, and a row still in the table is still in the
+  balance.
 - The date field keeps the native picker and spells the chosen date out under
   it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
   renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a
@@ -256,6 +266,11 @@ data/          # local SQLite (gitignored)
   outage as a failed save invites a duplicate. The byline is the Telegram
   `first_name` for the bot and the Mini App; on the web it is whatever
   oauth2-proxy forwards, falling back to "веб".
+- **And about every payment**, on the same terms: `payments.Service` announces
+  an add, an edit and a delete, so "я вже заплатила за футбол" and "треба
+  заплатити за футбол" stop being true in the same evening. The message names
+  the course, the child, the amount and what it bought — a pack of lessons or
+  a named month (`internal/payments/notify.go`).
 - `/list` is one self-editing message: a calendar week at a time, tap a number
   for the card → edit / cancel, all state encoded in the callback data. Text
   edits (reschedule, rename, change who) are private-chat only, because in a

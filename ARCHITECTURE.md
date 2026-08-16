@@ -86,10 +86,11 @@ internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
   store/       # repository layer (one file per concern)
-  audit/       # pure reconciliation logic: ledger, forecast, text rendering
+  audit/       # reconciliation: ledger, forecast, text, and the page both surfaces show
   web/         # http handlers, templates, static
   mini/        # Telegram Mini App: JSON API + Preact/htm frontend under /mini
   appointments/# appointment write rules, shared by web and mini
+  payments/    # payment write rules and the group message, shared by web and mini
   schedule/    # weekly-slot write rules, shared by web and mini
   valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
@@ -120,7 +121,9 @@ data/          # local SQLite (gitignored)
     last payment / this month / all time / custom), a forecast of upcoming
     lessons (grey; unpaid ones flagged with the top-up amount; trainer
     absences excluded), copy-as-text, and "send to group" via the bot
-    (`POST .../audit/send`). Pure logic lives in `internal/audit`; the bot
+    (`POST .../audit/send`). The ledger, the forecast and the assembly of
+    the whole view live in `internal/audit`, shared with the Mini App's
+    Звірка screen, so the two cannot disagree about what a period means; the bot
     is reached through the small `web.Notifier` interface (`NotifyText` for
     this button, `NotifyHTML` for the appointment notifications below), so
     `internal/web` never imports telebot and the button hides when the bot
@@ -176,8 +179,8 @@ data/          # local SQLite (gitignored)
   `store.UpdateSlot` moves a slot rather than delete-and-recreate: the ICS uid
   is `slot-<id>`, and Home Assistant keys on it.
 - Screens: Головна (balances, recent payments, next visits), Записи (upcoming
-  list, read card, edit form), Заняття (courses, their editable schedule, and
-  recording a payment against one).
+  list, read card, edit form), Заняття (courses, their editable schedule,
+  recording a payment against one, and its reconciliation).
 - A payment is written under its course (`POST
   /mini/api/courses/{id}/payments`), never by picking one from a list: the
   course is already decided by the card that was tapped. Which question the
@@ -195,6 +198,13 @@ data/          # local SQLite (gitignored)
   the editor opens filled without a second request. The delete is a hard one —
   `payments` has no `deleted_at`, and a row still in the table is still in the
   balance.
+- Звірка (`GET /mini/api/courses/{id}/audit`) is the web reconciliation on a
+  phone: the same three presets plus a custom period, the ledger as rows rather
+  than a table, and the forecast when the period reaches past today. Every
+  string is formatted server-side — summary and forecast arrive as ready-made
+  lines, so the client only picks a period and renders. A rejected period does
+  not blank the screen: the default one is returned with a `notice` saying
+  why (which is not the API error contract — the payload is valid).
 - The date field keeps the native picker and spells the chosen date out under
   it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
   renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a

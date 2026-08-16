@@ -8,7 +8,7 @@ import { IconInfo } from '/mini/assets/icons.js'
 // is why "Логопед, Вівторок Четвер, 13:35" stayed a chat message nobody acted
 // on. Here a time is a chip you tap.
 
-export function CourseList({ courses, weekdays, onEditSlot, onAddSlot, onAddPayment }) {
+export function CourseList({ courses, weekdays, onEditSlot, onAddSlot, onAddPayment, onOpenAudit }) {
   if (courses.length === 0) {
     return html`<main><${Empty} title="Активних курсів немає" /></main>`
   }
@@ -41,6 +41,7 @@ export function CourseList({ courses, weekdays, onEditSlot, onAddSlot, onAddPaym
                  is when the course happens, this is money. -->
             <div class="chips">
               <button class="chip chip-add" onClick=${() => onAddPayment(c)}>₴ оплата</button>
+              <button class="chip chip-add" onClick=${() => onOpenAudit(c)}>звірка</button>
             </div>
           </section>`,
       )}

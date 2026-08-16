@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"familyhub/internal/appointments"
+	"familyhub/internal/audit"
 	"familyhub/internal/payments"
 	"familyhub/internal/schedule"
 	"familyhub/internal/store"
@@ -82,6 +83,7 @@ type Router struct {
 	appointments *appointments.Service
 	payments     *payments.Service
 	schedule     *schedule.Service
+	audit        *audit.Service
 	log          *slog.Logger
 	v            *verifier
 	loc          *time.Location
@@ -111,6 +113,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		appointments: appointments.NewService(st, cfg.Loc, cfg.Notifier, logger),
 		payments:     payments.NewService(st, cfg.Notifier, logger),
 		schedule:     schedule.NewService(st),
+		audit:        audit.NewService(st, func() time.Time { return cfg.Now().In(cfg.Loc) }),
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
 		loc:          cfg.Loc,
@@ -140,6 +143,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/api/courses", rt.handleCourses)
 	mux.HandleFunc("POST /mini/api/courses/{id}/slots", rt.handleSlotCreate)
 	mux.HandleFunc("POST /mini/api/courses/{id}/payments", rt.handlePaymentCreate)
+	mux.HandleFunc("GET /mini/api/courses/{id}/audit", rt.handleAudit)
 	mux.HandleFunc("PUT /mini/api/payments/{id}", rt.handlePaymentUpdate)
 	mux.HandleFunc("DELETE /mini/api/payments/{id}", rt.handlePaymentDelete)
 	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)

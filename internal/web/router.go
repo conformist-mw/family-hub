@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"familyhub/internal/appointments"
+	"familyhub/internal/audit"
 	"familyhub/internal/model"
 	"familyhub/internal/payments"
 	"familyhub/internal/store"
@@ -23,7 +24,9 @@ type App struct {
 	Appointments *appointments.Service
 	// Payments is shared with the Mini App for the same reason: what a payment
 	// for a monthly course must carry is one rule, not one per form.
-	Payments  *payments.Service
+	Payments *payments.Service
+	// Audit builds the reconciliation both surfaces show.
+	Audit     *audit.Service
 	Notifier  Notifier // nil — bot disabled, send-to-group hidden
 	templates map[string]*template.Template
 }
@@ -38,6 +41,7 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 		// container env, the same source the bot and the Mini App read.
 		Appointments: appointments.NewService(st, time.Local, notifier, logger),
 		Payments:     payments.NewService(st, notifier, logger),
+		Audit:        audit.NewService(st, time.Now),
 		Notifier:     notifier,
 		templates:    parseTemplates(),
 	}

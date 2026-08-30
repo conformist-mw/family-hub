@@ -23,83 +23,6 @@ const PRESETS = [
   { label: 'останній день місяця', rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1' },
 ]
 
-// describeRule turns a rule into Ukrainian. The stored form is a full RRULE
-// because that is what expands correctly, but it is machinery: nobody reading
-// a list of chores should have to parse FREQ=WEEKLY;INTERVAL=2;BYDAY=SA.
-//
-// It reads the parts it knows and says so plainly; a rule built from parts it
-// does not know is called what it is rather than described wrongly. The raw
-// text still lives in the form, which is where a rule is meant to be edited.
-
-const DAY_SHORT = { SU: 'нд', MO: 'пн', TU: 'вт', WE: 'ср', TH: 'чт', FR: 'пт', SA: 'сб' }
-// The "every Tuesday" form reads better than "weekly, Tue" when there is only
-// one day, and Ukrainian builds it per weekday rather than from a suffix.
-const EVERY_DAY_OF_WEEK = {
-  SU: 'щонеділі', MO: 'щопонеділка', TU: 'щовівторка', WE: 'щосереди',
-  TH: 'щочетверга', FR: 'щоп\'ятниці', SA: 'щосуботи',
-}
-
-// plural picks the Ukrainian form: 1 день, 2 дні, 5 днів.
-function plural(n, forms) {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return forms[0]
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1]
-  return forms[2]
-}
-
-function parseRule(rrule) {
-  const parts = {}
-  for (const chunk of String(rrule || '').replace(/^RRULE:/, '').split(';')) {
-    const [k, v] = chunk.split('=')
-    if (k) parts[k.toUpperCase()] = (v || '').toUpperCase()
-  }
-  return parts
-}
-
-function describeRule(rrule) {
-  const p = parseRule(rrule)
-  const every = Number(p.INTERVAL || 1)
-  const days = p.BYDAY ? p.BYDAY.split(',').filter((d) => DAY_SHORT[d]) : []
-  // A positional day ("2SU" — the second Sunday) is a shape this does not
-  // describe; fall through rather than call it plain Sunday.
-  const positional = p.BYDAY && p.BYDAY.split(',').some((d) => /\d/.test(d))
-  const dayList = days.map((d) => DAY_SHORT[d]).join(', ')
-
-  if (p.FREQ === 'DAILY' && !p.BYDAY) {
-    if (every === 1) return 'щодня'
-    if (every === 2) return 'через день'
-    return `кожні ${every} ${plural(every, ['день', 'дні', 'днів'])}`
-  }
-
-  if (p.FREQ === 'WEEKLY' && !positional) {
-    if (every === 1) {
-      if (days.length === 1) return EVERY_DAY_OF_WEEK[days[0]]
-      if (days.length > 1) return `щотижня: ${dayList}`
-      return 'щотижня'
-    }
-    const base = every === 2
-      ? 'раз на 2 тижні'
-      : `кожні ${every} ${plural(every, ['тиждень', 'тижні', 'тижнів'])}`
-    return days.length > 0 ? `${base}, ${dayList}` : base
-  }
-
-  if (p.FREQ === 'MONTHLY' && !p.BYDAY) {
-    const day = p.BYMONTHDAY ? Number(p.BYMONTHDAY) : null
-    if (day === -1) return every === 1 ? 'останній день місяця' : `останній день кожні ${every} місяці`
-    const on = day ? `, ${day}-го` : ''
-    if (every === 1) return `щомісяця${on}`
-    if (every === 2) return `раз на 2 місяці${on}`
-    return `кожні ${every} ${plural(every, ['місяць', 'місяці', 'місяців'])}${on}`
-  }
-
-  if (p.FREQ === 'YEARLY' && !p.BYDAY && !p.BYMONTH) {
-    return every === 1 ? 'щороку' : `кожні ${every} ${plural(every, ['рік', 'роки', 'років'])}`
-  }
-
-  return 'за власним правилом'
-}
-
 // dayLabel names a date the way the appointments tab does, so the two lists
 // read as one app.
 function dayLabel(iso, today) {
@@ -227,7 +150,7 @@ export function ReminderList({ data, onOpen, onAdd, onMarked }) {
               <div>
                 <div class="course-name">${r.title}</div>
                 <div class="course-sub">
-                  ${describeRule(r.rule.rrule)} · ${r.rule.time}${r.person ? ` · ${r.person}` : ''}
+                  ${r.rule.text} · ${r.rule.time}${r.person ? ` · ${r.person}` : ''}
                 </div>
               </div>
               ${!r.active && html`<div class="course-state state-empty">пауза</div>`}

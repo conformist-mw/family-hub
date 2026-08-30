@@ -83,6 +83,14 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /payments/{id}", a.handlePaymentUpdate)
 	mux.HandleFunc("POST /payments/{id}/delete", a.handlePaymentDelete)
 
+	mux.HandleFunc("GET /reminders", a.handleReminders)
+	mux.HandleFunc("GET /reminders/new", a.handleReminderNew)
+	mux.HandleFunc("POST /reminders", a.handleReminderCreate)
+	mux.HandleFunc("GET /reminders/{id}/edit", a.handleReminderEdit)
+	mux.HandleFunc("POST /reminders/{id}", a.handleReminderUpdate)
+	mux.HandleFunc("POST /reminders/{id}/delete", a.handleReminderDelete)
+	mux.HandleFunc("POST /reminders/{id}/mark", a.handleReminderMark)
+
 	mux.HandleFunc("GET /stats", a.handleStats)
 
 	mux.HandleFunc("GET /trainers", a.handleTrainers)
@@ -154,6 +162,10 @@ type dashboardData struct {
 	Schedule     map[int64]string                // enrollment id → "Пн 18:00 · Чт 18:00"
 	Payments     []model.Payment                 // most recent, for the table under the cards
 	Appointments []model.Appointment             // next few, beside the payments table
+	// OpenChores came due today and nobody answered. Opening the app at midday
+	// used to say nothing about the cashback forgotten at 08:00, which is the
+	// one thing the dashboard is well placed to say.
+	OpenChores []reminders.Occurrence
 }
 
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -198,9 +210,26 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	// Today only, and only what came due: yesterday's unanswered chore is the
+	// chores page's business, and tonight's is not yet anybody's.
+	var openChores []reminders.Occurrence
+	if a.Reminders != nil {
+		now := time.Now()
+		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		due, err := a.Reminders.Upcoming(start, now)
+		if err != nil {
+			a.serverError(w, err)
+			return
+		}
+		for _, o := range due {
+			if o.Status == model.OccPending {
+				openChores = append(openChores, o)
+			}
+		}
+	}
 	a.render(w, "dashboard.html", "Баланс", "dashboard", dashboardData{
 		Balances: balances, Absences: absences, Schedule: schedule,
-		Payments: payments, Appointments: appointments,
+		Payments: payments, Appointments: appointments, OpenChores: openChores,
 	})
 }
 

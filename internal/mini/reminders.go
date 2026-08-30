@@ -42,8 +42,12 @@ type reminderJSON struct {
 }
 
 type ruleJSON struct {
-	ID        int64  `json:"id"`
-	RRule     string `json:"rrule"`
+	ID    int64  `json:"id"`
+	RRule string `json:"rrule"`
+	// Text is the rule in Ukrainian, rendered server-side so the web and the
+	// Mini App cannot disagree about what "раз на 2 тижні, сб" means. It used
+	// to be a second implementation in reminders.js.
+	Text      string `json:"text"`
 	Date      string `json:"date"` // dtstart split for the form
 	Time      string `json:"time"`
 	ValidFrom string `json:"validFrom"`
@@ -162,7 +166,7 @@ func (rt *Router) reminderJSON(rem model.Reminder, rules []model.ReminderRule) r
 	}
 	date, clock := splitLocalDatetime(current.DTStart)
 	out.Rule = ruleJSON{
-		ID: current.ID, RRule: current.RRule,
+		ID: current.ID, RRule: current.RRule, Text: reminders.Describe(current.RRule),
 		Date: date, Time: clock, ValidFrom: current.ValidFromAt,
 	}
 	return out

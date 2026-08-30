@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"familyhub/internal/model"
+	"familyhub/internal/reminders"
 )
 
 //go:embed templates/*.html
@@ -36,6 +37,43 @@ var funcs = template.FuncMap{
 	// one day.
 	"choreDueAt": func(t time.Time) string {
 		return t.Format(model.LocalDatetime)
+	},
+	// choreMark is the glyph the calendar and the bot already use, so the three
+	// surfaces read as one app.
+	"choreMark": func(o reminders.Occurrence) string {
+		switch o.Status {
+		case model.OccDone:
+			return "✓"
+		case model.OccSkipped:
+			return "✗"
+		}
+		if o.Due.After(time.Now()) {
+			return "·"
+		}
+		return "○"
+	},
+	// choreStatusLabel separates "you forgot" from "not yet", which is the
+	// difference between a record and a shaming wall.
+	"choreStatusLabel": func(o reminders.Occurrence) string {
+		switch o.Status {
+		case model.OccDone:
+			return "закрито"
+		case model.OccSkipped:
+			return "не треба було"
+		}
+		if o.Due.After(time.Now()) {
+			return "ще не настало"
+		}
+		return "не закрито"
+	},
+	"choreDate": func(t time.Time) string {
+		return t.Format("02.01.2006")
+	},
+	// choreOftenMissed flags a chore worth moving, dropping or handing to
+	// somebody else. Half of what came due, and more than a couple of times —
+	// a single miss is a bad week, not a habit.
+	"choreOftenMissed": func(t reminders.Tally) bool {
+		return t.Missed >= 3 && t.MissRate() >= 0.5
 	},
 	"weekday": func(w int) string {
 		if w < 0 || w > 6 {
@@ -178,6 +216,7 @@ func parseTemplates() map[string]*template.Template {
 		"payment_form.html",
 		"reminders.html",
 		"reminder_form.html",
+		"chore_history.html",
 		"enrollments.html",
 		"enrollment_form.html",
 		"stats.html",

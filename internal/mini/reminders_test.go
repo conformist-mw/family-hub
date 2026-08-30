@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -613,5 +615,174 @@ func TestClosingAMomentFromBeforeTheChoreExistedIsRefused(t *testing.T) {
 	})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("code = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// #55 on the phone. The client renders strings and never counts anything, so
+// the counts and the wording are pinned here.
+func TestTheHistoryOverviewRanksAndCounts(t *testing.T) {
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	// testNow is 2026-08-06 12:00 UTC. Two daily chores running since the 1st:
+	// one answered every morning, one never.
+	kept := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-08-01T08:00", "2026-08-01T00:00")
+	seedExistingChore(t, st, "Кешбек", "FREQ=DAILY", "2026-08-01T08:00", "2026-08-01T00:00")
+
+	svc := reminders.NewService(st, time.UTC, discardLogger(), func() time.Time { return testNow })
+	for d := 1; d <= 6; d++ {
+		due := time.Date(2026, 8, d, 8, 0, 0, 0, time.UTC)
+		if err := svc.Mark(kept, due, model.OccDone, "Оксана"); err != nil {
+			t.Fatalf("mark %d: %v", d, err)
+		}
+	}
+
+	rec := do(t, h, http.MethodGet, "/mini/api/reminders/history?range=30d", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Period    string `json:"period"`
+		Truncated bool   `json:"truncated"`
+		Chores    []struct {
+			Title       string `json:"title"`
+			Rule        string `json:"rule"`
+			OftenMissed bool   `json:"oftenMissed"`
+			Tally       struct {
+				Done, Skipped, Missed, Waiting int
+			} `json:"tally"`
+		} `json:"chores"`
+		Totals struct{ Done, Missed int } `json:"totals"`
+	}
+	decodeBody(t, rec, &out)
+
+	if len(out.Chores) != 2 {
+		t.Fatalf("got %d chores: %+v", len(out.Chores), out.Chores)
+	}
+	// Worst-kept first — the ordering is the point of the screen.
+	if out.Chores[0].Title != "Кешбек" {
+		t.Fatalf("first is %q, want the forgotten one", out.Chores[0].Title)
+	}
+	if !out.Chores[0].OftenMissed {
+		t.Error("six straight misses is not flagged as a habit")
+	}
+	if out.Chores[0].Tally.Missed != 6 || out.Chores[0].Tally.Done != 0 {
+		t.Errorf("forgotten chore tally = %+v", out.Chores[0].Tally)
+	}
+	if out.Chores[1].Tally.Done != 6 || out.Chores[1].OftenMissed {
+		t.Errorf("kept chore tally = %+v, flagged = %v",
+			out.Chores[1].Tally, out.Chores[1].OftenMissed)
+	}
+	// The rule arrives in words; the client has no renderer of its own.
+	if out.Chores[0].Rule != "щодня" {
+		t.Errorf("rule = %q, want it already in Ukrainian", out.Chores[0].Rule)
+	}
+	if out.Totals.Done != 6 || out.Totals.Missed != 6 {
+		t.Errorf("totals = %+v", out.Totals)
+	}
+}
+
+// The drill-down separates "you forgot" from "not yet", which is the
+// difference between a record and a shaming wall.
+func TestTheChoreLedgerNamesEachOutcome(t *testing.T) {
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	// Twice a day; at noon the 08:00 has passed and the 20:00 has not.
+	id := seedExistingChore(t, st, "Ліки", "FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0;BYSECOND=0",
+		"2026-08-06T08:00", "2026-08-06T00:00")
+
+	rec := do(t, h, http.MethodGet,
+		"/mini/api/reminders/"+strconv.FormatInt(id, 10)+"/history?range=30d", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Title       string `json:"title"`
+		Rule        string `json:"rule"`
+		Occurrences []struct {
+			When, Mark, Status, Label string
+		} `json:"occurrences"`
+		Tally struct{ Missed, Waiting int } `json:"tally"`
+	}
+	decodeBody(t, rec, &out)
+
+	if out.Title != "Ліки" {
+		t.Fatalf("title = %q", out.Title)
+	}
+	var missed, waiting bool
+	for _, o := range out.Occurrences {
+		switch o.Status {
+		case "missed":
+			missed = true
+			if o.Label != "не закрито" || o.Mark != "○" {
+				t.Errorf("missed row = %+v", o)
+			}
+		case "waiting":
+			waiting = true
+			if o.Label != "ще не настало" || o.Mark != "·" {
+				t.Errorf("waiting row = %+v", o)
+			}
+		}
+	}
+	if !missed {
+		t.Error("this morning's unanswered chore is not marked as missed")
+	}
+	if !waiting {
+		t.Error("tonight's is missing, or counted as forgotten")
+	}
+	if out.Tally.Missed != 1 || out.Tally.Waiting != 1 {
+		t.Errorf("tally = %+v", out.Tally)
+	}
+}
+
+// A rule that moved underneath the numbers is explained, or a period with
+// legitimately fewer rows reads as data loss.
+func TestTheLedgerExplainsARuleChange(t *testing.T) {
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	id := seedExistingChore(t, st, "Кешбек", "FREQ=WEEKLY", "2026-08-01T08:00", "2026-08-01T00:00")
+
+	svc := reminders.NewService(st, time.UTC, discardLogger(), func() time.Time { return testNow })
+	if _, err := svc.AddRule(id, "FREQ=DAILY",
+		time.Date(2026, 8, 4, 8, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("AddRule: %v", err)
+	}
+
+	rec := do(t, h, http.MethodGet,
+		"/mini/api/reminders/"+strconv.FormatInt(id, 10)+"/history?range=30d", nil)
+	var out struct {
+		RuleChanges []string `json:"ruleChanges"`
+	}
+	decodeBody(t, rec, &out)
+	if len(out.RuleChanges) != 1 {
+		t.Fatalf("got %d rule changes: %v", len(out.RuleChanges), out.RuleChanges)
+	}
+	if !strings.Contains(out.RuleChanges[0], "щодня") {
+		t.Errorf("the change does not say the new rule: %q", out.RuleChanges[0])
+	}
+}
+
+// A period reaching past the backfill floor has to admit the record is short.
+func TestTheHistorySaysWhenTheRecordIsShort(t *testing.T) {
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	seedExistingChore(t, st, "Кешбек", "FREQ=DAILY", "2026-08-01T08:00", "2026-08-01T00:00")
+
+	// The previous month reaches well past the 30-day floor from testNow.
+	rec := do(t, h, http.MethodGet, "/mini/api/reminders/history?range=prev", nil)
+	var out struct {
+		Truncated bool   `json:"truncated"`
+		Floor     string `json:"floor"`
+		Period    string `json:"period"`
+	}
+	decodeBody(t, rec, &out)
+	if !out.Truncated {
+		t.Error("a period before the floor was not reported as truncated")
+	}
+	if out.Floor == "" {
+		t.Error("the floor date is not stated")
+	}
+	if out.Period == "" {
+		t.Error("the period has no label")
 	}
 }

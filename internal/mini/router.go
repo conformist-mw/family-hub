@@ -180,6 +180,11 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		mux.HandleFunc("POST /mini/api/reminders/{id}/rules", rt.handleRuleCreate)
 		mux.HandleFunc("PUT /mini/api/reminders/{id}/rules/{ruleId}", rt.handleRuleAmend)
 		mux.HandleFunc("POST /mini/api/reminders/{id}/occurrences", rt.handleOccurrenceMark)
+		// Registered before the {id} pattern would otherwise claim "history".
+		// ServeMux prefers the more specific pattern regardless, but keeping
+		// them adjacent is what stops a later edit from separating them.
+		mux.HandleFunc("GET /mini/api/reminders/history", rt.handleChoreHistory)
+		mux.HandleFunc("GET /mini/api/reminders/{id}/history", rt.handleOneChoreHistory)
 	}
 	return mux, nil
 }

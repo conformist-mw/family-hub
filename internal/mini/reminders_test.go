@@ -86,6 +86,17 @@ func seedExistingChore(t *testing.T, st *store.Store, title, rrule, dtstart, sin
 	if err != nil {
 		t.Fatalf("seed %q: %v", title, err)
 	}
+	// The rows the chore has already accumulated. In production the
+	// materialiser writes them as each moment comes due, and backfills the
+	// rest at boot; a read repairs only the last two ticks, deliberately —
+	// /calendar.ics is public, and a 30-day pass per GET is a write
+	// amplifier. So a chore that has "been running for a while" is one the
+	// ticker has passed over, and the seed has to say so rather than lean on
+	// a read to invent its past.
+	svc := reminders.NewService(st, time.UTC, discardLogger(), func() time.Time { return testNow })
+	if err := svc.Materialise(testNow); err != nil {
+		t.Fatalf("seed %q: materialise: %v", title, err)
+	}
 	return r.ID
 }
 

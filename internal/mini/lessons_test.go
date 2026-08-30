@@ -26,7 +26,8 @@ func seedCourse(t *testing.T, st *store.Store) int64 {
 	if err != nil {
 		t.Fatalf("seed enrollment: %v", err)
 	}
-	if err := st.CreateSlot(id, 2, "13:35", 60); err != nil {
+	// A schedule that predates the window under test, the way a real course does.
+	if err := st.CreateSlot(id, 2, "13:35", 60, "2000-01-01T00:00"); err != nil {
 		t.Fatalf("seed slot: %v", err)
 	}
 	return id

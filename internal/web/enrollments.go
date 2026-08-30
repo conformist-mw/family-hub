@@ -274,7 +274,7 @@ func (a *App) handleSlotCreate(w http.ResponseWriter, r *http.Request) {
 		Time:     r.FormValue("time"),
 		Duration: r.FormValue("duration_min"),
 	}
-	if err := schedule.NewService(a.Store).Add(id, form); err != nil {
+	if err := schedule.NewService(a.Store, nil, nil).Add(id, form); err != nil {
 		var invalid valid.FieldError
 		if errors.As(err, &invalid) {
 			// This page has no slot-level error slot; the value is rejected

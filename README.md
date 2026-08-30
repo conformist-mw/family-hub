@@ -49,8 +49,16 @@ being open.
   `description` to tell look-alikes apart (two "Gymnastics" with different
   trainers), `billing_type` (`per_lesson` | `monthly`), current price and a
   low-balance threshold. Identity is the row id, never the name.
-- **regular_slots** — the weekly schedule of a course; drives reminders and the
-  recurring ICS events.
+- **regular_slots** and **slot_versions** — the weekly schedule of a course,
+  split the same way reminders are: the slot says that this course has a weekly
+  lesson at all, and a *list* of versions says when it happened and from when.
+  Editing one row in place rewrote the past, so moving Логопед to Thursday
+  claimed it had always been Thursday; a window is now expanded with the
+  version that was in force over it. Every surface except the calendar sees
+  only the version in force today. Expanded in Go rather than sent to the
+  calendar as an RRULE: a recurrence from a UTC start is computed in UTC, so
+  its instances are 168h apart instead of at the same wall-clock time, and
+  every lesson drifted an hour at each clock change.
 - **visits** — one attendance event: date plus status
   (`done` / `rescheduled` / `cancelled` / `skipped`).
 - **payments** — money in: either N prepaid lessons, or a date range for a

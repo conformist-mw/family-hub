@@ -87,9 +87,10 @@ func (s *Store) AuditData(enrollmentID int64, from, to string) (AuditData, error
 	}
 
 	srows, err := s.db.Query(`
-		SELECT id, enrollment_id, weekday, time, duration_min, active
-		FROM regular_slots WHERE enrollment_id = ? AND active = 1
-		ORDER BY weekday, time`, enrollmentID)
+		SELECT s.id, s.enrollment_id, v.weekday, v.time, v.duration_min, s.active
+		FROM regular_slots s`+currentVersion+`
+		WHERE s.enrollment_id = ? AND s.active = 1
+		ORDER BY v.weekday, v.time`, enrollmentID)
 	if err != nil {
 		return d, err
 	}

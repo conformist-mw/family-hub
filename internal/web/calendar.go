@@ -8,12 +8,19 @@ import (
 	"familyhub/internal/ics"
 	"familyhub/internal/model"
 	"familyhub/internal/reminders"
+	"familyhub/internal/schedule"
 )
 
 // choreHorizon is how far ahead recurring chores are projected into the feed.
 // Far enough that the morning summary can look a season out, short enough that
 // a daily chore does not turn the calendar into a wall.
 const choreHorizon = 90 * 24 * time.Hour
+
+// lessonHorizon is how far ahead the weekly schedule is expanded. Lessons used
+// to go out as an endless RRULE, so this is a new limit: the feed now stops
+// somewhere. A season is past any schedule this family plans, and HA re-polls
+// far more often than it, so the window keeps sliding forward.
+const lessonHorizon = 90 * 24 * time.Hour
 
 // handleCalendarICS serves the lesson schedule, trainer absences, one-off
 // appointments and recurring chores as one ICS feed for HA's Remote Calendar.
@@ -24,13 +31,23 @@ func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	slots, err := a.Store.AllActiveSlots()
+	histories, err := a.Store.SlotHistories()
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
 	now := time.Now()
 	absences, err := a.Store.UpcomingAbsences(now.Format("2006-01-02"))
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	// Lessons are expanded here rather than handed over as a rule, so that a
+	// weekly slot keeps its wall-clock time across a clock change, and through
+	// each slot's version history, so a window shows the schedule that was in
+	// force over it. Forward only: the schedule says what is expected, and what
+	// actually happened is the visits journal's answer, not the calendar's.
+	lessons, err := schedule.Expand(histories, absences, time.Local, now, now.Add(lessonHorizon))
 	if err != nil {
 		a.serverError(w, err)
 		return
@@ -59,5 +76,5 @@ func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Write(ics.Render(slots, absences, appointments, chores, time.Local, now))
+	w.Write(ics.Render(lessons, absences, appointments, chores, time.Local, now))
 }

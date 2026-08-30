@@ -158,6 +158,10 @@ type TrainerAbsence struct {
 	Comment   string
 }
 
+// Slot is a course's weekly slot as it stands right now: the identity row plus
+// whichever version is in force today, which is what every surface except the
+// calendar feed wants. The feed reads SlotVersion directly, because rendering
+// last September correctly means using last September's schedule.
 type Slot struct {
 	ID           int64
 	EnrollmentID int64
@@ -165,6 +169,27 @@ type Slot struct {
 	Time         string
 	DurationMin  int
 	Active       bool
+}
+
+// SlotVersion is when a weekly slot happened, and from when. Slots are
+// versioned for the same reason reminder rules are: editing one row in place
+// rewrites the past, so "what was the schedule in September" would answer with
+// today's timetable.
+//
+// ValidFromAt is inclusive, and a datetime rather than a date on purpose — a
+// change made at 10:00 must not claim this morning's 08:00 lesson.
+type SlotVersion struct {
+	ID          int64
+	SlotID      int64
+	ValidFromAt string // LocalDatetime
+	Weekday     int
+	Time        string
+	DurationMin int
+}
+
+// Starts parses ValidFromAt in loc.
+func (v SlotVersion) Starts(loc *time.Location) (time.Time, error) {
+	return time.ParseInLocation(LocalDatetime, v.ValidFromAt, loc)
 }
 
 type Visit struct {

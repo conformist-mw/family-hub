@@ -110,6 +110,7 @@ type listResponse struct {
 		Rule        struct {
 			ID    int64  `json:"id"`
 			RRule string `json:"rrule"`
+			Text  string `json:"text"`
 			Date  string `json:"date"`
 			Time  string `json:"time"`
 		} `json:"rule"`
@@ -149,6 +150,11 @@ func TestCreatingAChoreAndReadingItBack(t *testing.T) {
 	}
 	if r.Rule.RRule != "FREQ=MONTHLY;BYMONTHDAY=1" || r.Rule.Date != "2026-08-01" || r.Rule.Time != "08:00" {
 		t.Fatalf("rule = %+v", r.Rule)
+	}
+	// The screen prints this rather than parsing the rrule itself; the Go
+	// renderer is the only implementation now, and the web reads the same one.
+	if r.Rule.Text != "щомісяця, 1-го" {
+		t.Fatalf("rule text = %q", r.Rule.Text)
 	}
 }
 

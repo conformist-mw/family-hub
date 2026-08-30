@@ -1,0 +1,104 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{if $d.IsEdit}}Справа{{else}}Нова справа{{end}}</h1>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post" action="{{if $d.IsEdit}}/reminders/{{$d.Reminder.ID}}{{else}}/reminders{{end}}">
+  <label>
+    Назва
+    <input type="text" name="title" value="{{$d.Reminder.Title}}" placeholder="Кешбек" required autofocus>
+  </label>
+
+  <label>
+    Хто
+    <input type="text" name="person" value="{{$d.Reminder.Person}}" placeholder="необов’язково">
+  </label>
+
+  <label>
+    Правило повторення
+    <input type="text" name="rrule" id="chore-rrule" value="{{$d.RRule}}"
+           placeholder="FREQ=WEEKLY;INTERVAL=2;BYDAY=SA" required>
+    <div class="date-quick">
+      {{range $d.Presets}}<button type="button" data-rrule="{{.RRule}}">{{.Label}}</button>{{end}}
+    </div>
+    {{if $d.RuleText}}<span class="muted">зараз: {{$d.RuleText}}</span>{{end}}
+  </label>
+
+  <div class="field-row">
+    <label>
+      Починаючи з
+      <input type="date" name="date" value="{{$d.Date}}" required>
+    </label>
+    <label>
+      О котрій
+      <input type="time" name="time" value="{{$d.Time}}" required>
+    </label>
+  </div>
+
+  {{if $d.Preview}}
+  <p class="muted">Найближчі: {{range $i, $t := $d.Preview}}{{if $i}} · {{end}}{{$t}}{{end}}</p>
+  {{end}}
+
+  <label>
+    Скільки триває, хв
+    <input type="number" name="durationMin" value="{{$d.Reminder.DurationMin}}" min="1" step="5">
+  </label>
+
+  <label>
+    Нотатка
+    <input type="text" name="note" value="{{$d.Reminder.Note}}" placeholder="необов’язково">
+  </label>
+
+  <label class="checkbox">
+    <input type="checkbox" name="active" value="1" {{if $d.Reminder.Active}}checked{{end}}>
+    Активна
+  </label>
+
+  {{if $d.IsEdit}}
+  <input type="hidden" name="ruleId" value="{{$d.RuleID}}">
+  {{/*
+    The two options mean opposite things about the past, so the person has to
+    say which. Відсьогодні leaves what was already recorded alone; Виправити
+    rewrites it, which is right only when the old rule was wrong rather than
+    merely old. The Mini App asks the same question.
+  */}}
+  <fieldset class="stack" style="border:1px solid var(--line);border-radius:8px;padding:12px">
+    <legend class="muted">Якщо правило змінилось</legend>
+    <label class="checkbox">
+      <input type="radio" name="ruleChange" value="new" checked>
+      Відсьогодні <span class="muted">— що було записано раніше, лишається як було</span>
+    </label>
+    <label class="checkbox">
+      <input type="radio" name="ruleChange" value="amend">
+      Виправити запис <span class="muted">— правило було вписане з помилкою, і так було завжди</span>
+    </label>
+  </fieldset>
+  {{end}}
+
+  <div class="actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/reminders">Скасувати</a>
+  </div>
+</form>
+
+{{if $d.IsEdit}}
+<form method="post" action="/reminders/{{$d.Reminder.ID}}/delete" class="danger-zone"
+      onsubmit="return confirm('Видалити справу? Історія того, що вже настало, лишиться.')">
+  <button class="btn danger" type="submit">Видалити</button>
+</form>
+{{end}}
+
+<script>
+  // The presets fill the field rather than replacing it: the raw rule stays
+  // editable, because an odd schedule is a typing job here, not a missing
+  // feature.
+  document.querySelectorAll('[data-rrule]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.getElementById('chore-rrule').value = b.dataset.rrule
+    })
+  })
+</script>
+{{end}}

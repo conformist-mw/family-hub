@@ -64,6 +64,43 @@
   </section>
   {{end}}
 
+  {{/*
+    Only what came due today and is still open. It sits above the upcoming
+    records because it is the one thing here that is already late.
+  */}}
+  {{if $d.OpenChores}}
+  <section class="dash-payments">
+    <div class="dash-payments-head">
+      <h2>Сьогодні не закрито</h2>
+      <a href="/reminders">всі →</a>
+    </div>
+    <table class="dash-table">
+      <tbody>
+        {{range $d.OpenChores}}
+        <tr>
+          <td class="dash-date">{{choreWhen .Due}}</td>
+          <td>{{.Title}}{{if .Person}} <span class="muted">· {{.Person}}</span>{{end}}</td>
+          <td class="dash-what">
+            <form method="post" action="/reminders/{{.ReminderID}}/mark" style="display:inline">
+              <input type="hidden" name="dueAt" value="{{choreDueAt .Due}}">
+              <input type="hidden" name="status" value="done">
+              <input type="hidden" name="back" value="/">
+              <button class="btn small primary" type="submit" title="зроблено">✓</button>
+            </form>
+            <form method="post" action="/reminders/{{.ReminderID}}/mark" style="display:inline">
+              <input type="hidden" name="dueAt" value="{{choreDueAt .Due}}">
+              <input type="hidden" name="status" value="skipped">
+              <input type="hidden" name="back" value="/">
+              <button class="btn small" type="submit" title="цього разу не треба">✗</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  {{end}}
+
   <section class="dash-payments">
     <div class="dash-payments-head">
       <h2>Найближчі записи</h2>

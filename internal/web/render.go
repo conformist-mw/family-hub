@@ -26,6 +26,17 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%.2f ₴", v)
 	},
+	// choreWhen dates an occurrence the way the chore lists read it: the day
+	// and the time, without a year nobody needs on a 30-day window.
+	"choreWhen": func(t time.Time) string {
+		return t.Format("02.01, 15:04")
+	},
+	// choreDueAt is the instant as the Mark form posts it back — the identity
+	// of an occurrence is the whole datetime, because a rule can put two on
+	// one day.
+	"choreDueAt": func(t time.Time) string {
+		return t.Format(model.LocalDatetime)
+	},
 	"weekday": func(w int) string {
 		if w < 0 || w > 6 {
 			return "?"
@@ -165,6 +176,8 @@ func parseTemplates() map[string]*template.Template {
 		"appointment_form.html",
 		"payments.html",
 		"payment_form.html",
+		"reminders.html",
+		"reminder_form.html",
 		"enrollments.html",
 		"enrollment_form.html",
 		"stats.html",

@@ -1,0 +1,81 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Справи</h1>
+  <a class="btn primary" href="/reminders/new">+ Справа</a>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+{{/* Open first: the page answers "що я забув" before it answers "які в мене справи". */}}
+<section class="slots" style="margin-bottom:22px">
+  <h2>Не закрито</h2>
+  {{if $d.Open}}
+  <ul class="slot-list">
+    {{range $d.Open}}
+    <li>
+      <span>
+        <strong>{{.Title}}</strong>
+        <span class="muted">· {{choreWhen .Due}}{{if .Person}} · {{.Person}}{{end}}</span>
+      </span>
+      <span class="chore-actions">
+        <form method="post" action="/reminders/{{.ReminderID}}/mark">
+          <input type="hidden" name="dueAt" value="{{choreDueAt .Due}}">
+          <input type="hidden" name="status" value="done">
+          <button class="btn small primary" type="submit" title="зроблено">✓</button>
+        </form>
+        <form method="post" action="/reminders/{{.ReminderID}}/mark">
+          <input type="hidden" name="dueAt" value="{{choreDueAt .Due}}">
+          <input type="hidden" name="status" value="skipped">
+          <button class="btn small" type="submit" title="цього разу не треба">✗</button>
+        </form>
+      </span>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">Нічого не висить — усе закрито.</p>
+  {{end}}
+</section>
+
+<h2>Що повторюється</h2>
+<table>
+  <thead>
+    <tr><th>Що</th><th>Коли</th><th>Хто</th><th>Стан</th><th>Нотатка</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range $d.Reminders}}
+    <tr {{if not .Reminder.Active}}class="appt-past"{{end}}>
+      <td data-label="Що">{{.Reminder.Title}}</td>
+      <td data-label="Коли">{{.RuleText}}{{if .Time}} <span class="muted">· {{.Time}}</span>{{end}}</td>
+      <td data-label="Хто">{{.Reminder.Person}}</td>
+      <td data-label="Стан">
+        {{if .Reminder.Active}}<span class="status-pill status-planned">активна</span>
+        {{else}}<span class="status-pill status-cancelled">на паузі</span>{{end}}
+      </td>
+      <td data-label="Нотатка">{{.Reminder.Note}}</td>
+      <td data-label=""><a class="btn small" href="/reminders/{{.Reminder.ID}}/edit">✎</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">Справ ще немає.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+
+{{if $d.Recent}}
+<h2 style="margin-top:26px">Нещодавно</h2>
+<ul class="slot-list" style="opacity:.75">
+  {{range $d.Recent}}
+  <li>
+    <span>
+      {{if eq .Status "done"}}✓{{else}}✗{{end}} {{.Title}}
+      <span class="muted">· {{choreWhen .Due}}{{if .DoneBy}} · {{.DoneBy}}{{end}}</span>
+    </span>
+  </li>
+  {{end}}
+</ul>
+<p class="muted" style="margin-top:8px">
+  Показано за останні 30 днів — далі рядків просто немає.
+</p>
+{{end}}
+{{end}}

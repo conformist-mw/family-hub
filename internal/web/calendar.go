@@ -31,7 +31,7 @@ func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	slots, err := a.Store.AllActiveSlots()
+	histories, err := a.Store.SlotHistories()
 	if err != nil {
 		a.serverError(w, err)
 		return
@@ -43,10 +43,11 @@ func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Lessons are expanded here rather than handed over as a rule, so that a
-	// weekly slot keeps its wall-clock time across a clock change. Forward
-	// only: the schedule says what is expected, and what actually happened is
-	// the visits journal's answer, not the calendar's.
-	lessons, err := schedule.Expand(slots, absences, time.Local, now, now.Add(lessonHorizon))
+	// weekly slot keeps its wall-clock time across a clock change, and through
+	// each slot's version history, so a window shows the schedule that was in
+	// force over it. Forward only: the schedule says what is expected, and what
+	// actually happened is the visits journal's answer, not the calendar's.
+	lessons, err := schedule.Expand(histories, absences, time.Local, now, now.Add(lessonHorizon))
 	if err != nil {
 		a.serverError(w, err)
 		return

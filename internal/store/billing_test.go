@@ -84,7 +84,7 @@ func TestExceptionsOnlyCoursesAreNotRemindedAboutLessons(t *testing.T) {
 		AttendanceMode: model.AttendanceExceptionsOnly,
 	})
 	for _, id := range []int64{marked, silent} {
-		if err := st.CreateSlot(id, 1, "09:00", 60); err != nil {
+		if err := st.CreateSlot(id, 1, "09:00", 60, "2000-01-01T00:00"); err != nil {
 			t.Fatalf("create slot: %v", err)
 		}
 	}

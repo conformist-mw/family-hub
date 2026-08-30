@@ -79,34 +79,73 @@ func FormOf(s model.Slot) Form {
 	}
 }
 
-// Service performs the slot writes both surfaces share.
+// Service performs the slot writes both surfaces share. now is injectable
+// because every write here stamps the moment a schedule started applying, and
+// that is the thing worth pinning in a test.
 type Service struct {
 	store *store.Store
+	loc   *time.Location
+	now   func() time.Time
 }
 
-func NewService(st *store.Store) *Service { return &Service{store: st} }
+// NewService wires the slot writes. loc may be nil (time.Local); now may be
+// nil (time.Now).
+func NewService(st *store.Store, loc *time.Location, now func() time.Time) *Service {
+	if loc == nil {
+		loc = time.Local
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return &Service{store: st, loc: loc, now: func() time.Time { return now().In(loc) }}
+}
 
+// List returns the slots as they stand today — what the editor shows.
 func (s *Service) List(enrollmentID int64) ([]model.Slot, error) {
 	return s.store.ListSlots(enrollmentID)
 }
 
+// Versions returns one slot's history, oldest first.
+func (s *Service) Versions(slotID int64) ([]model.SlotVersion, error) {
+	return s.store.VersionsFor(slotID)
+}
+
+// Add creates a slot whose schedule applies from now. Not from the beginning
+// of time: a course entered in October did not silently happen all September,
+// and the forecast would bill it if it had.
 func (s *Service) Add(enrollmentID int64, f Form) error {
 	slot, err := f.Parse()
 	if err != nil {
 		return err
 	}
-	return s.store.CreateSlot(enrollmentID, slot.Weekday, slot.Time, slot.DurationMin)
+	return s.store.CreateSlot(enrollmentID, slot.Weekday, slot.Time, slot.DurationMin,
+		s.now().Format(model.LocalDatetime))
 }
 
-// Update moves an existing slot. This is the operation the app was missing:
-// without it, "Логопед is now Tuesday and Thursday at 13:35" meant adding two
-// slots and deleting two others by hand.
+// Update moves a slot from now onwards, leaving the recorded past alone. This
+// is what Save means on both surfaces: "Логопед is Thursday now", not
+// "Логопед was always Thursday".
+//
+// Correcting a mistyped schedule is Amend, which is a different sentence and
+// deliberately not the default — the common edit is a real change, and making
+// it rewrite history is how the app got here.
 func (s *Service) Update(slotID int64, f Form) error {
 	slot, err := f.Parse()
 	if err != nil {
 		return err
 	}
-	return s.store.UpdateSlot(slotID, slot.Weekday, slot.Time, slot.DurationMin)
+	return s.store.AddSlotVersion(slotID, s.now().Format(model.LocalDatetime),
+		slot.Weekday, slot.Time, slot.DurationMin)
+}
+
+// Amend corrects a version in place, for a schedule that was entered wrong
+// rather than one that changed. It rewrites the past on purpose.
+func (s *Service) Amend(versionID int64, f Form) error {
+	slot, err := f.Parse()
+	if err != nil {
+		return err
+	}
+	return s.store.AmendSlotVersion(versionID, slot.Weekday, slot.Time, slot.DurationMin)
 }
 
 func (s *Service) Delete(slotID int64) error {

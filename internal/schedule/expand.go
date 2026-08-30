@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"familyhub/internal/model"
@@ -15,7 +16,10 @@ var byDay = [7]string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
 // Lesson is one concrete occurrence of a weekly slot — a real datetime, not a
 // rule. Start is in the zone it was expanded in.
 type Lesson struct {
-	SlotID      int64
+	SlotID int64
+	// VersionID records which version of the schedule produced this lesson, so
+	// a rendered window can explain itself later.
+	VersionID   int64
 	Enrollment  model.Enrollment
 	Start       time.Time
 	DurationMin int
@@ -44,7 +48,11 @@ func (l Lesson) End() time.Time {
 // machinery this replaces had to compute its exclusions as fixed 168h offsets
 // to match what the RRULE really produced — carefully punching correct holes
 // in a schedule that showed the wrong hour.
-func Expand(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence,
+//
+// Each slot is expanded through its own version history, so a window is
+// rendered with the schedule that was in force over it rather than with
+// today's. See expandVersioned.
+func Expand(histories []store.SlotHistory, absences []model.TrainerAbsence,
 	loc *time.Location, from, to time.Time) ([]Lesson, error) {
 	if to.Before(from) {
 		return nil, nil
@@ -56,32 +64,87 @@ func Expand(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence,
 
 	from, to = from.In(loc), to.In(loc)
 	var out []Lesson
-	for _, s := range slots {
-		if s.Slot.Weekday < 0 || s.Slot.Weekday > 6 {
-			continue // a row the schema should have refused; skip it, don't guess
+	for _, h := range histories {
+		var absent []model.TrainerAbsence
+		if h.Enrollment.TrainerID != nil {
+			absent = byTrainer[*h.Enrollment.TrainerID]
 		}
-		anchor, err := firstOn(from, loc, s.Slot.Weekday, s.Slot.Time)
+		lessons, err := expandVersioned(h, absent, loc, from, to)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, lessons...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Start.Equal(out[j].Start) {
+			return out[i].SlotID < out[j].SlotID
+		}
+		return out[i].Start.Before(out[j].Start)
+	})
+	return out, nil
+}
+
+// expandVersioned expands one slot over the window, using for each stretch of
+// it whichever version was in force then.
+//
+// This is what keeps the past honest, and it is the same cut internal/reminders
+// makes over rule versions. Without it, moving Логопед from Tuesday to Thursday
+// would retroactively claim it had always been Thursday, and the calendar for
+// last September would quietly disagree with the visits recorded against it.
+//
+// Versions must be ordered oldest first; store.SlotHistories guarantees it.
+func expandVersioned(h store.SlotHistory, absent []model.TrainerAbsence,
+	loc *time.Location, from, to time.Time) ([]Lesson, error) {
+	var out []Lesson
+	for i, v := range h.Versions {
+		if v.Weekday < 0 || v.Weekday > 6 {
+			continue // a row the schema should have refused
+		}
+		// This version governs [validFrom, nextValidFrom), intersected with the
+		// caller's window. The last version has no successor and runs on.
+		validFrom, err := v.Starts(loc)
+		if err != nil {
+			return nil, fmt.Errorf("schedule: slot version %d valid_from_at: %w", v.ID, err)
+		}
+		segFrom := from
+		if validFrom.After(segFrom) {
+			segFrom = validFrom
+		}
+		segTo := to
+		if i+1 < len(h.Versions) {
+			nextFrom, err := h.Versions[i+1].Starts(loc)
+			if err != nil {
+				return nil, fmt.Errorf("schedule: slot version %d valid_from_at: %w",
+					h.Versions[i+1].ID, err)
+			}
+			// Exclusive upper bound: a lesson landing exactly on the next
+			// version's starting instant belongs to that version.
+			if end := nextFrom.Add(-time.Nanosecond); end.Before(segTo) {
+				segTo = end
+			}
+		}
+		if segTo.Before(segFrom) {
+			continue // this version does not overlap the window at all
+		}
+
+		anchor, err := firstOn(segFrom, loc, v.Weekday, v.Time)
 		if err != nil {
 			continue // an unparseable time cannot produce a lesson
 		}
-		times, err := recur.Expand(anchor, "FREQ=WEEKLY;BYDAY="+byDay[s.Slot.Weekday], from, to)
+		times, err := recur.Expand(anchor, "FREQ=WEEKLY;BYDAY="+byDay[v.Weekday], segFrom, segTo)
 		if err != nil {
-			return nil, fmt.Errorf("schedule: slot %d: %w", s.Slot.ID, err)
+			return nil, fmt.Errorf("schedule: slot %d version %d: %w", h.SlotID, v.ID, err)
 		}
-		dur := s.Slot.DurationMin
+		dur := v.DurationMin
 		if dur <= 0 {
 			dur = DefaultDurationMin
-		}
-		var absent []model.TrainerAbsence
-		if s.Enrollment.TrainerID != nil {
-			absent = byTrainer[*s.Enrollment.TrainerID]
 		}
 		for _, t := range times {
 			if absentOn(absent, t.Format("2006-01-02")) {
 				continue
 			}
 			out = append(out, Lesson{
-				SlotID: s.Slot.ID, Enrollment: s.Enrollment,
+				SlotID: h.SlotID, VersionID: v.ID, Enrollment: h.Enrollment,
 				Start: t, DurationMin: dur,
 			})
 		}

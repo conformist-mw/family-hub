@@ -85,6 +85,8 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 
 	mux.HandleFunc("GET /reminders", a.handleReminders)
 	mux.HandleFunc("GET /reminders/new", a.handleReminderNew)
+	mux.HandleFunc("GET /reminders/history", a.handleReminderHistory)
+	mux.HandleFunc("GET /reminders/{id}/history", a.handleChoreHistory)
 	mux.HandleFunc("POST /reminders", a.handleReminderCreate)
 	mux.HandleFunc("GET /reminders/{id}/edit", a.handleReminderEdit)
 	mux.HandleFunc("POST /reminders/{id}", a.handleReminderUpdate)

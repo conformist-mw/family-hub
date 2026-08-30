@@ -9,6 +9,7 @@ import { PaymentForm } from '/mini/assets/payments.js'
 import { Audit } from '/mini/assets/audit.js'
 import { Home } from '/mini/assets/home.js'
 import { ReminderList, ReminderForm } from '/mini/assets/reminders.js'
+import { ChoreHistory, OneChoreHistory } from '/mini/assets/history.js'
 
 // Tabs are the top-level navigation; a form is a nested screen inside whichever
 // tab opened it, so Telegram's own back button leaves the form rather than the
@@ -194,6 +195,16 @@ function App() {
     return html`<${Audit} course=${screen.course} onClose=${pop} />`
   }
 
+  if (screen && screen.name === 'choreHistory') {
+    return html`
+      <${ChoreHistory}
+        onOpen=${(chore) => push({ name: 'oneChoreHistory', chore })} />`
+  }
+
+  if (screen && screen.name === 'oneChoreHistory') {
+    return html`<${OneChoreHistory} chore=${screen.chore} onClose=${pop} />`
+  }
+
   let body
   if (tab === 'home') {
     if (home.phase === 'loading') body = html`<${Loading} />`
@@ -226,6 +237,7 @@ function App() {
           data=${reminders.data}
           onOpen=${(item) => push({ name: 'reminderForm', item })}
           onAdd=${() => push({ name: 'reminderForm', item: null })}
+          onHistory=${() => push({ name: 'choreHistory' })}
           onMarked=${loadReminders} />`
   } else {
     if (courses.phase === 'loading') body = html`<${Loading} />`

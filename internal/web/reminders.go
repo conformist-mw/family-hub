@@ -444,3 +444,108 @@ func parseLocalDatetime(date, clock string) (time.Time, error) {
 	return time.ParseInLocation(model.LocalDatetime,
 		strings.TrimSpace(date)+"T"+strings.TrimSpace(clock), time.Local)
 }
+
+// The record of what actually got done.
+//
+// The chores page answers "what is open now"; this one answers "how is this
+// chore going", which is a different question and the reason occurrences are
+// stored rather than recomputed. It is modelled on the per-course
+// reconciliation: a period, a ledger, and the caveats stated on the screen
+// rather than left for the reader to work out.
+
+type historyData struct {
+	History     reminders.History
+	Chore       *reminders.ChoreHistory // set on the drill-down only
+	Range       string
+	From, To    string
+	PeriodLabel string
+	FloorDate   string
+	Error       string
+}
+
+// historyRanges are the periods worth a click. 30 days is the default because
+// it is what the record actually holds — offering a year first would promise
+// depth the rows do not have.
+var historyRanges = []struct{ Code, Label string }{
+	{"30d", "30 днів"},
+	{"month", "цей місяць"},
+	{"prev", "минулий місяць"},
+}
+
+// resolveHistoryPeriod turns the query string into bounds. An unparseable
+// custom range falls back to the default with a message rather than a blank
+// screen — the same choice the audit page makes.
+func resolveHistoryPeriod(r *http.Request, now time.Time) (from, to time.Time, code, label, errMsg string) {
+	code = r.URL.Query().Get("range")
+	dayStart := func(t time.Time) time.Time {
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+	}
+	// Periods run to the end of today, not to this instant: a chore due at
+	// 20:00 belongs on today's ledger as "ще не настало". Cutting at now would
+	// hide it, and the difference between "not yet" and "you forgot" is the
+	// thing this screen has to get right.
+	endOfToday := dayStart(now).AddDate(0, 0, 1).Add(-time.Minute)
+	switch code {
+	case "month":
+		from = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+		return from, endOfToday, code, model.MonthsShort[int(now.Month())] + " " + strconv.Itoa(now.Year()), ""
+	case "prev":
+		first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+		from = first.AddDate(0, -1, 0)
+		return from, first.Add(-time.Minute), code,
+			model.MonthsShort[int(from.Month())] + " " + strconv.Itoa(from.Year()), ""
+	case "custom":
+		f, err1 := model.ParseDate(r.URL.Query().Get("from"))
+		t, err2 := model.ParseDate(r.URL.Query().Get("to"))
+		if err1 != nil || err2 != nil || t.Before(f) {
+			errMsg = "не вдалося зрозуміти період — показано останні 30 днів"
+			break
+		}
+		from = dayStart(f)
+		to = dayStart(t).AddDate(0, 0, 1).Add(-time.Minute)
+		return from, to, code, from.Format("02.01") + " — " + t.Format("02.01.2006"), ""
+	}
+	return dayStart(now).AddDate(0, 0, -29), endOfToday, "30d", "останні 30 днів", errMsg
+}
+
+func (a *App) handleReminderHistory(w http.ResponseWriter, r *http.Request) {
+	if !a.requireReminders(w, r) {
+		return
+	}
+	now := time.Now()
+	from, to, code, label, errMsg := resolveHistoryPeriod(r, now)
+	h, err := a.Reminders.History(from, to)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "chore_history.html", "Що зроблено", "reminders", historyData{
+		History: h, Range: code, PeriodLabel: label, Error: errMsg,
+		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"),
+		FloorDate: h.Floor.Format("02.01.2006"),
+	})
+}
+
+func (a *App) handleChoreHistory(w http.ResponseWriter, r *http.Request) {
+	if !a.requireReminders(w, r) {
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	now := time.Now()
+	from, to, code, label, errMsg := resolveHistoryPeriod(r, now)
+	chore, err := a.Reminders.ChoreHistoryFor(id, from, to)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	h, err := a.Reminders.History(from, to)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "chore_history.html", chore.Reminder.Title, "reminders", historyData{
+		History: h, Chore: &chore, Range: code, PeriodLabel: label, Error: errMsg,
+		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"),
+		FloorDate: h.Floor.Format("02.01.2006"),
+	})
+}

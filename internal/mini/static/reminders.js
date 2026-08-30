@@ -45,7 +45,7 @@ function groupByDay(items, today) {
   return days
 }
 
-export function ReminderList({ data, onOpen, onAdd, onMarked }) {
+export function ReminderList({ data, onOpen, onAdd, onHistory, onMarked }) {
   const today = todayISO()
   const [busy, setBusy] = useState(null)
 
@@ -160,6 +160,7 @@ export function ReminderList({ data, onOpen, onAdd, onMarked }) {
       )}
       <div class="chips">
         <button class="chip chip-add" onClick=${onAdd}>+ нагадування</button>
+        <button class="chip" onClick=${onHistory}>що зроблено</button>
       </div>
     </main>`
 }

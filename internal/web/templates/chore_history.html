@@ -1,0 +1,99 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{if $d.Chore}}{{$d.Chore.Reminder.Title}}{{else}}Що зроблено{{end}}</h1>
+  <a class="btn" href="/reminders">до справ</a>
+</div>
+
+{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+
+{{$base := "/reminders/history"}}
+{{if $d.Chore}}{{$base = printf "/reminders/%d/history" $d.Chore.Reminder.ID}}{{end}}
+<div class="date-quick" style="margin-bottom:14px">
+  <a class="btn small {{if eq $d.Range "30d"}}primary{{end}}" href="{{$base}}?range=30d">30 днів</a>
+  <a class="btn small {{if eq $d.Range "month"}}primary{{end}}" href="{{$base}}?range=month">цей місяць</a>
+  <a class="btn small {{if eq $d.Range "prev"}}primary{{end}}" href="{{$base}}?range=prev">минулий місяць</a>
+  <span class="muted">· {{$d.PeriodLabel}}</span>
+</div>
+
+{{if $d.Chore}}
+{{/* The drill-down: the per-moment record, which is why occurrences are stored. */}}
+{{$c := $d.Chore}}
+<p class="muted">{{$c.RuleText}}{{if $c.Reminder.Person}} · {{$c.Reminder.Person}}{{end}}</p>
+
+{{if $c.Occurrences}}
+<ul class="slot-list">
+  {{range $c.Occurrences}}
+  <li>
+    <span>
+      {{choreMark .}} {{choreWhen .Due}}
+      <span class="muted">
+        {{choreStatusLabel .}}{{if .DoneBy}} ({{.DoneBy}}){{end}}
+      </span>
+    </span>
+  </li>
+  {{end}}
+</ul>
+<p style="margin-top:12px">
+  <strong>Закрито: {{$c.Tally.Done}}</strong> ·
+  Пропущено: {{$c.Tally.Skipped}} ·
+  Не закрито: {{$c.Tally.Missed}}
+  {{if $c.Tally.Waiting}} · Ще не настало: {{$c.Tally.Waiting}}{{end}}
+</p>
+{{else}}
+<p class="empty">За цей період нічого не наставало.</p>
+{{end}}
+
+{{if $c.RuleChanges}}
+<p class="muted" style="margin-top:10px">
+  {{range $c.RuleChanges}}Правило змінилось {{choreDate .At}} — тепер «{{.Text}}».{{end}}
+  Рядків за період може бути менше, ніж дає нинішнє правило.
+</p>
+{{end}}
+
+{{else}}
+{{/* The overview: worst-kept first, which is what makes the screen actionable. */}}
+{{if $d.History.Chores}}
+<table>
+  <thead>
+    <tr><th>Справа</th><th>Закрито</th><th>Пропущено</th><th>Не закрито</th><th>Коли</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range $d.History.Chores}}
+    <tr>
+      <td data-label="Справа">
+        <a href="/reminders/{{.Reminder.ID}}/history?range={{$d.Range}}">{{.Reminder.Title}}</a>
+        {{if .Reminder.Person}}<span class="muted"> · {{.Reminder.Person}}</span>{{end}}
+      </td>
+      <td data-label="Закрито">✓ {{.Tally.Done}}</td>
+      <td data-label="Пропущено">✗ {{.Tally.Skipped}}</td>
+      <td data-label="Не закрито">
+        ○ {{.Tally.Missed}}
+        {{if choreOftenMissed .Tally}}<span class="muted"> · часто губиться</span>{{end}}
+      </td>
+      <td data-label="Коли"><span class="muted">{{.RuleText}}</span></td>
+      <td data-label=""><a class="btn small" href="/reminders/{{.Reminder.ID}}/history?range={{$d.Range}}">→</a></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{$t := $d.History.Totals}}
+<p style="margin-top:12px">
+  Разом: <strong>закрито {{$t.Done}}</strong> · пропущено {{$t.Skipped}} · не закрито {{$t.Missed}}
+</p>
+{{else}}
+<p class="empty">За цей період жодна справа не наставала.</p>
+{{end}}
+{{end}}
+
+{{/*
+  The floor is stated rather than left as a silent hole: before it, a missing
+  row means nothing was recorded, not that nothing came due.
+*/}}
+{{if $d.History.Truncated}}
+<p class="muted" style="margin-top:16px">
+  Записи ведуться лише з {{$d.FloorDate}} — за раніший час рядків просто немає,
+  і порожнеча там нічого не означає.
+</p>
+{{end}}
+{{end}}

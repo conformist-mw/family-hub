@@ -2,7 +2,10 @@
 {{$d := .Data}}
 <div class="page-head">
   <h1>Справи</h1>
-  <a class="btn primary" href="/reminders/new">+ Справа</a>
+  <span>
+    <a class="btn" href="/reminders/history">Що зроблено</a>
+    <a class="btn primary" href="/reminders/new">+ Справа</a>
+  </span>
 </div>
 
 {{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}

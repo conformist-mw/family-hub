@@ -337,6 +337,28 @@ button.row {
    lesson simply did not happen as planned — so they stay the neutral pill. */
 .pill-rescheduled,
 .pill-skipped { background: var(--warn-weak); color: var(--warn); }
+
+/* The chore ledger's two open states, kept visually apart on purpose:
+   yesterday's unanswered chore is "you forgot" and reads as such, tonight's is
+   simply not yet and must not. A screen that paints them alike is a shaming
+   wall rather than a record. */
+.pill-missed { background: var(--danger-weak); color: var(--danger); }
+.pill-waiting { background: var(--bg); color: var(--muted); }
+
+/* A ledger row that opens something. Buttons carry a browser's own chrome, so
+   the row has to be told to look like the rows either side of it. */
+.row-tap {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.row-tap:first-child { border-top: none; }
+.row-tap:active { background: var(--bg); }
 .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* A scheduled lesson nothing has paid for yet: the one row in the ledger the

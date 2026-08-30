@@ -331,3 +331,110 @@ func TestWithoutTheChoresServiceThePagesAre404(t *testing.T) {
 func itoa(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
+
+// #55: the record exists and there was nowhere to look at it. The overview
+// ranks by what keeps being forgotten, which is what makes it actionable.
+func TestTheHistoryOverviewRanksTheWorstKeptFirst(t *testing.T) {
+	h, st, svc := choreApp(t, true)
+	start := time.Now().Add(-5 * 24 * time.Hour).Truncate(time.Minute)
+	kept := seedExistingChore(t, st, svc, "Кактус", "FREQ=DAILY", start)
+	seedExistingChore(t, st, svc, "Кешбек", "FREQ=DAILY", start)
+
+	// Answer every occurrence of Кактус and none of Кешбек.
+	occ, err := svc.Upcoming(start.Add(-time.Hour), time.Now())
+	if err != nil {
+		t.Fatalf("Upcoming: %v", err)
+	}
+	for _, o := range occ {
+		if o.ReminderID != kept {
+			continue
+		}
+		if err := svc.Mark(kept, o.Due, model.OccDone, "Оксана"); err != nil {
+			t.Fatalf("mark: %v", err)
+		}
+	}
+
+	body := get(t, h, "/reminders/history").Body.String()
+	cashback := strings.Index(body, "Кешбек")
+	cactus := strings.Index(body, "Кактус")
+	if cashback < 0 || cactus < 0 {
+		t.Fatalf("a chore is missing from the overview:\n%s", body)
+	}
+	if cashback > cactus {
+		t.Fatal("the well-kept chore is listed above the one that keeps being forgotten")
+	}
+}
+
+// The drill-down is the per-moment record — the whole reason occurrences are
+// stored rather than recomputed.
+func TestTheDrillDownShowsEachOccurrence(t *testing.T) {
+	h, st, svc := choreApp(t, true)
+	start := time.Now().Add(-3 * 24 * time.Hour).Truncate(time.Minute)
+	id := seedExistingChore(t, st, svc, "Кешбек", "FREQ=DAILY", start)
+	if err := svc.Mark(id, start, model.OccDone, "Оксана"); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+
+	body := get(t, h, "/reminders/"+itoa(id)+"/history").Body.String()
+	for _, want := range []string{"Кешбек", "закрито", "Оксана", "не закрито"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the ledger is missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// A period reaching past the 30-day floor has to say so. A silent hole there
+// reads as "nothing came due", which is not what it means.
+func TestAPeriodPastTheFloorSaysTheRecordIsShort(t *testing.T) {
+	h, _, _ := choreApp(t, true)
+	// Three months back reaches well past the backfill window.
+	from := time.Now().AddDate(0, -3, 0).Format("2006-01-02")
+	to := time.Now().Format("2006-01-02")
+	body := get(t, h, "/reminders/history?range=custom&from="+from+"&to="+to).Body.String()
+	if !strings.Contains(body, "Записи ведуться лише з") {
+		t.Fatalf("the short record is not admitted:\n%s", body)
+	}
+}
+
+// A bad custom period falls back with a message rather than a blank screen.
+func TestABadCustomPeriodFallsBack(t *testing.T) {
+	h, _, _ := choreApp(t, true)
+	rec := get(t, h, "/reminders/history?range=custom&from=не-дата&to=теж-ні")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want the page with a message", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "не вдалося зрозуміти період") {
+		t.Fatalf("no explanation:\n%s", body)
+	}
+	if !strings.Contains(body, "останні 30 днів") {
+		t.Fatalf("no fallback period shown:\n%s", body)
+	}
+}
+
+// Tonight's open chore must not be counted with yesterday's forgotten one.
+func TestTheLedgerSeparatesForgottenFromNotYet(t *testing.T) {
+	h, st, svc := choreApp(t, true)
+	now := time.Now()
+	if now.Hour() < 1 || now.Hour() > 22 {
+		t.Skip("needs an hour with room either side inside today")
+	}
+	// One an hour ago (forgotten), one in an hour (not yet).
+	past := now.Add(-time.Hour).Truncate(time.Minute)
+	id := seedExistingChore(t, st, svc, "Ліки", "FREQ=HOURLY", past)
+
+	body := get(t, h, "/reminders/"+itoa(id)+"/history").Body.String()
+	if !strings.Contains(body, "не закрито") {
+		t.Errorf("the forgotten one is not marked:\n%s", body)
+	}
+	if !strings.Contains(body, "ще не настало") {
+		t.Errorf("what has not come due is counted as forgotten:\n%s", body)
+	}
+}
+
+func TestHistoryIs404WithoutTheChoresService(t *testing.T) {
+	h, _, _ := choreApp(t, false)
+	if rec := get(t, h, "/reminders/history"); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /reminders/history = %d, want 404", rec.Code)
+	}
+}

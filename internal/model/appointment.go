@@ -43,9 +43,14 @@ type Appointment struct {
 	CostPromptMsgID *int64
 	HaUID           string
 	HaSyncedAt      string
-	CreatedAt       string
-	UpdatedAt       string
-	DeletedAt       string
+	// CreatedBy is whoever entered the row, as the surface authenticated them.
+	// Empty for rows written before it was stored, and for any surface that
+	// cannot name its author. Distinct from Person, which is who the visit is
+	// for — often somebody who never opens the app.
+	CreatedBy string
+	CreatedAt string
+	UpdatedAt string
+	DeletedAt string
 }
 
 // Start parses StartsAt in loc. Callers that need to compare against "now"

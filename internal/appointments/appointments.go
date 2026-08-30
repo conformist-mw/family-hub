@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
 	"familyhub/internal/valid"
@@ -169,12 +170,17 @@ func (s *Service) Get(id int64) (model.Appointment, error) {
 	return s.store.GetAppointment(id)
 }
 
-// by names whoever is making the change, for the group message's byline. It is
-// empty when the surface cannot tell.
+// by names whoever is making the change: it is the group message's byline, it
+// is recorded as the row's author, and it is what a person field written as
+// "Я" resolves to. It is empty when the surface cannot tell.
 func (s *Service) Create(f Form, by string) (model.Appointment, error) {
 	a, err := f.Parse(s.loc)
 	if err != nil {
 		return a, err
+	}
+	a.Person = actor.Resolve(a.Person, by)
+	if by != actor.Unknown {
+		a.CreatedBy = by
 	}
 	saved, err := s.store.CreateAppointment(a)
 	if err != nil {
@@ -200,6 +206,11 @@ func (s *Service) Update(id int64, f Form, by string) (model.Appointment, error)
 		return a, err
 	}
 	a.ID = id
+	// Resolved on edit too, so re-saving a form that shows "Я" does not write
+	// it back. created_by is not touched: it says who entered the row, and an
+	// editor is not the author.
+	a.Person = actor.Resolve(a.Person, by)
+	a.CreatedBy = prev.CreatedBy
 	if err := s.store.UpdateAppointment(a); err != nil {
 		return a, err
 	}

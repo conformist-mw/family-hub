@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/appointments"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -181,7 +182,9 @@ func actorName(r *http.Request) string {
 			return v
 		}
 	}
-	return "веб"
+	// Authenticated, but the proxy forwarded nothing to name them by. Good
+	// enough for a byline, and actor.Resolve knows not to write it to a row.
+	return actor.Unknown
 }
 
 // appointmentPersons feeds the "хто" datalist. Appointment.Person is free text

@@ -58,8 +58,10 @@ being open.
 - **trainers** and **trainer_absences** — who teaches a course and their
   date-range absences, which mute reminders and punch holes in the feed.
 - **appointments** — one-off events: title, who, location, start and optional
-  end, status (`planned` / `done` / `cancelled`), note, cost, and the raw
-  message a parse came from.
+  end, status (`planned` / `done` / `cancelled`), note, cost, the raw message a
+  parse came from, and `created_by` — whoever entered it. `person` (who the
+  visit is *for*) and `created_by` (who *wrote it down*) are different
+  questions, and only the second is one the server can answer on its own.
 - **reminders**, **reminder_rules**, **reminder_occurrences** — a recurring
   chore is three facts, kept apart so history stays honest. The reminder says
   what the chore is; a *list* of rule versions says how it repeated and from

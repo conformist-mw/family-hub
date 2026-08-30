@@ -13,10 +13,10 @@ import (
 // CreateAppointment inserts one appointment and returns it with its id.
 func (s *Store) CreateAppointment(a model.Appointment) (model.Appointment, error) {
 	res, err := s.db.Exec(`
-		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw, cost)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw, cost, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Title, a.Person, a.Location, a.StartsAt, nullIfEmpty(a.EndsAt),
-		orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw, a.Cost)
+		orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw, a.Cost, a.CreatedBy)
 	if err != nil {
 		return model.Appointment{}, err
 	}
@@ -37,8 +37,8 @@ func (s *Store) CreateAppointments(items []model.Appointment) ([]model.Appointme
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw, cost)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		INSERT INTO appointments (title, person, location, starts_at, ends_at, status, note, raw, cost, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (s *Store) CreateAppointments(items []model.Appointment) ([]model.Appointme
 	ids := make([]int64, 0, len(items))
 	for _, a := range items {
 		res, err := stmt.Exec(a.Title, a.Person, a.Location, a.StartsAt, nullIfEmpty(a.EndsAt),
-			orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw, a.Cost)
+			orDefault(a.Status, model.ApptStatusPlanned), a.Note, a.Raw, a.Cost, a.CreatedBy)
 		if err != nil {
 			return nil, err
 		}
@@ -248,7 +248,7 @@ const appointmentNow = `strftime('%Y-%m-%dT%H:%M:%S','now','localtime')`
 const appointmentCols = `
 	SELECT id, title, person, location, starts_at,
 	       COALESCE(ends_at,''), status, note, raw, cost, cost_prompt_msg_id,
-	       COALESCE(ha_uid,''), COALESCE(ha_synced_at,''),
+	       COALESCE(ha_uid,''), COALESCE(ha_synced_at,''), created_by,
 	       created_at, updated_at, COALESCE(deleted_at,'')
 	FROM appointments`
 
@@ -277,7 +277,7 @@ func scanAppointment(sc appointmentScanner) (model.Appointment, error) {
 	var a model.Appointment
 	err := sc.Scan(&a.ID, &a.Title, &a.Person, &a.Location, &a.StartsAt,
 		&a.EndsAt, &a.Status, &a.Note, &a.Raw, &a.Cost, &a.CostPromptMsgID,
-		&a.HaUID, &a.HaSyncedAt, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
+		&a.HaUID, &a.HaSyncedAt, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
 	return a, err
 }
 

@@ -8,6 +8,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/appointments"
 	"familyhub/internal/model"
 	"familyhub/internal/parse"
@@ -315,13 +316,17 @@ func senderName(c tele.Context) string {
 
 // resolvePerson fills an empty or self-referential person with self (the
 // sender). Named people ("Олежа", "обоє") are left untouched.
+//
+// What counts as self-referential lives in internal/actor, shared with the
+// Mini App and the web form. Empty stays a bot rule: a parsed message that
+// names nobody means whoever sent it, while an empty form field just means it
+// was not filled in.
 func resolvePerson(parsed []parse.Parsed, self string) {
 	if self == "" {
 		return
 	}
 	for i := range parsed {
-		switch strings.ToLower(strings.TrimSpace(parsed[i].Appointment.Person)) {
-		case "", "я", "мене", "мне", "себе", "собі":
+		if p := parsed[i].Appointment.Person; strings.TrimSpace(p) == "" || actor.IsSelf(p) {
 			parsed[i].Appointment.Person = self
 		}
 	}

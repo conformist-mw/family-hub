@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/db"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -208,5 +209,102 @@ func TestNoBylineWhenTheAuthorIsUnknown(t *testing.T) {
 	a := model.Appointment{StartsAt: "2026-08-10T14:30", Title: "Ортодонт"}
 	if got := GroupAddText([]model.Appointment{a}, "", time.UTC); !strings.HasPrefix(got, "🆕 Новий візит:") {
 		t.Errorf("message = %q", got)
+	}
+}
+
+// #56: the byline named the author correctly while the stored row said "Я",
+// which is unreadable a month later and cannot be filtered or counted. The
+// server knew who it was the whole time.
+func TestЯBecomesTheAuthorInTheRowAndTheMessage(t *testing.T) {
+	group := &recorder{}
+	svc, st := testService(t, group)
+
+	f := validForm()
+	f.Person = "Я"
+	saved, err := svc.Create(f, "Оксана")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	stored, err := st.GetAppointment(saved.ID)
+	if err != nil {
+		t.Fatalf("GetAppointment: %v", err)
+	}
+	if stored.Person != "Оксана" {
+		t.Errorf("stored person = %q, want the author", stored.Person)
+	}
+	if stored.CreatedBy != "Оксана" {
+		t.Errorf("stored created_by = %q, want the author", stored.CreatedBy)
+	}
+	// The two must agree: one place resolves it, so the message cannot say
+	// one thing while the row says another.
+	if got := group.last(t); !strings.Contains(got, "Оксана") || strings.Contains(got, "· Я") {
+		t.Errorf("group message %q still shows the unresolved person", got)
+	}
+}
+
+// Naming somebody else is the common case and must survive verbatim.
+func TestAPersonWhoIsNotTheAuthorIsStoredAsWritten(t *testing.T) {
+	svc, st := testService(t, &recorder{})
+
+	f := validForm()
+	f.Person = "Демид"
+	saved, err := svc.Create(f, "Оксана")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, _ := st.GetAppointment(saved.ID)
+	if stored.Person != "Демид" {
+		t.Errorf("stored person = %q, want Демид", stored.Person)
+	}
+	if stored.CreatedBy != "Оксана" {
+		t.Errorf("created_by = %q — who entered it is a different question from who it is for", stored.CreatedBy)
+	}
+}
+
+// An edit re-submits the form it was rendered from, so a row that already
+// reads "Я" must not be written straight back.
+func TestEditingDoesNotWriteЯBackAndKeepsTheOriginalAuthor(t *testing.T) {
+	svc, st := testService(t, &recorder{})
+
+	f := validForm()
+	f.Person = "Я"
+	saved, err := svc.Create(f, "Оксана")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	edit := validForm()
+	edit.Person = "Я"
+	edit.Note = "переніс"
+	if _, err := svc.Update(saved.ID, edit, "Олег"); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	stored, _ := st.GetAppointment(saved.ID)
+	if stored.Person != "Олег" {
+		t.Errorf("stored person = %q — the editor said Я and meant himself", stored.Person)
+	}
+	if stored.CreatedBy != "Оксана" {
+		t.Errorf("created_by = %q, want the original author — an editor is not the author", stored.CreatedBy)
+	}
+}
+
+// The web's placeholder says where a change came from, not who made it.
+func TestTheWebPlaceholderIsNeverWrittenAsAPerson(t *testing.T) {
+	svc, st := testService(t, &recorder{})
+
+	f := validForm()
+	f.Person = "Я"
+	saved, err := svc.Create(f, actor.Unknown)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, _ := st.GetAppointment(saved.ID)
+	if stored.Person != "Я" {
+		t.Errorf("stored person = %q — %q is not a person", stored.Person, actor.Unknown)
+	}
+	if stored.CreatedBy != "" {
+		t.Errorf("created_by = %q, want empty — the surface could not name an author", stored.CreatedBy)
 	}
 }

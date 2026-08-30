@@ -50,7 +50,10 @@ being open.
   trainers), `billing_type` (`per_lesson` | `monthly`), current price and a
   low-balance threshold. Identity is the row id, never the name.
 - **regular_slots** — the weekly schedule of a course; drives reminders and the
-  recurring ICS events.
+  lessons in the ICS feed. Expanded in Go rather than sent to the calendar as
+  an RRULE: a recurrence from a UTC start is computed in UTC, so its instances
+  are 168h apart instead of at the same wall-clock time, and every lesson
+  drifted an hour at each clock change.
 - **visits** — one attendance event: date plus status
   (`done` / `rescheduled` / `cancelled` / `skipped`).
 - **payments** — money in: either N prepaid lessons, or a date range for a

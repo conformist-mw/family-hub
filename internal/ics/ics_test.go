@@ -7,7 +7,7 @@ import (
 
 	"familyhub/internal/model"
 	"familyhub/internal/reminders"
-	"familyhub/internal/store"
+	"familyhub/internal/schedule"
 )
 
 func kyiv(t *testing.T) *time.Location {
@@ -50,6 +50,16 @@ func find(t *testing.T, body []byte, uidPart string) string {
 	}
 	t.Fatalf("no event with uid containing %q in:\n%s", uidPart, body)
 	return ""
+}
+
+// lesson is one expanded slot, the way schedule.Expand hands them over.
+func lesson(slotID int64, start time.Time) schedule.Lesson {
+	return schedule.Lesson{
+		SlotID:      slotID,
+		Enrollment:  model.Enrollment{ID: 5, Name: "Балет", Person: "Маша"},
+		Start:       start,
+		DurationMin: 60,
+	}
 }
 
 func chore(id int64, title, person string, due time.Time, status string) reminders.Occurrence {
@@ -154,10 +164,7 @@ func TestEveryUidCarriesTheSameSuffix(t *testing.T) {
 	loc := kyiv(t)
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
 	body := Render(
-		[]store.SlotWithEnrollment{{
-			Slot:       model.Slot{ID: 11, Weekday: 2, Time: "16:00", DurationMin: 60},
-			Enrollment: model.Enrollment{ID: 5, Name: "Балет", Person: "Маша"},
-		}},
+		[]schedule.Lesson{lesson(11, time.Date(2026, 9, 8, 16, 0, 0, 0, loc))},
 		[]model.TrainerAbsence{{
 			ID: 4, TrainerID: 1, Trainer: "Ірина",
 			DateFrom: "2026-09-10", DateTo: "2026-09-12", Kind: model.AbsenceVacation,
@@ -196,10 +203,7 @@ func TestTheOtherSourcesStillRender(t *testing.T) {
 	loc := kyiv(t)
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
 	body := Render(
-		[]store.SlotWithEnrollment{{
-			Slot:       model.Slot{ID: 11, Weekday: 2, Time: "16:00", DurationMin: 60},
-			Enrollment: model.Enrollment{ID: 5, Name: "Балет", Person: "Маша"},
-		}},
+		[]schedule.Lesson{lesson(11, time.Date(2026, 9, 8, 16, 0, 0, 0, loc))},
 		[]model.TrainerAbsence{{
 			ID: 4, TrainerID: 1, Trainer: "Ірина",
 			DateFrom: "2026-09-10", DateTo: "2026-09-12", Kind: model.AbsenceVacation,
@@ -210,9 +214,14 @@ func TestTheOtherSourcesStillRender(t *testing.T) {
 		}},
 		nil, loc, now)
 
-	slot := find(t, body, "slot-11@familyhub")
-	if !strings.Contains(slot, "RRULE:FREQ=WEEKLY;BYDAY=TU") {
-		t.Fatalf("slot lost its recurrence:\n%s", slot)
+	slot := find(t, body, "slot-11-20260908T1600@familyhub")
+	// No RRULE any more: the lesson arrives already expanded, so the feed
+	// carries the instant rather than a rule a calendar would expand in UTC.
+	if strings.Contains(slot, "RRULE") {
+		t.Fatalf("a lesson still goes out as a rule:\n%s", slot)
+	}
+	if !strings.Contains(slot, "DTSTART:20260908T130000Z") {
+		t.Fatalf("lesson start:\n%s", slot)
 	}
 	if !strings.Contains(slot, "SUMMARY:Маша · Балет") {
 		t.Fatalf("slot summary:\n%s", slot)

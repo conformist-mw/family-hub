@@ -2,7 +2,13 @@
 // Home Assistant's Remote Calendar to poll — a forward-looking summary of
 // what's expected. Each active lesson slot becomes one weekly recurring event
 // (RRULE, duration from the slot), trainer absences punch EXDATE holes and
-// render as all-day events, and one-off appointments become plain VEVENTs.
+// render as all-day events, one-off appointments become plain VEVENTs, and
+// recurring reminders arrive already expanded — one VEVENT per occurrence.
+//
+// Reminders are expanded by the caller rather than sent as an RRULE the way
+// slots are, because that expansion is needed anyway for the Mini App list and
+// the evening nag. Handing HA a rule to expand as well would be a second,
+// independent implementation of the same thing, free to drift from the first.
 package ics
 
 import (
@@ -11,6 +17,7 @@ import (
 	"time"
 
 	"familyhub/internal/model"
+	"familyhub/internal/reminders"
 	"familyhub/internal/store"
 )
 
@@ -32,7 +39,9 @@ var absenceSummaryPrefix = map[string]string{
 // EXDATE holes into the recurrence and additionally render as one all-day
 // VEVENT each. Appointments are rendered as-is — filtering (deleted,
 // cancelled, too far in the past) belongs to the caller's query.
-func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, appointments []model.Appointment, loc *time.Location, now time.Time) []byte {
+func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence,
+	appointments []model.Appointment, chores []reminders.Occurrence,
+	loc *time.Location, now time.Time) []byte {
 	var b strings.Builder
 	writeLine(&b, "BEGIN:VCALENDAR")
 	writeLine(&b, "VERSION:2.0")
@@ -60,7 +69,7 @@ func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, a
 		end := start.Add(time.Duration(dur) * time.Minute)
 
 		writeLine(&b, "BEGIN:VEVENT")
-		writeLine(&b, "UID:slot-"+fmt.Sprint(s.Slot.ID)+"@lessons")
+		writeLine(&b, "UID:slot-"+fmt.Sprint(s.Slot.ID)+"@familyhub")
 		writeLine(&b, "DTSTAMP:"+stamp)
 		writeLine(&b, "DTSTART:"+start.UTC().Format(utcStamp))
 		writeLine(&b, "DTEND:"+end.UTC().Format(utcStamp))
@@ -85,7 +94,7 @@ func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, a
 			prefix = absenceSummaryPrefix[model.AbsenceOther]
 		}
 		writeLine(&b, "BEGIN:VEVENT")
-		writeLine(&b, "UID:absence-"+fmt.Sprint(a.ID)+"@lessons")
+		writeLine(&b, "UID:absence-"+fmt.Sprint(a.ID)+"@familyhub")
 		writeLine(&b, "DTSTAMP:"+stamp)
 		writeLine(&b, "DTSTART;VALUE=DATE:"+from.Format("20060102"))
 		// DTEND is exclusive for all-day events (RFC 5545); date_to is inclusive.
@@ -107,10 +116,10 @@ func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, a
 		}
 
 		writeLine(&b, "BEGIN:VEVENT")
-		// Same @lessons suffix as the slot/absence uids above: HA keys events
-		// on the uid, so changing the suffix would make it delete and recreate
-		// every event for a string no user ever sees.
-		writeLine(&b, "UID:appointment-"+fmt.Sprint(a.ID)+"@lessons")
+		// Same suffix as every other uid here. It is an opaque identifier a
+		// person never sees; what matters is that it stays stable, because HA
+		// and any subscribed calendar key their events on it.
+		writeLine(&b, "UID:appointment-"+fmt.Sprint(a.ID)+"@familyhub")
 		writeLine(&b, "DTSTAMP:"+stamp)
 		writeLine(&b, "DTSTART:"+start.UTC().Format(utcStamp))
 		writeLine(&b, "DTEND:"+end.UTC().Format(utcStamp))
@@ -124,8 +133,48 @@ func Render(slots []store.SlotWithEnrollment, absences []model.TrainerAbsence, a
 		writeLine(&b, "END:VEVENT")
 	}
 
+	for _, o := range chores {
+		start := o.Due.In(loc)
+		dur := o.DurationMin
+		if dur <= 0 {
+			dur = 15
+		}
+		writeLine(&b, "BEGIN:VEVENT")
+		// Keyed by the instant, not the date: a full RRULE can put two
+		// occurrences on one day, and a date-based uid would collapse them.
+		writeLine(&b, "UID:reminder-"+fmt.Sprint(o.ReminderID)+"-"+
+			start.Format("20060102T1504")+"@familyhub")
+		writeLine(&b, "DTSTAMP:"+stamp)
+		writeLine(&b, "DTSTART:"+start.UTC().Format(utcStamp))
+		writeLine(&b, "DTEND:"+start.Add(time.Duration(dur)*time.Minute).UTC().Format(utcStamp))
+		writeLine(&b, "SUMMARY:"+escape(reminderSummary(o)))
+		writeLine(&b, "END:VEVENT")
+	}
+
 	writeLine(&b, "END:VCALENDAR")
 	return []byte(b.String())
+}
+
+// reminderSummary marks what has been dealt with. A closed occurrence stays in
+// the feed rather than vanishing — the calendar is a record of what was
+// planned, and an entry that disappears once acted on cannot show that it was.
+//
+// done and skipped get different marks instead of one shared tick: "I did it"
+// and "not needed this time" are different answers, and the morning summary is
+// where that difference is worth seeing.
+func reminderSummary(o reminders.Occurrence) string {
+	title := o.Title
+	if o.Person != "" {
+		title += " · " + o.Person
+	}
+	switch o.Status {
+	case model.OccDone:
+		return "✓ " + title
+	case model.OccSkipped:
+		return "✗ " + title
+	default:
+		return title
+	}
 }
 
 // appointmentSummary is "Ортодонт · <хто>", or just the title. Named apart from

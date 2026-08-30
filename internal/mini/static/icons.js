@@ -42,3 +42,13 @@ export const IconPlus = ({ size = 18 }) =>
 
 export const IconAlert = ({ size = 34 }) =>
   svg(size, html`<circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5" /><path d="M12 16.5h.01" />`, { weight: 1.6 })
+
+export const IconRepeat = ({ size = 22 }) =>
+  svg(size, html`
+    <path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19" />
+    <path d="M16 3l3 3-3 3" />
+    <path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5" />
+    <path d="M8 21l-3-3 3-3" />`)
+
+export const IconCheck = ({ size = 16 }) =>
+  svg(size, html`<path d="M5 12.5l4.5 4.5L19 7" />`, { weight: 2.6 })

@@ -43,7 +43,7 @@ func testHandler(t *testing.T) http.Handler {
 		t.Fatalf("mini.NewRouter: %v", err)
 	}
 
-	return buildHandler(web.NewRouter(database, logger, "", nil, nil), miniHandler)
+	return buildHandler(web.NewRouter(database, logger, "", nil, nil, nil), miniHandler)
 }
 
 func TestRoutesReachTheirOwnSurface(t *testing.T) {
@@ -97,7 +97,7 @@ func TestMiniAbsentWhenDisabled(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	h := buildHandler(web.NewRouter(database, logger, "", nil, nil), nil)
+	h := buildHandler(web.NewRouter(database, logger, "", nil, nil, nil), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/mini/api/appointments", nil))
 

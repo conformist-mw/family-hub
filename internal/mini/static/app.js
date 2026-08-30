@@ -2,12 +2,13 @@ import { html, render, useState, useEffect, useCallback, useRef } from '/mini/as
 import { api, tg, boot } from '/mini/assets/api.js'
 import { watchTheme } from '/mini/assets/theme.js'
 import { Loading, Failure } from '/mini/assets/ui.js'
-import { IconHome, IconCalendar, IconBook } from '/mini/assets/icons.js'
+import { IconHome, IconCalendar, IconBook, IconRepeat } from '/mini/assets/icons.js'
 import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
 import { PaymentForm } from '/mini/assets/payments.js'
 import { Audit } from '/mini/assets/audit.js'
 import { Home } from '/mini/assets/home.js'
+import { ReminderList, ReminderForm } from '/mini/assets/reminders.js'
 
 // Tabs are the top-level navigation; a form is a nested screen inside whichever
 // tab opened it, so Telegram's own back button leaves the form rather than the
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'home', label: 'Головна', Icon: IconHome },
   { id: 'appointments', label: 'Записи', Icon: IconCalendar },
   { id: 'courses', label: 'Заняття', Icon: IconBook },
+  { id: 'reminders', label: 'Справи', Icon: IconRepeat },
 ]
 
 function TabBar({ active, onSelect }) {
@@ -56,6 +58,7 @@ function App() {
   const [appointments, setAppointments] = useState({ phase: 'loading' })
   const [courses, setCourses] = useState({ phase: 'loading' })
   const [persons, setPersons] = useState([])
+  const [reminders, setReminders] = useState({ phase: 'loading' })
 
   const loadHome = useCallback(async () => {
     try {
@@ -83,12 +86,25 @@ function App() {
     }
   }, [])
 
+  const loadReminders = useCallback(async () => {
+    try {
+      const d = await api('/reminders')
+      setReminders({
+        phase: 'ready',
+        data: { reminders: d.reminders || [], occurrences: d.occurrences || [] },
+      })
+    } catch (err) {
+      setReminders({ phase: 'error', error: err })
+    }
+  }, [])
+
   useEffect(() => {
     boot()
     watchTheme()
     loadHome()
     loadAppointments()
     loadCourses()
+    loadReminders()
     api('/persons').then((d) => setPersons(d.persons || [])).catch(() => {})
 
     const onVisible = () => {
@@ -98,10 +114,11 @@ function App() {
       loadHome()
       loadAppointments()
       loadCourses()
+      loadReminders()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [loadHome, loadAppointments, loadCourses])
+  }, [loadHome, loadAppointments, loadCourses, loadReminders])
 
   useEffect(() => {
     if (!tg || !tg.BackButton) return
@@ -165,6 +182,14 @@ function App() {
         onCancel=${pop} />`
   }
 
+  if (screen && screen.name === 'reminderForm') {
+    return html`
+      <${ReminderForm}
+        item=${screen.item}
+        onSaved=${() => { closeAll(); loadReminders() }}
+        onCancel=${pop} />`
+  }
+
   if (screen && screen.name === 'audit') {
     return html`<${Audit} course=${screen.course} onClose=${pop} />`
   }
@@ -191,6 +216,17 @@ function App() {
           truncated=${appointments.truncated}
           onOpen=${(item) => push({ name: 'appointmentCard', item })}
           onAdd=${() => push({ name: 'appointmentForm', item: null })} />`
+  } else if (tab === 'reminders') {
+    if (reminders.phase === 'loading') body = html`<${Loading} />`
+    else if (reminders.phase === 'error')
+      body = html`<${Failure} error=${reminders.error} onRetry=${loadReminders} />`
+    else
+      body = html`
+        <${ReminderList}
+          data=${reminders.data}
+          onOpen=${(item) => push({ name: 'reminderForm', item })}
+          onAdd=${() => push({ name: 'reminderForm', item: null })}
+          onMarked=${loadReminders} />`
   } else {
     if (courses.phase === 'loading') body = html`<${Loading} />`
     else if (courses.phase === 'error')

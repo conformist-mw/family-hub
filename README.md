@@ -1,7 +1,7 @@
 ![Family Hub](docs/brand/banner.png)
 
 A small self-hosted app for a family's schedule and money, replacing a fragile
-spreadsheet and a second bot. Two domains live in it:
+spreadsheet, a second bot and a phone's reminders list. Three domains live in it:
 
 - **Lessons** — recurring extracurricular courses: attendance journal,
   payments, and how many prepaid lessons are left or when a monthly pass runs
@@ -10,6 +10,10 @@ spreadsheet and a second bot. Two domains live in it:
   Captured from plain text in Telegram via Gemini (a message like "tomorrow
   11:30 orthodontist" becomes a confirmation card, then a saved row), and
   editable afterwards on the web or the phone.
+- **Reminders** — recurring chores that are neither: enable the cashback on
+  the 1st, log the car mileage, water the cactus every other week. A full RFC
+  5545 rule decides when each comes due; the app records what actually did,
+  and says in the evening what nobody closed.
 
 Three ways in, one SQLite file behind them: a web UI for the desk, a Telegram
 bot in the family group, and a Telegram Mini App for the phone. One ICS feed
@@ -31,8 +35,8 @@ The original spreadsheet had a few sharp edges this app removes:
 | | Where | What it is for |
 | --- | --- | --- |
 | Web UI | behind oauth2-proxy | the whole data model: courses, payments, journal, reconciliation |
-| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, reminders |
-| Mini App | `/mini`, inside Telegram | what is going on today, the week's visits, the weekly lesson schedule, recording a payment, reconciling a course |
+| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, and the evening list of chores nobody closed |
+| Mini App | `/mini`, inside Telegram | what is going on today, the week's visits, the weekly lesson schedule, recording a payment, reconciling a course, and managing recurring chores |
 
 The Mini App authenticates the person who opened it — an HMAC over Telegram's
 launch payload plus an allowlist of user ids — so it bypasses oauth without
@@ -56,6 +60,15 @@ being open.
 - **appointments** — one-off events: title, who, location, start and optional
   end, status (`planned` / `done` / `cancelled`), note, cost, and the raw
   message a parse came from.
+- **reminders**, **reminder_rules**, **reminder_occurrences** — a recurring
+  chore is three facts, kept apart so history stays honest. The reminder says
+  what the chore is; a *list* of rule versions says how it repeated and from
+  when; an occurrence row says what actually came due, with a status of
+  `pending` / `done` / `skipped`. Rules are versioned because schedules change:
+  moving the cashback from the 1st to the 5th must not retroactively claim it
+  was always the 5th. Occurrences are stored rather than recomputed because a
+  generated occurrence proves nothing — a row written when the moment arrived
+  is what distinguishes "you forgot it" from "it was never scheduled".
 
 The balance dashboard rolls the lesson side up: prepaid minus attended for
 per-lesson courses, and "is today covered by a paid period" for monthly passes.

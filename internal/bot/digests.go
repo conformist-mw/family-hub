@@ -9,23 +9,34 @@ import (
 	"familyhub/internal/model"
 )
 
-// RunDigests ticks once a minute and fires the daily and weekly digests at
-// their configured wall-clock times (in cfg.Loc). It blocks until ctx is
-// done; meant to run in its own goroutine alongside polling/webhook.
+// RunDigests ticks once a minute and fires the wall-clock messages (in
+// cfg.Loc): the daily and weekly appointment digests, and the evening list of
+// recurring chores nobody closed. It blocks until ctx is done; meant to run in
+// its own goroutine alongside polling/webhook.
+//
+// The three have separate gates on purpose. The appointment digests are off in
+// prod because Home Assistant sends those summaries from the ICS feed; the
+// chore nag is not something HA can send, since HA reads a calendar and knows
+// nothing about what was closed. Gating the nag on the same flag would have
+// left it permanently silent in the one place it matters.
 func (b *Bot) RunDigests(ctx context.Context) {
-	if !b.cfg.NotificationsEnabled {
-		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set)")
-		return
-	}
 	if b.cfg.NotifyChat == 0 {
 		b.logger.Info("bot: digests disabled (no notify chat)")
 		return
 	}
+	digestsOn := b.cfg.appointmentDigestsEnabled()
+	nagOn := b.cfg.reminderNagEnabled()
+	if !digestsOn && !nagOn {
+		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder nag time)")
+		return
+	}
 	b.logger.Info("bot: digests started",
 		"notify_chat", b.cfg.NotifyChat,
+		"appointment_digests", digestsOn,
 		"daily", b.cfg.DailyDigestTime,
 		"weekly_dow", b.cfg.WeeklyDigestDOW,
-		"weekly_time", b.cfg.WeeklyDigestTime)
+		"weekly_time", b.cfg.WeeklyDigestTime,
+		"reminder_nag", b.cfg.ReminderNagTime)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -33,27 +44,65 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	// Dates on which each digest already fired, so a minute-resolution match
 	// sends exactly once. In-memory: a restart may re-send today's digest,
 	// which is preferable to silently skipping it.
-	var lastDaily, lastWeekly string
+	var lastDaily, lastWeekly, lastNag string
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			now := b.now()
-			hm := now.Format("15:04")
 			today := now.Format("2006-01-02")
+			daily, weekly, nag := b.cfg.dueThisMinute(now, lastDaily, lastWeekly, lastNag)
 
-			if b.cfg.DailyDigestTime != "" && hm == b.cfg.DailyDigestTime && lastDaily != today {
+			if daily {
 				b.sendDailyDigest(now)
 				lastDaily = today
 			}
-			if b.cfg.WeeklyDigestDOW >= 0 && int(now.Weekday()) == b.cfg.WeeklyDigestDOW &&
-				hm == b.cfg.WeeklyDigestTime && lastWeekly != today {
+			if weekly {
 				b.sendWeeklyDigest()
 				lastWeekly = today
 			}
+			if nag {
+				b.sendReminderNag(now)
+				lastNag = today
+			}
 		}
 	}
+}
+
+// appointmentDigestsEnabled and reminderNagEnabled are separate because the
+// two answer to different owners. Home Assistant sends the appointment
+// summaries in prod, which is why NOTIFICATIONS_ENABLED is off there; it
+// cannot send the chore nag, because it reads a calendar and knows nothing
+// about what was closed. One shared flag would have left the nag permanently
+// silent in the only place it matters.
+func (c Config) appointmentDigestsEnabled() bool {
+	return c.NotificationsEnabled
+}
+
+func (c Config) reminderNagEnabled() bool {
+	return c.ReminderNagTime != "" && c.Reminders != nil
+}
+
+// dueThisMinute decides which of the three messages fire on this tick, given
+// what already went out today.
+//
+// Split out of the loop deliberately. The rule this feature exists to protect
+// — that the chore nag does not answer to NOTIFICATIONS_ENABLED — lived inside
+// RunDigests, where a test could not reach it: a review found the old early
+// return could be restored and the whole suite would still pass.
+func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag string) (daily, weekly, nag bool) {
+	hm := now.Format("15:04")
+	today := now.Format("2006-01-02")
+	digestsOn := c.appointmentDigestsEnabled()
+
+	daily = digestsOn && c.DailyDigestTime != "" &&
+		hm == c.DailyDigestTime && lastDaily != today
+	weekly = digestsOn && c.WeeklyDigestDOW >= 0 &&
+		int(now.Weekday()) == c.WeeklyDigestDOW &&
+		hm == c.WeeklyDigestTime && lastWeekly != today
+	nag = c.reminderNagEnabled() && hm == c.ReminderNagTime && lastNag != today
+	return daily, weekly, nag
 }
 
 func (b *Bot) sendDailyDigest(now time.Time) {

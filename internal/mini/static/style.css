@@ -502,3 +502,73 @@ button { font-family: inherit; }
 .tab-active { color: var(--accent); }
 .tab-label { font-size: 11px; }
 .tab-active .tab-label { font-weight: 600; }
+
+/* Recurring chores. An occurrence is a row you close, so the tap target is the
+   check itself rather than the whole row: the row also has to stay tappable
+   for "skip", and one gesture doing two things is how the wrong one gets
+   chosen at 8am. */
+.occ {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-card);
+  background: var(--card);
+}
+.occ-body { flex: 1; min-width: 0; }
+.occ-title { font-size: 16px; font-weight: 600; }
+.occ-meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.occ-check {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.occ-check:active { background: var(--accent-weak); }
+.occ-check:disabled { opacity: 0.5; }
+.occ-skip {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--hint);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+/* Yesterday's unfinished chore is the one worth noticing, so it carries the
+   warning colour the balance badges already use. */
+.occ-late { box-shadow: inset 3px 0 0 var(--warn-bar); }
+.occ-ahead { background: transparent; padding: 8px 14px; }
+.occ-ahead .occ-title { font-size: 15px; font-weight: 500; }
+.occ-time {
+  flex: 0 0 46px;
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A paused chore stays in the list so it can be switched back on, but reads as
+   inactive rather than as something waiting to be done. */
+.card-off { opacity: 0.62; }
+
+/* The chore header is the whole edit target, so it is a button; it must not
+   inherit the button chrome. */
+.course-head-btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}

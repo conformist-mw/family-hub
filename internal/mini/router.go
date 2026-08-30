@@ -14,6 +14,7 @@ import (
 	"familyhub/internal/appointments"
 	"familyhub/internal/audit"
 	"familyhub/internal/payments"
+	"familyhub/internal/reminders"
 	"familyhub/internal/schedule"
 	"familyhub/internal/store"
 )
@@ -67,6 +68,10 @@ type Config struct {
 	// <b> markup, and plain text for the reconciliation, which is a pasteable
 	// block that must not be parsed as markup at all.
 	Notifier Notifier
+	// Reminders is the recurring-chore service, shared with the bot and the
+	// ICS feed so the three surfaces cannot disagree about what came due. Nil
+	// means the reminders tab is not mounted.
+	Reminders *reminders.Service
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -93,6 +98,7 @@ type Router struct {
 	appointments *appointments.Service
 	payments     *payments.Service
 	schedule     *schedule.Service
+	reminders    *reminders.Service
 	audit        *audit.Service
 	notify       Notifier // nil — bot off; the send-to-group button stays hidden
 	log          *slog.Logger
@@ -124,6 +130,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		appointments: appointments.NewService(st, cfg.Loc, cfg.Notifier, logger),
 		payments:     payments.NewService(st, cfg.Notifier, logger),
 		schedule:     schedule.NewService(st),
+		reminders:    cfg.Reminders,
 		audit:        audit.NewService(st, func() time.Time { return cfg.Now().In(cfg.Loc) }),
 		notify:       cfg.Notifier,
 		log:          logger,
@@ -161,6 +168,19 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("DELETE /mini/api/payments/{id}", rt.handlePaymentDelete)
 	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)
 	mux.HandleFunc("DELETE /mini/api/slots/{id}", rt.handleSlotDelete)
+	// Reminders mount only when the service is wired. Without it the routes
+	// are absent rather than present-and-failing, the same shape as the Mini
+	// App itself without a bot token.
+	if rt.reminders != nil {
+		mux.HandleFunc("GET /mini/api/reminders", rt.handleReminders)
+		mux.HandleFunc("POST /mini/api/reminders", rt.handleReminderCreate)
+		mux.HandleFunc("POST /mini/api/reminders/preview", rt.handlePreview)
+		mux.HandleFunc("PUT /mini/api/reminders/{id}", rt.handleReminderUpdate)
+		mux.HandleFunc("DELETE /mini/api/reminders/{id}", rt.handleReminderDelete)
+		mux.HandleFunc("POST /mini/api/reminders/{id}/rules", rt.handleRuleCreate)
+		mux.HandleFunc("PUT /mini/api/reminders/{id}/rules/{ruleId}", rt.handleRuleAmend)
+		mux.HandleFunc("POST /mini/api/reminders/{id}/occurrences", rt.handleOccurrenceMark)
+	}
 	return mux, nil
 }
 

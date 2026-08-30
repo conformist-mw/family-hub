@@ -7,12 +7,18 @@ import (
 
 	"familyhub/internal/ics"
 	"familyhub/internal/model"
+	"familyhub/internal/reminders"
 )
 
-// handleCalendarICS serves the lesson schedule, trainer absences and one-off
-// appointments as one ICS feed for HA's Remote Calendar. If ICS_TOKEN is set,
-// a matching ?token= is required —
-// this route bypasses the traefik auth chain (machine-to-machine fetch).
+// choreHorizon is how far ahead recurring chores are projected into the feed.
+// Far enough that the morning summary can look a season out, short enough that
+// a daily chore does not turn the calendar into a wall.
+const choreHorizon = 90 * 24 * time.Hour
+
+// handleCalendarICS serves the lesson schedule, trainer absences, one-off
+// appointments and recurring chores as one ICS feed for HA's Remote Calendar.
+// If ICS_TOKEN is set, a matching ?token= is required — this route bypasses
+// the traefik auth chain (machine-to-machine fetch).
 func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 	if token := os.Getenv("ICS_TOKEN"); token != "" && r.URL.Query().Get("token") != token {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -38,6 +44,20 @@ func (a *App) handleCalendarICS(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	// Chores reach back exactly as far as the materialiser records them, so
+	// nothing it wrote is missing from the calendar, and forward far enough to
+	// answer "what is coming". A nil service means the feature is off, not an
+	// error: the feed simply carries no chores.
+	var chores []reminders.Occurrence
+	if a.Reminders != nil {
+		chores, err = a.Reminders.Upcoming(
+			now.Add(-reminders.BackfillWindow), now.Add(choreHorizon))
+		if err != nil {
+			a.serverError(w, err)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Write(ics.Render(slots, absences, appointments, time.Local, now))
+	w.Write(ics.Render(slots, absences, appointments, chores, time.Local, now))
 }

@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.2
+	github.com/teambition/rrule-go v1.8.2
 	github.com/xuri/excelize/v2 v2.10.1
 	google.golang.org/genai v1.62.0
 	gopkg.in/telebot.v3 v3.3.8

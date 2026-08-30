@@ -62,6 +62,12 @@ just deploy-hetzner-tag family-hub
   because `TELEGRAM_NOTIFY_CHAT` is unset locally.
 - The appointment digests stay off in prod (`NOTIFICATIONS_ENABLED` unset):
   Home Assistant sends those summaries from the ICS feed.
+- Recurring reminders record what came due through their own ticker, which
+  takes no configuration and does not depend on `NOTIFICATIONS_ENABLED` or on
+  a notify chat — that record is data, not a message, and putting it behind a
+  notification flag would mean switching the digests off silently stopped the
+  history. Only the evening "still not done" nag is configurable, via
+  `REMINDER_NAG_TIME` (unset = no nag, the record is still written).
 - The database is `family-hub.db` inside `~/server_data/family-hub`. The path
   is decided in two places that must agree: `family_hub_dir` in the Ansible
   role, and the `-db` flag in this image's `CMD`. If they disagree, SQLite
@@ -77,13 +83,25 @@ docker logs --tail=50 family-hub     # expect "listening", "scheduler started"
 
 A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_min=60`
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
-appointment digest ticker logs `bot: digests disabled (NOTIFICATIONS_ENABLED
-not set)` — that line is expected in prod. The cost-prompt ticker should log
+The digest ticker now hosts three wall-clock messages with separate gates, so
+its boot line reports each: `bot: digests started appointment_digests=false
+… reminder_nag=20:00` is the expected prod shape — the appointment summaries
+stay off because Home Assistant sends those, while the chore nag runs. It only
+falls back to `bot: digests disabled (NOTIFICATIONS_ENABLED not set, no
+reminder nag time)` when neither is configured. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
 `bot: billing reminders started`. Neither that one nor the pre-lesson warning
 takes any configuration: how far ahead each course warns is its own
 «Нагадати про оплату за» field, and like the other tickers they go quiet
 without `TELEGRAM_NOTIFY_CHAT`.
+
+The reminder materialiser logs `reminders: materialiser started tick=1m0s
+backfill=720h0m0s` on boot, and does so even with the bot and every
+notification switched off. Its catch-up is self-healing over that backfill
+window: a container down across a reminder writes the missing row on its next
+tick, with no watermark to reset by hand. A gap longer than the window leaves
+those occurrences unrecorded for good — 30 days is far past any outage worth
+tolerating silently, but it is a real limit, not a rounding error.
 
 ## Migrations
 

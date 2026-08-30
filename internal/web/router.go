@@ -12,6 +12,7 @@ import (
 	"familyhub/internal/audit"
 	"familyhub/internal/model"
 	"familyhub/internal/payments"
+	"familyhub/internal/reminders"
 	"familyhub/internal/store"
 )
 
@@ -26,12 +27,16 @@ type App struct {
 	// for a monthly course must carry is one rule, not one per form.
 	Payments *payments.Service
 	// Audit builds the reconciliation both surfaces show.
-	Audit     *audit.Service
+	Audit *audit.Service
+	// Reminders feeds recurring chores into the ICS feed. Shared with the Mini
+	// App and the bot; nil means the feed simply carries none.
+	Reminders *reminders.Service
 	Notifier  Notifier // nil — bot disabled, send-to-group hidden
 	templates map[string]*template.Template
 }
 
-func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler, notifier Notifier) http.Handler {
+func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler,
+	notifier Notifier, chores *reminders.Service) http.Handler {
 	st := store.New(db)
 	a := &App{
 		DB:     db,
@@ -42,6 +47,7 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 		Appointments: appointments.NewService(st, time.Local, notifier, logger),
 		Payments:     payments.NewService(st, notifier, logger),
 		Audit:        audit.NewService(st, time.Now),
+		Reminders:    chores,
 		Notifier:     notifier,
 		templates:    parseTemplates(),
 	}

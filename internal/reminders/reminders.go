@@ -16,6 +16,7 @@ import (
 	"sort"
 	"time"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/model"
 	"familyhub/internal/recur"
 	"familyhub/internal/store"
@@ -239,10 +240,11 @@ func (s *Service) Mark(reminderID int64, dueAt time.Time, status, by string) err
 // Create stores a new chore with its first rule version. The rule is validated
 // by the same library that will later expand it, so anything accepted here
 // cannot fail to expand afterwards.
-func (s *Service) Create(r model.Reminder, rrule string, dtstart time.Time) (model.Reminder, error) {
+func (s *Service) Create(r model.Reminder, rrule string, dtstart time.Time, by string) (model.Reminder, error) {
 	if err := recur.Validate(rrule); err != nil {
 		return model.Reminder{}, err
 	}
+	r.Person = actor.Resolve(r.Person, by)
 	r.Active = true
 	// Stamped from the service clock, not SQL's: the materialiser compares
 	// this against the same clock when deciding how far back to catch up.
@@ -255,6 +257,18 @@ func (s *Service) Create(r model.Reminder, rrule string, dtstart time.Time) (mod
 		RRule:       rrule,
 	}
 	return s.store.CreateReminder(r, first)
+}
+
+// Update saves the chore's own fields — what it is, who it is for, how long it
+// takes. The rule is not among them: changing how a chore repeats goes through
+// AddRule or AmendRule, which have to decide what happens to the past.
+//
+// It lives here rather than in the handler so that "Я" means the same thing on
+// every surface, the way it does for appointments. by is the authenticated
+// author, or "" when the surface cannot name them.
+func (s *Service) Update(r model.Reminder, by string) error {
+	r.Person = actor.Resolve(r.Person, by)
+	return s.store.UpdateReminder(r)
 }
 
 // AddRule changes how a chore repeats from a moment onwards, leaving

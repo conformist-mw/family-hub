@@ -169,7 +169,8 @@ func (rt *Router) reminderJSON(rem model.Reminder, rules []model.ReminderRule) r
 }
 
 func (rt *Router) handleReminderCreate(w http.ResponseWriter, r *http.Request) {
-	if _, bad := rt.v.authenticate(r); bad != nil {
+	who, bad := rt.v.authenticate(r)
+	if bad != nil {
 		rt.fail(w, bad)
 		return
 	}
@@ -193,7 +194,7 @@ func (rt *Router) handleReminderCreate(w http.ResponseWriter, r *http.Request) {
 	rem, err := rt.reminders.Create(model.Reminder{
 		Title: body.Title, Person: body.Person,
 		DurationMin: body.DurationMin, Note: body.Note,
-	}, body.RRule, dtstart)
+	}, body.RRule, dtstart, who.Name)
 	if err != nil {
 		rt.writeError(w, ruleFieldError(err), "create reminder")
 		return
@@ -202,7 +203,8 @@ func (rt *Router) handleReminderCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rt *Router) handleReminderUpdate(w http.ResponseWriter, r *http.Request) {
-	if _, bad := rt.v.authenticate(r); bad != nil {
+	who, bad := rt.v.authenticate(r)
+	if bad != nil {
 		rt.fail(w, bad)
 		return
 	}
@@ -232,7 +234,7 @@ func (rt *Router) handleReminderUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	rem.Title, rem.Person, rem.Note = body.Title, body.Person, body.Note
 	rem.DurationMin = body.DurationMin
-	if err := rt.store.UpdateReminder(rem); err != nil {
+	if err := rt.reminders.Update(rem, who.Name); err != nil {
 		rt.log.Error("mini: update reminder", "err", err)
 		rt.fail(w, errInternal)
 		return

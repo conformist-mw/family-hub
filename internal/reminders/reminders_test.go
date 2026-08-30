@@ -289,11 +289,11 @@ func TestCreateRefusesARuleItCouldNotExpand(t *testing.T) {
 	s, _, _ := storeService(t, now)
 
 	if _, err := s.Create(model.Reminder{Title: "Зламане"}, "FREQ=NONSENSE",
-		time.Date(2026, 9, 1, 8, 0, 0, 0, loc)); err == nil {
+		time.Date(2026, 9, 1, 8, 0, 0, 0, loc), ""); err == nil {
 		t.Fatal("an unexpandable rule was stored")
 	}
 	if _, err := s.Create(model.Reminder{Title: "Порожнє"}, "",
-		time.Date(2026, 9, 1, 8, 0, 0, 0, loc)); err == nil {
+		time.Date(2026, 9, 1, 8, 0, 0, 0, loc), ""); err == nil {
 		t.Fatal("an empty rule was stored")
 	}
 }
@@ -304,7 +304,7 @@ func TestCreateStoresAnActiveChoreWithItsRule(t *testing.T) {
 	s, st, _ := storeService(t, now)
 
 	r, err := s.Create(model.Reminder{Title: "Кешбек", Person: "Олег"},
-		"FREQ=MONTHLY;BYMONTHDAY=1", time.Date(2026, 9, 1, 8, 0, 0, 0, loc))
+		"FREQ=MONTHLY;BYMONTHDAY=1", time.Date(2026, 9, 1, 8, 0, 0, 0, loc), "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestCreateStampsTheBackfillFloorFromTheServiceClock(t *testing.T) {
 	s, st, _ := storeService(t, now)
 
 	r, err := s.Create(model.Reminder{Title: "Кактус"}, "FREQ=DAILY",
-		time.Date(2026, 9, 1, 8, 0, 0, 0, loc))
+		time.Date(2026, 9, 1, 8, 0, 0, 0, loc), "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -671,5 +671,37 @@ func TestTheTickerStillCatchesUpTheWholeBacklog(t *testing.T) {
 	rows, _ := st.OccurrencesIn("2026-09-01T00:00", "2026-09-05T23:59")
 	if len(rows) != 5 {
 		t.Fatalf("got %d rows from a ticker pass, want the whole backlog of 5", len(rows))
+	}
+}
+
+// The same rule as appointments: a chore recorded as "Я" is unattributable,
+// and the Mini App already verified who was asking. Both domains write the
+// same free-text person field, so both resolve it the same way.
+func TestЯBecomesTheAuthorOnAChore(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
+	s, st, _ := storeService(t, now)
+
+	r, err := s.Create(model.Reminder{Title: "Кешбек", Person: "Я"},
+		"FREQ=MONTHLY;BYMONTHDAY=1", time.Date(2026, 9, 1, 8, 0, 0, 0, loc), "Оксана")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := st.GetReminder(r.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Person != "Оксана" {
+		t.Fatalf("stored person = %q, want the author", got.Person)
+	}
+
+	// And an edit does not write it back.
+	got.Person = "я"
+	if err := s.Update(got, "Олег"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	again, _ := st.GetReminder(r.ID)
+	if again.Person != "Олег" {
+		t.Fatalf("person after edit = %q, want the editor", again.Person)
 	}
 }

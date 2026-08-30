@@ -68,6 +68,25 @@ to look when picking it back up after a break.
   exporter; `deleted_at` is a soft delete, so the row survives long enough for
   such an exporter to issue a calendar delete. Nothing links appointments to
   enrollments — they are deliberately independent.
+- **`reminders`** — a recurring chore, the third domain: what it is, and
+  nothing about when. `title`, `person` (decorative free text like the
+  appointment one, routing nothing), `duration_min` for the calendar event,
+  `active`, `note`, `deleted_at`. `active_since` is the floor for the
+  catch-up backfill — without it, switching a chore back on after a month's
+  pause would invent a month of "you forgot" rows for exactly the time it was
+  deliberately off.
+- **`reminder_rules`** — how a chore repeated, and from when. A *list* of
+  versions per reminder, each with `valid_from_at` (inclusive, a datetime),
+  `dtstart` and a full RFC 5545 `rrule`. `dtstart` fixes both the time of day
+  and the phase of any `INTERVAL` — "every two weeks" is undefined without it.
+  `valid_from_at` is a datetime and not a date so a version made "from today"
+  at 10:00 cannot claim today's 08:00 occurrence, which already happened under
+  the old one.
+- **`reminder_occurrences`** — what actually came due: `due_at` (local wall
+  clock, to the minute), `status` (`pending` / `done` / `skipped`), `done_at`,
+  `done_by`, and `rule_id` recording which version produced it. Identity is
+  `UNIQUE(reminder_id, due_at)` — the whole instant, not the date, because a
+  full RRULE can put two occurrences on one day (`BYHOUR=8,20`).
 
 The schema reflects deliberate choices after a model review (see
 `review/model_review.md`): no separate `activities` dictionary, no
@@ -133,10 +152,13 @@ data/          # local SQLite (gitignored)
     by person, by course
   - `/calendar.ics` — one feed for HA's Remote Calendar: weekly RRULE events
     per lesson slot (with EXDATE holes for trainer absences), all-day absence
-    events, and one VEVENT per appointment (from 30 days back, non-cancelled;
-    UIDs are `slot-N` / `absence-N` / `appointment-N`, all suffixed `@lessons`
-    — HA keys on the uid, so the suffix must not change). Token-guarded via
-    `ICS_TOKEN`.
+    events, one VEVENT per appointment (from 30 days back, non-cancelled), and
+    one VEVENT per reminder occurrence (−30…+90 days; closed ones stay, marked
+    `✓` for done and `✗` for skipped). UIDs are `slot-N` / `absence-N` /
+    `appointment-N` / `reminder-N-<yyyymmddThhmm>`, all suffixed `@familyhub`.
+    A reminder's uid carries the whole instant rather than the date, because a
+    full RRULE can put two occurrences on one day. Calendars key on the uid, so
+    it must stay stable. Token-guarded via `ICS_TOKEN`.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.
@@ -177,10 +199,21 @@ data/          # local SQLite (gitignored)
   `internal/schedule` and `internal/payments`, shared with the web form so the
   two surfaces cannot drift on what a valid appointment, slot or payment is.
   `store.UpdateSlot` moves a slot rather than delete-and-recreate: the ICS uid
-  is `slot-<id>`, and Home Assistant keys on it.
+  is `slot-<id>`, and calendars key on it.
 - Screens: Головна (balances, recent payments, next visits), Записи (upcoming
   list, read card, edit form), Заняття (courses, their editable schedule,
-  recording a payment against one, and its reconciliation).
+  recording a payment against one, and its reconciliation), Справи (recurring
+  chores: what is still open, what is coming, and the rule behind each).
+- The Справи screen answers the daily question first — what is still open —
+  and lists the chores themselves below it. Managing a rule is rare; closing
+  this morning's item is what happens every day. Whether an occurrence can be
+  closed is decided by the server (`canMark`), not the browser, so the rule
+  that a future occurrence cannot be marked lives in one place.
+- A rule is shown as words («раз на 2 тижні, сб»), never as the stored RRULE.
+  The raw text appears in exactly one place, the form field where a rule is
+  edited or pasted. What the describer cannot express — a positional day like
+  `BYDAY=2SU` — is called «за власним правилом» rather than described wrongly:
+  a half-right sentence reads as a bug.
 - A payment is written under its course (`POST
   /mini/api/courses/{id}/payments`), never by picking one from a list: the
   course is already decided by the card that was tapped. Which question the
@@ -315,10 +348,20 @@ data/          # local SQLite (gitignored)
   because a wrong amount is worse than an absent one, and an absent one just
   means the prompt asks later.
 - Four independent tickers run as separate goroutines: `RunScheduler` for
-  lesson reminders (below), `RunDigests` (`internal/bot/digests.go`) for the
+  lesson reminders (below), `RunDigests` (`internal/bot/digests.go`),
+  `RunCostPrompts` for the above, and `RunBillingReminders` (below). All four
+  need a configured notify chat.
+- `RunDigests` hosts three wall-clock messages with **separate** gates: the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
-  prod — HA owns those summaries), `RunCostPrompts` for the above, and
-  `RunBillingReminders` (below). All four need a configured notify chat.
+  prod — HA owns those summaries), and the evening chore nag, gated by
+  `REMINDER_NAG_TIME` alone. They are split because HA can send the first and
+  cannot send the second: it reads a calendar and knows nothing about what was
+  closed. One shared flag would have left the nag permanently silent in prod,
+  the only place it matters.
+- A fifth ticker lives outside the bot entirely — `reminders.RunMaterialiser`,
+  started from `main.go`. It records what came due, which is data rather than a
+  message, so it must not answer to a notification flag or to a notify chat
+  being configured.
 - **Billing reminders** (`internal/bot/billing.go`): an hourly ticker that
   warns when a monthly course's paid period is about to run out, so the next
   month gets paid before it starts. How far ahead is the course's own
@@ -372,6 +415,69 @@ data/          # local SQLite (gitignored)
   whose last lesson falls past the horizon (or an enrollment with no slots at
   all) simply shows no date instead of a guessed one. Any lookup failure
   degrades to the bare remainder rather than dropping the balance.
+
+## Reminders
+
+Recurring chores — cashback on the 1st, the car's mileage, the cactus. Three
+tables rather than one, because a repeating chore has three separate facts and
+conflating them makes history lie.
+
+**The boundary is `now`, and it is an instant, not a date.**
+
+- `due_at <= now` is read from `reminder_occurrences`. A row written when the
+  moment arrived is *evidence* that it arrived, and it survives the rule being
+  changed afterwards.
+- `due_at > now` is expanded from the rule versions. The horizon is unbounded
+  and an edit takes effect immediately.
+
+Nothing is ever both. Splitting by date instead would have dropped a chore due
+later today: at 08:00 its row does not exist yet, so reading "today" from rows
+would lose it.
+
+**Why rules are versioned.** Schedules change. With one mutable rule, moving
+the cashback from the 1st to the 5th would recompute every past occurrence
+under today's rule, so the record of what was scheduled — and of what was
+missed — would silently change. Expanding a window cuts it at each version
+boundary, so August is expanded with August's rule.
+
+**Why occurrences are stored.** A generated occurrence proves nothing. Without
+a row, "you forgot the cashback in August" is indistinguishable from "August
+was never scheduled" the moment the schedule moves. `pending` is therefore a
+real state, not a derivation: a pending row in the past is the evidence.
+
+**Materialisation** (`internal/reminders/materialize.go`) is its own ticker,
+started from `main.go`, deliberately outside the bot: it writes the record,
+which is data rather than a message, and hanging it off `RunDigests` would have
+put data integrity behind a flag for optional notifications. Each pass
+re-expands the last 30 days and inserts rows for occurrences that lack one,
+made idempotent by the unique index — so a container down across a reminder
+catches up on its next tick, with no watermark to keep in sync. `Upcoming`
+runs a pass before reading, too: the ticker fires once a minute, and without
+that repair a just-due occurrence would fall through the gap for up to a
+minute.
+
+**Timezone.** `due_at` is wall-clock, and expansion happens in the app's zone
+(`internal/recur`), so 08:00 stays 08:00 across a DST transition rather than
+drifting an hour the way fixed UTC arithmetic does. Both transitions are
+pinned by tests: at the autumn fall-back, where a local time happens twice,
+exactly one occurrence comes back (at the second instant), so a chore set for
+03:30 fires once that day; at the spring gap, where a local time does not
+exist, it normalises forward to 04:30. Neither is rejected — there is no time
+a person can pick that the app refuses.
+
+**Known compromises**, all deliberate:
+
+- Amending a past rule version (the "I mistyped it, it was always the 5th"
+  case) does not rebuild occurrences already written under the old text. Those
+  rows are what actually came due; rewriting them is the history-editing this
+  design exists to prevent. The form offers both meanings — "from this moment"
+  appends a version, "correct the record" amends one — and defaults to the
+  former.
+- Downtime longer than the 30-day backfill window leaves those occurrences
+  unrecorded for good.
+- A future occurrence cannot be marked. A row ahead of `now` would be invisible
+  to the calendar and the list, which both project that half from the rules,
+  and orphaned the moment the rule changed. Close it when it comes due.
 
 ## Deployment
 
@@ -474,9 +580,10 @@ Not yet built; will be picked off as the project is used.
 - **Ukrainian translation.** The lesson half of the UI and the bot is still
   Russian; the appointment pages are Ukrainian. Lands as its own PR right
   after the merge — pure strings, status codes and DB values stay English.
-- **Reminders.** "Записати щось", "передати щось", one-offs without a time.
-  Not appointments: half of them have no start at all, so they get their own
-  table and bot flow rather than a stretched `appointments`.
+- ~~**Reminders.**~~ Built as recurring chores (see the section above). They
+  did get their own tables rather than a stretched `appointments`, as expected,
+  but the shape landed differently: what the family actually wanted was
+  repetition with a record of what got closed, not one-offs without a time.
 - **Bot — morning low-balance check.** A second daily push: courses with
   `remaining <= low_threshold` get listed in `TELEGRAM_NOTIFY_CHAT`
   around 08:00 Kyiv. Avoids "we ran out of paid lessons" surprises.

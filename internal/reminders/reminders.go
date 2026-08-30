@@ -53,19 +53,23 @@ func NewService(st *store.Store, loc *time.Location, logger *slog.Logger, now fu
 // Upcoming returns every occurrence in [from, to] as one timeline: instants at
 // or before now come from stored rows, later ones are projected from the rules.
 //
-// It repairs before it reads. The materialiser ticks once a minute, so an
-// occurrence that came due seconds ago has no row yet — without this it would
-// fall through the gap between "past comes from rows" and "future comes from
-// rules" and simply vanish from the calendar and the list for up to a minute.
-// The pass is idempotent and bounded, so paying for it on a read is cheaper
-// than explaining a chore that flickers.
+// It repairs before it reads, but only across the gap that repair exists to
+// close. The materialiser ticks once a minute, so an occurrence that came due
+// seconds ago has no row yet and would fall between "past comes from rows" and
+// "future comes from rules", vanishing from the calendar and the list.
+//
+// The window is two ticks, not the full backfill. /calendar.ics is public and
+// unauthenticated by default, and running the whole 30-day pass on every GET
+// meant hundreds of write transactions per request, on a route anyone can poll
+// in a loop. Catching up after real downtime is the ticker's job, not a
+// reader's.
 //
 // A failed repair is logged, not returned: a read must not fail because a
 // write did. The worst case is the same minute-long gap, which the next tick
 // closes.
 func (s *Service) Upcoming(from, to time.Time) ([]Occurrence, error) {
 	now := s.now()
-	if err := s.Materialise(now); err != nil {
+	if err := s.materialiseSince(now.Add(-repairWindow), now); err != nil {
 		s.log.Error("reminders: repair before read", "err", err)
 	}
 
@@ -185,8 +189,11 @@ func (s *Service) UnclosedOn(date time.Time) ([]Occurrence, error) {
 
 // Mark records a person's decision about one occurrence.
 //
-// Two guards, both about not inventing history: the instant must already have
-// come due, and the rules must actually have scheduled it.
+// The authority for a past instant is the ROW, not the rule. Re-deriving the
+// occurrence from the rule's current text — which this used to do — stranded
+// every row written before a rule was amended: the moment had come due, the
+// nag still listed it, and there was no longer any way to close it. The rules
+// are consulted only when no row exists yet, which is the ticker-race case.
 func (s *Service) Mark(reminderID int64, dueAt time.Time, status, by string) error {
 	if !model.ValidOccStatus(status) || status == model.OccPending {
 		return fmt.Errorf("reminders: %q is not a decision a person can record", status)
@@ -196,10 +203,24 @@ func (s *Service) Mark(reminderID int64, dueAt time.Time, status, by string) err
 	if dueAt.After(now) {
 		return ErrFutureMark
 	}
+	dueStr := dueAt.Format(model.LocalDatetime)
 
+	if row, err := s.store.GetOccurrence(reminderID, dueStr); err == nil {
+		return s.store.MarkOccurrence(reminderID, row.RuleID, dueStr, status, by)
+	} else if !store.IsNotFound(err) {
+		return err
+	}
+
+	// No row yet — the minute-ticker has not reached this instant. Fall back to
+	// the rules, and refuse anything the materialiser would never have written:
+	// without the floor, a crafted request could record a decision about a
+	// moment before the chore existed, or during a pause.
 	r, err := s.store.GetReminder(reminderID)
 	if err != nil {
 		return err
+	}
+	if dueAt.Before(s.backfillFloor(r, now)) {
+		return ErrNoSuchOccurrence
 	}
 	rules, err := s.store.RulesFor(reminderID)
 	if err != nil {
@@ -212,7 +233,7 @@ func (s *Service) Mark(reminderID int64, dueAt time.Time, status, by string) err
 	if !ok {
 		return ErrNoSuchOccurrence
 	}
-	return s.store.MarkOccurrence(reminderID, rule.ID, dueAt.Format(model.LocalDatetime), status, by)
+	return s.store.MarkOccurrence(reminderID, rule.ID, dueStr, status, by)
 }
 
 // Create stores a new chore with its first rule version. The rule is validated
@@ -243,30 +264,60 @@ func (s *Service) AddRule(reminderID int64, rrule string, dtstart, validFrom tim
 	if err := recur.Validate(rrule); err != nil {
 		return model.ReminderRule{}, err
 	}
-	return s.store.AddRule(model.ReminderRule{
+	from := validFrom.In(s.loc).Format(model.LocalDatetime)
+	next := model.ReminderRule{
 		ReminderID:  reminderID,
-		ValidFromAt: validFrom.In(s.loc).Format(model.LocalDatetime),
+		ValidFromAt: from,
 		DTStart:     dtstart.In(s.loc).Format(model.LocalDatetime),
 		RRule:       rrule,
-	})
+	}
+
+	// "From now on" is stamped to the minute, and versions are unique per
+	// instant — so saving, spotting a typo and saving again inside the same
+	// minute would collide. That second save is the person correcting the
+	// first, so it amends the version rather than failing at them.
+	existing, err := s.store.RulesFor(reminderID)
+	if err != nil {
+		return model.ReminderRule{}, err
+	}
+	for _, r := range existing {
+		if r.ValidFromAt == from {
+			next.ID = r.ID
+			return next, s.AmendRule(next)
+		}
+	}
+	return s.store.AddRule(next)
 }
 
-// AmendRule corrects a version in place — "I mistyped it, it was always the
-// 5th" — as opposed to AddRule's "from now on". It deliberately does not
-// rebuild occurrences already written under the old text: those rows are the
-// record of what actually came due, and rewriting them is the history-editing
-// the whole design refuses. The divergence is documented, not silent.
 // SetActive switches a chore on or off, stamping the backfill floor from the
 // service clock when switching on.
 func (s *Service) SetActive(id int64, active bool) error {
 	return s.store.SetReminderActive(id, active, s.now().Format(model.LocalDatetime))
 }
 
+// AmendRule corrects a version in place — "I mistyped it, it was always the
+// 5th" — as opposed to AddRule's "from now on".
+//
+// A correction says the old text never applied, so the occurrences it produced
+// and nobody answered are cleared and regenerated. Closed ones stay: they carry
+// a person's decision, and no schedule edit gets to erase that.
+
 func (s *Service) AmendRule(rule model.ReminderRule) error {
 	if err := recur.Validate(rule.RRule); err != nil {
 		return err
 	}
-	return s.store.AmendRule(rule)
+	if _, err := time.ParseInLocation(model.LocalDatetime, rule.ValidFromAt, s.loc); err != nil {
+		// A version whose start cannot be parsed makes its whole reminder
+		// unexpandable, and every surface then skips it silently and for good.
+		return fmt.Errorf("reminders: rule %d has an unreadable valid_from_at %q", rule.ID, rule.ValidFromAt)
+	}
+	// Occurrences already written under the old text would otherwise be joined
+	// by a second set under the new one — the backfill has no idea an amend
+	// happened, so it materialises up to a month of past that never came due.
+	// Dropping the still-open rows lets the backfill regenerate them
+	// consistently; closed ones stay, because they carry a person's decision
+	// and that is not ours to delete.
+	return s.store.AmendRuleAndDropOpen(rule)
 }
 
 // Preview is what the form shows before anything is saved: the next few

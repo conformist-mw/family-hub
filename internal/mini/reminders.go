@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"familyhub/internal/model"
+	"familyhub/internal/recur"
 	"familyhub/internal/reminders"
 	"familyhub/internal/store"
 	"familyhub/internal/valid"
@@ -455,15 +456,24 @@ func (rt *Router) handlePreview(w http.ResponseWriter, r *http.Request) {
 // ruleFieldError points an unexpandable rule at the field that holds it. The
 // library's message is English and about RFC 5545, so it is logged rather than
 // shown; the person gets something they can act on.
+//
+// Only recur's own rejections are mapped. Everything else — a locked database,
+// a constraint, a full disk — falls through to writeError's logged 500. It
+// used to catch those too, so a store failure was reported to the person as
+// "your recurrence rule is not understood" and left nothing in the log to
+// contradict them.
 func ruleFieldError(err error) error {
+	if err == nil {
+		return nil
+	}
 	var invalid valid.FieldError
 	if errors.As(err, &invalid) {
 		return err
 	}
-	if err == nil {
-		return nil
+	if errors.Is(err, recur.ErrBadRule) || errors.Is(err, recur.ErrEmptyRule) {
+		return valid.FieldError{Field: "rrule", Message: "правило повторення незрозуміле"}
 	}
-	return valid.FieldError{Field: "rrule", Message: "правило повторення незрозуміле"}
+	return err
 }
 
 func parseDateTime(date, clock string, loc *time.Location) (time.Time, error) {

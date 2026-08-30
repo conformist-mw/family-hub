@@ -203,6 +203,37 @@ func (s *Store) AmendRule(r model.ReminderRule) error {
 	return err
 }
 
+// AmendRuleAndDropOpen rewrites a version and clears the still-open
+// occurrences it produced, in one transaction.
+//
+// Both halves are needed together. The backfill cannot tell an amend from a
+// gap, so on its next pass it materialises the amended text across the whole
+// catch-up window — leaving the old rows in place and the record showing a
+// chore that came due twice a day for a month. Dropping the `pending` rows of
+// that version lets the pass regenerate them cleanly.
+//
+// Closed rows survive: they carry a person's decision, which no schedule edit
+// is allowed to erase.
+func (s *Store) AmendRuleAndDropOpen(r model.ReminderRule) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE reminder_rules SET valid_from_at = ?, dtstart = ?, rrule = ?
+		WHERE id = ?`, r.ValidFromAt, r.DTStart, r.RRule, r.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM reminder_occurrences
+		WHERE rule_id = ? AND status = ?`, r.ID, model.OccPending); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) GetRule(id int64) (model.ReminderRule, error) {
 	row := s.db.QueryRow(reminderRuleCols+` WHERE id = ?`, id)
 	return scanReminderRule(row)
@@ -234,19 +265,37 @@ func (s *Store) GetOccurrence(reminderID int64, dueAt string) (model.ReminderOcc
 	return scanReminderOccurrence(row)
 }
 
-// MaterialiseOccurrence records that an instant came due, as `pending`.
+// MaterialiseOccurrences writes a whole pass in one transaction. The
+// start-up catch-up can cover thirty days across every chore, and one implicit
+// transaction per row means one WAL write lock and one fsync each.
 //
-// On conflict it does NOTHING, and that is the important half: the materialiser
-// runs every minute over a rolling window, so it re-visits instants that were
-// closed hours ago. DO UPDATE here would reset a finished chore back to
-// pending on the next tick.
-func (s *Store) MaterialiseOccurrence(reminderID, ruleID int64, dueAt string) error {
-	_, err := s.db.Exec(`
+// Conflict behaviour is the single-row one: DO NOTHING, so a pass never
+// reopens something already closed.
+func (s *Store) MaterialiseOccurrences(rows []model.ReminderOccurrence) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
 		INSERT INTO reminder_occurrences (reminder_id, rule_id, due_at, status)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT (reminder_id, due_at) DO NOTHING`,
-		reminderID, ruleID, dueAt, model.OccPending)
-	return err
+		ON CONFLICT (reminder_id, due_at) DO NOTHING`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, o := range rows {
+		if _, err := stmt.Exec(o.ReminderID, o.RuleID, o.DueAt, model.OccPending); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // MarkOccurrence records a person's decision, and unlike the materialiser it

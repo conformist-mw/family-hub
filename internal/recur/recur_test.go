@@ -2,6 +2,7 @@ package recur
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -252,5 +253,65 @@ func TestExpandSurfacesTheParseErrorInsteadOfEmptyResults(t *testing.T) {
 	}
 	if occ != nil {
 		t.Fatalf("got %v alongside the error, want nil", dates(occ))
+	}
+}
+
+// A rule no window can bound is refused at the door rather than stored and
+// left to fail on every later read — a stored one would drop its chore from
+// the calendar silently, since callers log an expansion error and carry on.
+func TestFrequenciesTooDenseToExpandAreRefused(t *testing.T) {
+	for _, rule := range []string{"FREQ=SECONDLY", "FREQ=MINUTELY", "RRULE:FREQ=SECONDLY;INTERVAL=30"} {
+		if err := Validate(rule); err == nil {
+			t.Fatalf("%q was accepted", rule)
+		} else if !errors.Is(err, ErrBadRule) {
+			t.Fatalf("%q rejected as %v, want ErrBadRule", rule, err)
+		}
+	}
+	// HOURLY stays allowed: the cap bounds it, and a few thousand entries over
+	// the feed's window is legitimate.
+	if err := Validate("FREQ=HOURLY"); err != nil {
+		t.Fatalf("FREQ=HOURLY refused: %v", err)
+	}
+}
+
+// The cap has to stop the allocation, not measure it afterwards. Asking the
+// library for the whole window first would build the pathological slice before
+// rejecting it — which is what this code used to do.
+func TestTheCapBoundsMemoryRatherThanReportingIt(t *testing.T) {
+	loc := kyiv(t)
+	from := at(loc, 2026, time.January, 1, 0, 0)
+	to := from.AddDate(2, 0, 0) // two years of hourly occurrences: ~17500
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := Expand(from, "FREQ=HOURLY", from, to)
+	runtime.ReadMemStats(&after)
+
+	if err == nil {
+		t.Fatal("a rule past the cap expanded without error")
+	}
+	if !errors.Is(err, ErrBadRule) {
+		t.Fatalf("err = %v, want ErrBadRule", err)
+	}
+	// The bound is maxOccurrences time.Times plus slice growth. Anything near
+	// the full two-year expansion means the cap ran after the allocation.
+	const budget = 4 << 20 // 4 MiB
+	if used := after.TotalAlloc - before.TotalAlloc; used > budget {
+		t.Fatalf("allocated %d bytes past the cap, budget %d — the fuse runs too late", used, budget)
+	}
+}
+
+// Every rejection about a rule's text carries ErrBadRule, so an HTTP layer can
+// tell "the person's rule is wrong" from "our database failed" without
+// matching on strings.
+func TestRuleRejectionsAreDistinguishableFromOtherFailures(t *testing.T) {
+	for _, rule := range []string{"NOT A RULE", "FREQ=NONSENSE", "FREQ=SECONDLY"} {
+		if err := Validate(rule); !errors.Is(err, ErrBadRule) {
+			t.Fatalf("%q -> %v, want ErrBadRule", rule, err)
+		}
+	}
+	if err := Validate(""); !errors.Is(err, ErrEmptyRule) {
+		t.Fatalf("empty rule -> %v, want ErrEmptyRule", err)
 	}
 }

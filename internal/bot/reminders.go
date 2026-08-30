@@ -86,9 +86,14 @@ func (b *Bot) onChoreTap(c tele.Context) error {
 		return nil
 	}
 
-	// A stale keyboard — someone else closed it, or this message was left open
-	// from an earlier tap. Say so instead of silently re-writing the record.
-	if prev, err := b.store.GetOccurrence(id, dueAt.Format(model.LocalDatetime)); err == nil && prev.Closed() {
+	// A stale keyboard tapped again with the SAME answer — someone else closed
+	// it, or this message was left open from an earlier tap. Say so instead of
+	// re-writing the record for no reason.
+	//
+	// A different answer goes through: tapping ✓ by mistake has to be fixable
+	// from the group, not only from the Mini App.
+	if prev, err := b.store.GetOccurrence(id, dueAt.Format(model.LocalDatetime)); err == nil &&
+		prev.Status == status {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Вже закрито"})
 		return b.redrawNag(c, dueAt)
 	}

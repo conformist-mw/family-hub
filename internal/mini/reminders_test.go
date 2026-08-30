@@ -240,28 +240,29 @@ func TestUpdatingAChore(t *testing.T) {
 	}
 }
 
-// Pausing goes through the switch, which also stamps the backfill floor; a
-// plain field write would resume a chore without one and invent history.
-func TestPausingAChoreStampsTheBackfillFloor(t *testing.T) {
+// Pausing goes through the switch, which also stamps the backfill floor. The
+// chore has to be seeded with a genuinely OLD floor: created at testNow, the
+// expected value after a resume equals the creation stamp, and the assertion
+// cannot tell "stamped correctly" from "never moved".
+func TestResumingAChoreMovesTheBackfillFloor(t *testing.T) {
 	st := testStore(t)
 	h := reminderRouter(t, st)
-	id := createChore(t, h, "Кактус", "FREQ=DAILY", "2026-08-01", "08:00")
+	id := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-01-01T08:00", "2026-01-01T00:00")
 
-	off := false
+	off, on := false, true
 	if rec := do(t, h, http.MethodPut, "/mini/api/reminders/"+itoa(id), map[string]any{
 		"title": "Кактус", "durationMin": 15, "active": &off,
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("pause = %d: %s", rec.Code, rec.Body.String())
 	}
-	rem, err := st.GetReminder(id)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
+	rem, _ := st.GetReminder(id)
 	if rem.Active {
 		t.Fatal("the chore is still on")
 	}
+	if rem.ActiveSince != "2026-01-01T00:00" {
+		t.Fatalf("pausing moved the floor to %q", rem.ActiveSince)
+	}
 
-	on := true
 	if rec := do(t, h, http.MethodPut, "/mini/api/reminders/"+itoa(id), map[string]any{
 		"title": "Кактус", "durationMin": 15, "active": &on,
 	}); rec.Code != http.StatusOK {
@@ -271,10 +272,30 @@ func TestPausingAChoreStampsTheBackfillFloor(t *testing.T) {
 	if !rem.Active {
 		t.Fatal("the chore did not come back on")
 	}
-	// testNow, not the machine clock: the floor the materialiser compares
-	// against has to come from the same clock the service reasons with.
 	if rem.ActiveSince != "2026-08-06T12:00" {
-		t.Fatalf("active_since = %q, want the service clock", rem.ActiveSince)
+		t.Fatalf("active_since = %q, want the service clock at resume", rem.ActiveSince)
+	}
+}
+
+// Editing a title must not touch the switch. Re-stamping the floor on every
+// edit would erase a chore's pending history each time someone fixed a typo.
+func TestEditingAChoreLeavesTheBackfillFloorAlone(t *testing.T) {
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	id := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-01-01T08:00", "2026-01-01T00:00")
+
+	on := true
+	if rec := do(t, h, http.MethodPut, "/mini/api/reminders/"+itoa(id), map[string]any{
+		"title": "Полити кактус", "durationMin": 15, "active": &on, // already active
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("edit = %d: %s", rec.Code, rec.Body.String())
+	}
+	rem, _ := st.GetReminder(id)
+	if rem.Title != "Полити кактус" {
+		t.Fatalf("title = %q", rem.Title)
+	}
+	if rem.ActiveSince != "2026-01-01T00:00" {
+		t.Fatalf("editing an active chore re-stamped the floor to %q", rem.ActiveSince)
 	}
 }
 
@@ -396,7 +417,9 @@ func TestAmendingAnUnknownVersionIsNotFound(t *testing.T) {
 func TestClosingAnOccurrence(t *testing.T) {
 	st := testStore(t)
 	h := reminderRouter(t, st)
-	id := createChore(t, h, "Кактус", "FREQ=DAILY", "2026-08-01", "08:00")
+	// A chore that has been running a while: one created just now has no past,
+	// and closing a moment from before it existed is refused on purpose.
+	id := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-08-01T08:00", "2026-07-01T00:00")
 
 	rec := do(t, h, http.MethodPost, "/mini/api/reminders/"+itoa(id)+"/occurrences", map[string]any{
 		"dueAt": "2026-08-05T08:00", "status": model.OccDone,
@@ -416,8 +439,9 @@ func TestClosingAnOccurrence(t *testing.T) {
 // A row in the future would be invisible to the calendar, which projects that
 // half from the rules.
 func TestClosingSomethingThatHasNotHappenedIsRefused(t *testing.T) {
-	h := reminderRouter(t, testStore(t))
-	id := createChore(t, h, "Кактус", "FREQ=DAILY", "2026-08-01", "08:00")
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	id := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-08-01T08:00", "2026-07-01T00:00")
 
 	rec := do(t, h, http.MethodPost, "/mini/api/reminders/"+itoa(id)+"/occurrences", map[string]any{
 		"dueAt": "2026-08-10T08:00", "status": model.OccDone,
@@ -428,8 +452,9 @@ func TestClosingSomethingThatHasNotHappenedIsRefused(t *testing.T) {
 }
 
 func TestClosingAnInstantTheRulesNeverScheduledIsNotFound(t *testing.T) {
-	h := reminderRouter(t, testStore(t))
-	id := createChore(t, h, "Кешбек", "FREQ=MONTHLY;BYMONTHDAY=1", "2026-08-01", "08:00")
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	id := seedExistingChore(t, st, "Кешбек", "FREQ=MONTHLY;BYMONTHDAY=1", "2026-08-01T08:00", "2026-07-01T00:00")
 
 	rec := do(t, h, http.MethodPost, "/mini/api/reminders/"+itoa(id)+"/occurrences", map[string]any{
 		"dueAt": "2026-08-03T08:00", "status": model.OccDone,
@@ -440,8 +465,9 @@ func TestClosingAnInstantTheRulesNeverScheduledIsNotFound(t *testing.T) {
 }
 
 func TestAnUnknownStatusIsRefused(t *testing.T) {
-	h := reminderRouter(t, testStore(t))
-	id := createChore(t, h, "Кактус", "FREQ=DAILY", "2026-08-01", "08:00")
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	id := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-08-01T08:00", "2026-07-01T00:00")
 
 	rec := do(t, h, http.MethodPost, "/mini/api/reminders/"+itoa(id)+"/occurrences", map[string]any{
 		"dueAt": "2026-08-05T08:00", "status": "forgotten",
@@ -555,5 +581,20 @@ func TestNothingRecordedFallsOutOfTheList(t *testing.T) {
 			t.Fatalf("occurrence %s is pending in the store but before the list's oldest (%s)",
 				r.DueAt, oldest)
 		}
+	}
+}
+
+// The floor the service enforces has to be visible through the API too: a
+// decision about a moment from before the chore existed is invented history.
+func TestClosingAMomentFromBeforeTheChoreExistedIsRefused(t *testing.T) {
+	st := testStore(t)
+	h := reminderRouter(t, st)
+	id := seedExistingChore(t, st, "Кактус", "FREQ=DAILY", "2026-08-01T08:00", "2026-08-04T00:00")
+
+	rec := do(t, h, http.MethodPost, "/mini/api/reminders/"+itoa(id)+"/occurrences", map[string]any{
+		"dueAt": "2026-08-02T08:00", "status": model.OccDone,
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404: %s", rec.Code, rec.Body.String())
 	}
 }

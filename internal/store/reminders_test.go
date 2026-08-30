@@ -40,6 +40,20 @@ func seedReminder(t *testing.T, st *store.Store, title, rrule string) model.Remi
 	return r
 }
 
+// materialise writes occurrences the way a real pass does — one transaction,
+// DO NOTHING on conflict — so these tests exercise the code production runs
+// rather than a single-row variant kept alive only for them.
+func materialise(t *testing.T, st *store.Store, reminderID, ruleID int64, dueAt ...string) {
+	t.Helper()
+	rows := make([]model.ReminderOccurrence, 0, len(dueAt))
+	for _, d := range dueAt {
+		rows = append(rows, model.ReminderOccurrence{ReminderID: reminderID, RuleID: ruleID, DueAt: d})
+	}
+	if err := st.MaterialiseOccurrences(rows); err != nil {
+		t.Fatalf("materialise %v: %v", dueAt, err)
+	}
+}
+
 func firstRule(t *testing.T, st *store.Store, reminderID int64) model.ReminderRule {
 	t.Helper()
 	rules, err := st.RulesFor(reminderID)
@@ -313,16 +327,12 @@ func TestMaterialisingNeverReopensAClosedOccurrence(t *testing.T) {
 	rule := firstRule(t, st, r.ID)
 	const due = "2026-09-01T08:00"
 
-	if err := st.MaterialiseOccurrence(r.ID, rule.ID, due); err != nil {
-		t.Fatalf("materialise: %v", err)
-	}
+	materialise(t, st, r.ID, rule.ID, due)
 	if err := st.MarkOccurrence(r.ID, rule.ID, due, model.OccDone, "Олег"); err != nil {
 		t.Fatalf("mark: %v", err)
 	}
 	// The next tick comes round again.
-	if err := st.MaterialiseOccurrence(r.ID, rule.ID, due); err != nil {
-		t.Fatalf("materialise again: %v", err)
-	}
+	materialise(t, st, r.ID, rule.ID, due)
 
 	got, err := st.GetOccurrence(r.ID, due)
 	if err != nil {
@@ -342,9 +352,7 @@ func TestMaterialisingTwiceStoresOneRow(t *testing.T) {
 	rule := firstRule(t, st, r.ID)
 
 	for range 3 {
-		if err := st.MaterialiseOccurrence(r.ID, rule.ID, "2026-09-01T08:00"); err != nil {
-			t.Fatalf("materialise: %v", err)
-		}
+		materialise(t, st, r.ID, rule.ID, "2026-09-01T08:00")
 	}
 	var n int
 	if err := database.QueryRow(`SELECT count(*) FROM reminder_occurrences`).Scan(&n); err != nil {
@@ -362,9 +370,7 @@ func TestTwoInstantsOnOneDateStayApart(t *testing.T) {
 	rule := firstRule(t, st, r.ID)
 
 	for _, due := range []string{"2026-09-01T08:00", "2026-09-01T20:00"} {
-		if err := st.MaterialiseOccurrence(r.ID, rule.ID, due); err != nil {
-			t.Fatalf("materialise %s: %v", due, err)
-		}
+		materialise(t, st, r.ID, rule.ID, due)
 	}
 	occ, err := st.OccurrencesIn("2026-09-01T00:00", "2026-09-01T23:59")
 	if err != nil {
@@ -435,9 +441,7 @@ func TestOnlyPendingOccurrencesReachTheNag(t *testing.T) {
 	done := "2026-09-02T08:00"
 	skipped := "2026-09-03T08:00"
 	for _, d := range []string{open, done, skipped} {
-		if err := st.MaterialiseOccurrence(r.ID, rule.ID, d); err != nil {
-			t.Fatalf("materialise %s: %v", d, err)
-		}
+		materialise(t, st, r.ID, rule.ID, d)
 	}
 	if err := st.MarkOccurrence(r.ID, rule.ID, done, model.OccDone, "Олег"); err != nil {
 		t.Fatalf("mark done: %v", err)
@@ -461,9 +465,7 @@ func TestOccurrencesCarryTheirReminderDetails(t *testing.T) {
 	st, _ := reminderStore(t)
 	r := seedReminder(t, st, "Кешбек", "FREQ=DAILY")
 	rule := firstRule(t, st, r.ID)
-	if err := st.MaterialiseOccurrence(r.ID, rule.ID, "2026-09-01T08:00"); err != nil {
-		t.Fatalf("materialise: %v", err)
-	}
+	materialise(t, st, r.ID, rule.ID, "2026-09-01T08:00")
 
 	occ, _ := st.OccurrencesIn("2026-09-01T00:00", "2026-09-01T23:59")
 	if len(occ) != 1 {
@@ -480,9 +482,7 @@ func TestOccurrencesOfADeletedReminderAreHidden(t *testing.T) {
 	st, _ := reminderStore(t)
 	r := seedReminder(t, st, "Зникає", "FREQ=DAILY")
 	rule := firstRule(t, st, r.ID)
-	if err := st.MaterialiseOccurrence(r.ID, rule.ID, "2026-09-01T08:00"); err != nil {
-		t.Fatalf("materialise: %v", err)
-	}
+	materialise(t, st, r.ID, rule.ID, "2026-09-01T08:00")
 	if err := st.SoftDeleteReminder(r.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}

@@ -38,6 +38,11 @@ func TestAChoreDueLaterTodayIsStillOnTheTimeline(t *testing.T) {
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
 	s, st, database := storeService(t, now)
 	seedChore(t, st, database, "Ліки", "FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0;BYSECOND=0", "2026-09-05T08:00")
+	// The ticker owns catching up; a read only repairs the last couple of
+	// minutes. In production this pass has run long before anyone looks.
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
 
 	occ := upcomingDue(t, s,
 		time.Date(2026, 9, 5, 0, 0, 0, 0, loc), time.Date(2026, 9, 5, 23, 59, 0, 0, loc))
@@ -358,5 +363,313 @@ func TestPreviewRefusesABrokenRule(t *testing.T) {
 	s, _, _ := storeService(t, now)
 	if _, err := s.Preview("FREQ=NONSENSE", time.Date(2026, 8, 1, 8, 0, 0, 0, loc), 3); err == nil {
 		t.Fatal("preview accepted a broken rule")
+	}
+}
+
+// --- what the adversarial review found ---
+
+// After an amend, a decision already recorded must stay changeable. Mark used
+// to re-derive the instant from the rule's CURRENT text, so a closed row from
+// before the correction could no longer be touched — done could never become
+// skipped again. The authority for a past instant is the row.
+func TestAClosedOccurrenceStaysChangeableAfterItsRuleIsAmended(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кешбек", "FREQ=DAILY", "2026-09-05T08:00")
+
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+	closed := time.Date(2026, 9, 6, 8, 0, 0, 0, loc)
+	if err := s.Mark(r.ID, closed, model.OccDone, "Олег"); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+
+	// The chore was mistyped: it was always 09:00.
+	rules, _ := st.RulesFor(r.ID)
+	rules[0].DTStart = "2026-09-05T09:00"
+	if err := s.AmendRule(rules[0]); err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+
+	// 08:00 is no longer an instant any rule schedules, but the row is there
+	// and carries a decision, so changing one's mind has to keep working.
+	if err := s.Mark(r.ID, closed, model.OccSkipped, "Оксана"); err != nil {
+		t.Fatalf("a recorded decision became unchangeable after an amend: %v", err)
+	}
+	got, _ := st.GetOccurrence(r.ID, closed.Format(model.LocalDatetime))
+	if got.Status != model.OccSkipped || got.DoneBy != "Оксана" {
+		t.Fatalf("occurrence = %+v", got)
+	}
+}
+
+// The other half of the same correction: an open row under the old text must
+// NOT survive, or the backfill adds the corrected occurrences beside it and
+// the record shows the chore coming due twice a day.
+func TestAmendingClearsTheOpenRowsItCorrects(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кешбек", "FREQ=DAILY", "2026-09-05T08:00")
+
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+	rules, _ := st.RulesFor(r.ID)
+	rules[0].DTStart = "2026-09-05T09:00"
+	if err := s.AmendRule(rules[0]); err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+
+	if _, err := st.GetOccurrence(r.ID, "2026-09-06T08:00"); !store.IsNotFound(err) {
+		t.Fatalf("an open row under the corrected text survived: %v", err)
+	}
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise after amend: %v", err)
+	}
+	if _, err := st.GetOccurrence(r.ID, "2026-09-06T09:00"); err != nil {
+		t.Fatalf("the corrected occurrence was not regenerated: %v", err)
+	}
+}
+
+// The backfill cannot tell an amend from a gap, so without clearing the open
+// rows it materialises the amended text across the whole catch-up window and
+// the record shows the chore coming due twice a day.
+func TestAmendingDoesNotInventASecondPast(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кешбек", "FREQ=DAILY", "2026-09-05T08:00")
+
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+	rules, _ := st.RulesFor(r.ID)
+	rules[0].DTStart = "2026-09-05T09:00"
+	if err := s.AmendRule(rules[0]); err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise after amend: %v", err)
+	}
+
+	occ, err := st.OccurrencesIn("2026-09-01T00:00", "2026-09-30T23:59")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	perDay := map[string]int{}
+	for _, o := range occ {
+		perDay[o.DueAt[:10]]++
+	}
+	for day, n := range perDay {
+		if n != 1 {
+			t.Fatalf("%s carries %d occurrences of a daily chore after an amend: %v",
+				day, n, perDay)
+		}
+	}
+}
+
+// A decision already recorded is not the schedule's to erase.
+func TestAmendingKeepsClosedOccurrences(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кешбек", "FREQ=DAILY", "2026-09-05T08:00")
+
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+	closed := time.Date(2026, 9, 7, 8, 0, 0, 0, loc)
+	if err := s.Mark(r.ID, closed, model.OccDone, "Олег"); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+
+	rules, _ := st.RulesFor(r.ID)
+	rules[0].DTStart = "2026-09-05T09:00"
+	if err := s.AmendRule(rules[0]); err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+
+	got, err := st.GetOccurrence(r.ID, closed.Format(model.LocalDatetime))
+	if err != nil {
+		t.Fatalf("the closed occurrence was deleted by an amend: %v", err)
+	}
+	if got.Status != model.OccDone || got.DoneBy != "Олег" {
+		t.Fatalf("decision lost: %+v", got)
+	}
+}
+
+// Without a floor, a crafted request could record a decision about a moment
+// before the chore existed, or during a pause — exactly the invented history
+// the design refuses everywhere else.
+func TestMarkingBeforeTheChoreExistedIsRefused(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кешбек", "FREQ=DAILY", "2026-09-05T08:00")
+	if _, err := database.Exec(
+		`UPDATE reminders SET active_since = ? WHERE id = ?`, "2026-09-05T00:00", r.ID); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// A real instant of the rule, but from before the chore was switched on.
+	err := s.Mark(r.ID, time.Date(2026, 8, 20, 8, 0, 0, 0, loc), model.OccDone, "Олег")
+	if !errors.Is(err, ErrNoSuchOccurrence) {
+		t.Fatalf("err = %v, want ErrNoSuchOccurrence", err)
+	}
+}
+
+// A version whose start cannot be parsed makes its whole reminder
+// unexpandable, and every surface then skips it silently and for good.
+func TestAmendingWithAnUnreadableStartIsRefused(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кешбек", "FREQ=DAILY", "2026-09-05T08:00")
+
+	rules, _ := st.RulesFor(r.ID)
+	rules[0].ValidFromAt = "not-a-datetime"
+	if err := s.AmendRule(rules[0]); err == nil {
+		t.Fatal("an unreadable valid_from_at was stored")
+	}
+	// And the reminder still expands.
+	if _, err := s.Upcoming(now.AddDate(0, 0, -5), now.AddDate(0, 0, 5)); err != nil {
+		t.Fatalf("reminder broken after the refused amend: %v", err)
+	}
+}
+
+// The store falls back to the machine clock when nothing is passed, so if the
+// service stops stamping this, every test's backfill floor silently becomes
+// "real now" and the fixtures stop being exercised at all. That failure is
+// invisible — the suite goes green for the wrong reason.
+func TestCreateStampsTheBackfillFloorFromTheServiceClock(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
+	s, st, _ := storeService(t, now)
+
+	r, err := s.Create(model.Reminder{Title: "Кактус"}, "FREQ=DAILY",
+		time.Date(2026, 9, 1, 8, 0, 0, 0, loc))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := st.GetReminder(r.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ActiveSince != "2026-09-05T12:00" {
+		t.Fatalf("active_since = %q, want the injected clock", got.ActiveSince)
+	}
+}
+
+// The nag asks about one day. Tomorrow's midnight chore belongs to tomorrow.
+func TestUnclosedOnStopsBeforeMidnight(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 5, 21, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	// Daily at midnight: the 5th's and the 6th's are both in the window.
+	seedChore(t, st, database, "Опівнічна", "FREQ=DAILY", "2026-09-01T00:00")
+	if err := s.Materialise(time.Date(2026, 9, 6, 1, 0, 0, 0, loc)); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+
+	open, err := s.UnclosedOn(now)
+	if err != nil {
+		t.Fatalf("unclosed: %v", err)
+	}
+	for _, o := range open {
+		if got := o.Due.Format("2006-01-02"); got != "2026-09-05" {
+			t.Fatalf("the nag for the 5th listed %s", o.Due.Format(model.LocalDatetime))
+		}
+	}
+	if len(open) != 1 {
+		t.Fatalf("got %d open items for one day, want 1", len(open))
+	}
+}
+
+// An unreadable active_since must fall back to the rolling window — the
+// conservative half. Falling back to the zero time would backfill from year 1.
+func TestAnUnreadableBackfillFloorFallsBackToTheWindow(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	r := seedChore(t, st, database, "Кактус", "FREQ=DAILY", "2020-01-01T08:00")
+	if _, err := database.Exec(
+		`UPDATE reminders SET active_since = 'сміття' WHERE id = ?`, r.ID); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+	rows, err := st.OccurrencesIn("1900-01-01T00:00", "2026-12-31T23:59")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("nothing was written at all")
+	}
+	oldest, err := time.ParseInLocation(model.LocalDatetime, rows[0].DueAt, loc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if oldest.Before(now.Add(-BackfillWindow)) {
+		t.Fatalf("backfilled from %s, past the %v window — the fallback is not the window",
+			rows[0].DueAt, BackfillWindow)
+	}
+}
+
+// A read repairs the gap between an occurrence coming due and the ticker
+// writing it — and nothing more. /calendar.ics is public and unauthenticated
+// by default, so a read that ran the whole backfill meant hundreds of write
+// transactions per request on a route anyone can poll in a loop.
+func TestAReadRepairsTheTickerGapAndNotTheBacklog(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	seedChore(t, st, database, "Кактус", "FREQ=MINUTELY;INTERVAL=1", "2026-09-05T00:00")
+	// MINUTELY is refused by the rule validator, so build the same shape from
+	// a rule that is allowed: hourly, which puts one occurrence just behind
+	// `now` and many further back.
+	if _, err := database.Exec(
+		`UPDATE reminder_rules SET rrule = 'FREQ=HOURLY', dtstart = '2026-09-01T00:00'`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if _, err := s.Upcoming(now.AddDate(0, 0, -30), now.AddDate(0, 0, 1)); err != nil {
+		t.Fatalf("upcoming: %v", err)
+	}
+
+	rows, err := st.OccurrencesIn("2026-08-01T00:00", "2026-09-05T23:59")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Only what fell inside the repair window: 11:00 and 12:00 are the two
+	// hourly instants within two minutes of noon... in fact only 12:00 is.
+	for _, o := range rows {
+		due, _ := time.ParseInLocation(model.LocalDatetime, o.DueAt, loc)
+		if due.Before(now.Add(-repairWindow)) {
+			t.Fatalf("a read materialised %s, older than the %v repair window",
+				o.DueAt, repairWindow)
+		}
+	}
+	if len(rows) == 0 {
+		t.Fatal("the read repaired nothing at all — the ticker gap is left open")
+	}
+}
+
+// The ticker still catches up the full window; only the read is narrow.
+func TestTheTickerStillCatchesUpTheWholeBacklog(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
+	s, st, database := storeService(t, now)
+	seedChore(t, st, database, "Кактус", "FREQ=DAILY", "2026-09-01T08:00")
+
+	if err := s.Materialise(now); err != nil {
+		t.Fatalf("materialise: %v", err)
+	}
+	rows, _ := st.OccurrencesIn("2026-09-01T00:00", "2026-09-05T23:59")
+	if len(rows) != 5 {
+		t.Fatalf("got %d rows from a ticker pass, want the whole backlog of 5", len(rows))
 	}
 }

@@ -72,20 +72,84 @@ func TestATitleWithMarkupIsEscaped(t *testing.T) {
 	}
 }
 
-// The invariant this feature was nearly shipped without: the chore nag must
-// run in prod, where NOTIFICATIONS_ENABLED is off because Home Assistant sends
-// the appointment summaries. HA cannot send this one — it reads a calendar and
-// knows nothing about what was closed.
-func TestTheChoreNagDoesNotAnswerToTheAppointmentDigestFlag(t *testing.T) {
-	svc := &reminders.Service{}
-
-	prod := Config{NotifyChat: -100, NotificationsEnabled: false,
-		ReminderNagTime: "20:00", Reminders: svc}
-	if !prod.reminderNagEnabled() {
-		t.Fatal("the nag is silent in the production shape")
+// The invariant this feature was nearly shipped without, tested where it can
+// actually break: the tick decision, not a helper beside it. In prod
+// NOTIFICATIONS_ENABLED is off, because Home Assistant sends the appointment
+// summaries; HA cannot send this one, since it reads a calendar and knows
+// nothing about what was closed.
+func TestTheChoreNagFiresWithTheAppointmentDigestsSwitchedOff(t *testing.T) {
+	prod := Config{
+		NotifyChat:           -100,
+		NotificationsEnabled: false, // the production shape
+		DailyDigestTime:      "08:00",
+		WeeklyDigestDOW:      0,
+		WeeklyDigestTime:     "18:00",
+		ReminderNagTime:      "20:00",
+		Reminders:            &reminders.Service{},
 	}
-	if prod.appointmentDigestsEnabled() {
-		t.Fatal("the appointment digests turned themselves on")
+	at := func(hh, mm int) time.Time { return time.Date(2026, 9, 6, hh, mm, 0, 0, time.UTC) }
+
+	daily, weekly, nag := prod.dueThisMinute(at(20, 0), "", "", "")
+	if !nag {
+		t.Fatal("the chore nag did not fire in the production shape")
+	}
+	if daily || weekly {
+		t.Fatalf("an appointment digest fired with notifications off: daily=%v weekly=%v", daily, weekly)
+	}
+
+	// 6 Sep 2026 is a Sunday, so the weekly digest's day matches — it must
+	// still stay silent on the flag alone.
+	if _, weekly, _ = prod.dueThisMinute(at(18, 0), "", "", ""); weekly {
+		t.Fatal("the weekly digest fired with notifications off")
+	}
+	if daily, _, _ = prod.dueThisMinute(at(8, 0), "", "", ""); daily {
+		t.Fatal("the daily digest fired with notifications off")
+	}
+}
+
+// Each message goes out once a day, and one having gone must not silence the
+// others.
+func TestEachMessageLatchesSeparatelyPerDay(t *testing.T) {
+	cfg := Config{
+		NotifyChat: -100, NotificationsEnabled: true,
+		DailyDigestTime: "08:00", WeeklyDigestDOW: 0, WeeklyDigestTime: "08:00",
+		ReminderNagTime: "08:00", Reminders: &reminders.Service{},
+	}
+	now := time.Date(2026, 9, 6, 8, 0, 0, 0, time.UTC) // a Sunday
+	today := "2026-09-06"
+
+	daily, weekly, nag := cfg.dueThisMinute(now, "", "", "")
+	if !daily || !weekly || !nag {
+		t.Fatalf("first tick: daily=%v weekly=%v nag=%v, want all", daily, weekly, nag)
+	}
+	if daily, weekly, nag = cfg.dueThisMinute(now, today, today, today); daily || weekly || nag {
+		t.Fatalf("re-fired within the same day: daily=%v weekly=%v nag=%v", daily, weekly, nag)
+	}
+	// Only the nag has gone out: the digests must still be due.
+	if daily, weekly, nag = cfg.dueThisMinute(now, "", "", today); !daily || !weekly || nag {
+		t.Fatalf("latches are not independent: daily=%v weekly=%v nag=%v", daily, weekly, nag)
+	}
+}
+
+func TestNothingFiresAtTheWrongMinute(t *testing.T) {
+	cfg := Config{
+		NotifyChat: -100, NotificationsEnabled: true,
+		DailyDigestTime: "08:00", WeeklyDigestDOW: 0, WeeklyDigestTime: "18:00",
+		ReminderNagTime: "20:00", Reminders: &reminders.Service{},
+	}
+	for _, at := range []time.Time{
+		time.Date(2026, 9, 6, 7, 59, 0, 0, time.UTC),
+		time.Date(2026, 9, 6, 20, 1, 0, 0, time.UTC),
+		time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC),
+	} {
+		if d, w, n := cfg.dueThisMinute(at, "", "", ""); d || w || n {
+			t.Fatalf("%s fired something: daily=%v weekly=%v nag=%v", at.Format("15:04"), d, w, n)
+		}
+	}
+	// The weekly one also has to respect the day, not just the time.
+	monday := time.Date(2026, 9, 7, 18, 0, 0, 0, time.UTC)
+	if _, w, _ := cfg.dueThisMinute(monday, "", "", ""); w {
+		t.Fatal("the weekly digest fired on the wrong weekday")
 	}
 }
 

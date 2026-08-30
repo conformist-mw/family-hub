@@ -21,6 +21,12 @@ const BackfillWindow = 30 * 24 * time.Hour
 // so anything coarser would leave a row missing for part of its own day.
 const materialiseTick = time.Minute
 
+// repairWindow is how far back a READ repairs. Two ticks: enough to cover the
+// gap between an occurrence coming due and the ticker writing it, and nothing
+// more. Reads are public and frequent; catching up after downtime belongs to
+// the ticker, which is neither.
+const repairWindow = 2 * materialiseTick
+
 // Materialise writes a row for every occurrence that has come due and does not
 // have one yet, across every active reminder.
 //
@@ -34,7 +40,15 @@ const materialiseTick = time.Minute
 // pass continues, because a single unparseable rule must not freeze the
 // history of every other chore.
 func (s *Service) Materialise(now time.Time) error {
+	return s.materialiseSince(now.Add(-BackfillWindow), now)
+}
+
+// materialiseSince is the pass over an explicit window. The floor is still
+// clamped per reminder by active_since, so a wide window cannot reach back
+// past the moment a chore was switched on.
+func (s *Service) materialiseSince(since, now time.Time) error {
 	now = now.In(s.loc)
+	since = since.In(s.loc)
 	reminders, err := s.store.ActiveReminders()
 	if err != nil {
 		return err
@@ -52,12 +66,16 @@ func (s *Service) Materialise(now time.Time) error {
 		return err
 	}
 
+	var pending []model.ReminderOccurrence
 	for _, r := range reminders {
 		rules := rulesByReminder[r.ID]
 		if len(rules) == 0 {
 			continue
 		}
 		from := s.backfillFloor(r, now)
+		if since.After(from) {
+			from = since
+		}
 		if from.After(now) {
 			continue
 		}
@@ -67,18 +85,21 @@ func (s *Service) Materialise(now time.Time) error {
 			continue
 		}
 		for _, o := range occ {
-			if err := s.store.MaterialiseOccurrence(o.ReminderID, o.RuleID, o.Due.Format(model.LocalDatetime)); err != nil {
-				s.log.Error("reminders: materialise occurrence",
-					"reminder_id", o.ReminderID, "due_at", o.Due, "err", err)
-			}
+			pending = append(pending, model.ReminderOccurrence{
+				ReminderID: o.ReminderID, RuleID: o.RuleID,
+				DueAt: o.Due.Format(model.LocalDatetime),
+			})
 		}
 	}
-	return nil
+	// One transaction for the whole pass rather than one per row: the start-up
+	// catch-up can span thirty days across every chore, and an implicit
+	// transaction each means one WAL write lock and one fsync per occurrence.
+	return s.store.MaterialiseOccurrences(pending)
 }
 
-// backfillFloor is the earliest instant a catch-up pass may write for this
-// reminder: the rolling window, but never earlier than when the chore was last
-// switched on. Without the second half, resuming a reminder paused for a month
+// backfillFloor is the earliest instant a pass may write for this reminder:
+// the rolling window, but never earlier than when the chore was last switched
+// on. Without the second half, resuming a reminder paused for a month
 // would immediately invent a month of "you forgot" rows covering exactly the
 // time it was deliberately off.
 func (s *Service) backfillFloor(r model.Reminder, now time.Time) time.Time {

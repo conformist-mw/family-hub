@@ -51,19 +51,18 @@ func (b *Bot) RunDigests(ctx context.Context) {
 			return
 		case <-ticker.C:
 			now := b.now()
-			hm := now.Format("15:04")
 			today := now.Format("2006-01-02")
+			daily, weekly, nag := b.cfg.dueThisMinute(now, lastDaily, lastWeekly, lastNag)
 
-			if digestsOn && b.cfg.DailyDigestTime != "" && hm == b.cfg.DailyDigestTime && lastDaily != today {
+			if daily {
 				b.sendDailyDigest(now)
 				lastDaily = today
 			}
-			if digestsOn && b.cfg.WeeklyDigestDOW >= 0 && int(now.Weekday()) == b.cfg.WeeklyDigestDOW &&
-				hm == b.cfg.WeeklyDigestTime && lastWeekly != today {
+			if weekly {
 				b.sendWeeklyDigest()
 				lastWeekly = today
 			}
-			if nagOn && hm == b.cfg.ReminderNagTime && lastNag != today {
+			if nag {
 				b.sendReminderNag(now)
 				lastNag = today
 			}
@@ -83,6 +82,27 @@ func (c Config) appointmentDigestsEnabled() bool {
 
 func (c Config) reminderNagEnabled() bool {
 	return c.ReminderNagTime != "" && c.Reminders != nil
+}
+
+// dueThisMinute decides which of the three messages fire on this tick, given
+// what already went out today.
+//
+// Split out of the loop deliberately. The rule this feature exists to protect
+// — that the chore nag does not answer to NOTIFICATIONS_ENABLED — lived inside
+// RunDigests, where a test could not reach it: a review found the old early
+// return could be restored and the whole suite would still pass.
+func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag string) (daily, weekly, nag bool) {
+	hm := now.Format("15:04")
+	today := now.Format("2006-01-02")
+	digestsOn := c.appointmentDigestsEnabled()
+
+	daily = digestsOn && c.DailyDigestTime != "" &&
+		hm == c.DailyDigestTime && lastDaily != today
+	weekly = digestsOn && c.WeeklyDigestDOW >= 0 &&
+		int(now.Weekday()) == c.WeeklyDigestDOW &&
+		hm == c.WeeklyDigestTime && lastWeekly != today
+	nag = c.reminderNagEnabled() && hm == c.ReminderNagTime && lastNag != today
+	return daily, weekly, nag
 }
 
 func (b *Bot) sendDailyDigest(now time.Time) {

@@ -36,12 +36,29 @@ import (
 // pathological rule eating memory, not a limit anyone should reach. Exceeding
 // it is an error rather than a silent truncation: a half-expanded rule would
 // read as "nothing more is scheduled" everywhere downstream.
+//
+// The count is enforced DURING iteration. Asking the library for the whole
+// window and checking the length afterwards would allocate the pathological
+// result before rejecting it — the opposite of a fuse.
 const maxOccurrences = 10000
 
 // ErrEmptyRule is returned for a blank rule string. Worth its own error
 // because an empty form field is the common way to get here, and the
 // library's own message for it is not something to show a person.
 var ErrEmptyRule = errors.New("recur: empty rule")
+
+// ErrBadRule wraps every rejection this package makes about a rule's text, so
+// an HTTP layer can tell "the person's rule is wrong" from "our database
+// failed" without string-matching. Without it, a store error on the same code
+// path gets reported to the user as a bad recurrence rule.
+var ErrBadRule = errors.New("recur: rule cannot be expanded")
+
+// tooDense lists frequencies no family chore needs and that no window can
+// bound: a SECONDLY rule yields 86400 occurrences a day, so any useful window
+// trips the cap. Rejecting them at Validate keeps the promise the API makes —
+// a rule that validates can be expanded — instead of storing a rule that
+// errors on every later read and quietly drops the chore from the calendar.
+var tooDense = map[string]bool{"SECONDLY": true, "MINUTELY": true}
 
 // parse builds an rrule from the stored string. It tolerates a leading
 // "RRULE:" because that is how rules appear in every ICS file and in every
@@ -54,7 +71,10 @@ func parse(rule string) (*rrule.RRule, error) {
 	}
 	r, err := rrule.StrToRRule(rule)
 	if err != nil {
-		return nil, fmt.Errorf("recur: parse %q: %w", rule, err)
+		return nil, fmt.Errorf("%w: parse %q: %v", ErrBadRule, rule, err)
+	}
+	if f := strings.ToUpper(r.OrigOptions.Freq.String()); tooDense[f] {
+		return nil, fmt.Errorf("%w: %s is too dense to expand", ErrBadRule, f)
 	}
 	return r, nil
 }
@@ -85,13 +105,23 @@ func Expand(anchor time.Time, rule string, from, to time.Time) ([]time.Time, err
 	r.DTStart(anchor)
 
 	loc := anchor.Location()
-	out := r.Between(from, to, true)
-	if len(out) > maxOccurrences {
-		return nil, fmt.Errorf("recur: %q yields %d occurrences in the window, over the %d cap",
-			rule, len(out), maxOccurrences)
-	}
-	for i := range out {
-		out[i] = out[i].In(loc)
+	var out []time.Time
+	// Iterate rather than call Between: the cap has to stop the allocation,
+	// not measure it after the fact.
+	it := r.Iterator()
+	for {
+		t, ok := it()
+		if !ok || t.After(to) {
+			break
+		}
+		if t.Before(from) {
+			continue
+		}
+		if len(out) >= maxOccurrences {
+			return nil, fmt.Errorf("%w: %q yields more than %d occurrences in the window",
+				ErrBadRule, rule, maxOccurrences)
+		}
+		out = append(out, t.In(loc))
 	}
 	return out, nil
 }

@@ -249,3 +249,17 @@ func TestSpecialCharactersInATitleAreEscaped(t *testing.T) {
 		t.Fatalf("title not escaped:\n%s", got)
 	}
 }
+
+// The default test alone cannot tell "the default was applied" from "the field
+// is ignored entirely" — every fixture used 15 minutes.
+func TestAChoreCarriesItsOwnDuration(t *testing.T) {
+	loc := kyiv(t)
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, loc)
+	o := chore(1, "Довга справа", "", time.Date(2026, 9, 1, 8, 0, 0, 0, loc), model.OccPending)
+	o.DurationMin = 45
+	body := Render(nil, nil, nil, []reminders.Occurrence{o}, loc, now)
+
+	if got := find(t, body, "reminder-1-"); !strings.Contains(got, "DTEND:20260901T054500Z") {
+		t.Fatalf("dtend is not start + 45 minutes:\n%s", got)
+	}
+}

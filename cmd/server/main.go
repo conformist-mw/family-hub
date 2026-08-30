@@ -19,6 +19,7 @@ import (
 	"familyhub/internal/db"
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
+	"familyhub/internal/reminders"
 	"familyhub/internal/store"
 	"familyhub/internal/web"
 )
@@ -49,6 +50,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	st := store.New(database)
+
+	// The reminder materialiser runs independently of the bot and of whether
+	// notifications are on at all. It writes the record of what came due, and
+	// hanging that off RunDigests — which bails out without NOTIFICATIONS_ENABLED
+	// or a notify chat — would put data integrity behind a flag for optional
+	// messages: switch the digests off and the history silently stops.
+	remindersSvc := reminders.NewService(st, time.Local, logger, time.Now)
+	go remindersSvc.RunMaterialiser(ctx)
 
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
@@ -99,12 +110,17 @@ func main() {
 			DailyDigestTime:      os.Getenv("DAILY_DIGEST_TIME"),
 			WeeklyDigestDOW:      parseDOW(os.Getenv("WEEKLY_DIGEST_DOW")),
 			WeeklyDigestTime:     os.Getenv("WEEKLY_DIGEST_TIME"),
+			// Not behind NOTIFICATIONS_ENABLED: that flag is off in prod
+			// because HA sends the appointment summaries, and HA has nothing
+			// to say about what went unfinished.
+			ReminderNagTime: os.Getenv("REMINDER_NAG_TIME"),
+			Reminders:       remindersSvc,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already
 		// stopped via ctx by the time defers fire — either way it deadlocks
 		// and Docker escalates to SIGKILL. RunPolling owns its own stop.
-		lessonsBot, err = bot.New(cfg, store.New(database), parser, logger)
+		lessonsBot, err = bot.New(cfg, st, parser, logger)
 		if err != nil {
 			logger.Error("bot init", "err", err)
 			os.Exit(1)
@@ -135,7 +151,7 @@ func main() {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
 	}
 
-	webHandler := web.NewRouter(database, logger, webhookPath, webhookHandler, notifier)
+	webHandler := web.NewRouter(database, logger, webhookPath, webhookHandler, notifier, remindersSvc)
 
 	// initData verification is an HMAC keyed by the bot token, so with no token
 	// there is nothing to mount — the same shape as free-text capture without
@@ -145,7 +161,7 @@ func main() {
 		logger.Info("mini: disabled (TELEGRAM_BOT_TOKEN not set)")
 	} else {
 		devUser, _ := strconv.ParseInt(os.Getenv("MINI_DEV_USER"), 10, 64)
-		miniRouter, err := mini.NewRouter(store.New(database), logger, mini.Config{
+		miniRouter, err := mini.NewRouter(st, logger, mini.Config{
 			BotToken:     token,
 			AllowedUsers: mini.ParseUserIDs(os.Getenv("TELEGRAM_MINI_USERS"), logger),
 			DevUser:      devUser,
@@ -153,7 +169,8 @@ func main() {
 			Loc:          time.Local,
 			// Same value the web UI gets: a visit added on a phone must reach the
 			// family group exactly like one captured by the bot.
-			Notifier: notifier,
+			Notifier:  notifier,
+			Reminders: remindersSvc,
 		})
 		if err != nil {
 			logger.Error("mini: init", "err", err)

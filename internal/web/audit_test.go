@@ -44,7 +44,7 @@ func TestAuditPageRenders(t *testing.T) {
 		t.Fatalf("seed visit: %v", err)
 	}
 
-	h := NewRouter(database, slog.New(slog.NewTextHandler(io.Discard, nil)), "", nil, nil)
+	h := NewRouter(database, slog.New(slog.NewTextHandler(io.Discard, nil)), "", nil, nil, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/enrollments/1/audit", nil))
 	if rec.Code != http.StatusOK {

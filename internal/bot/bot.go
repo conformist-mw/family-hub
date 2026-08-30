@@ -15,6 +15,7 @@ import (
 
 	"familyhub/internal/audit"
 	"familyhub/internal/parse"
+	"familyhub/internal/reminders"
 	"familyhub/internal/store"
 )
 
@@ -45,6 +46,17 @@ type Config struct {
 	DailyDigestTime      string // "HH:MM" in Loc; "" disables
 	WeeklyDigestDOW      int    // 0=Sun..6=Sat; <0 disables
 	WeeklyDigestTime     string // "HH:MM" in Loc
+
+	// ReminderNagTime is when the bot lists the recurring chores nobody closed
+	// today. "" disables it. Deliberately NOT behind NotificationsEnabled:
+	// that flag is off in prod because Home Assistant already sends the
+	// appointment summaries, and HA has nothing to say about what went
+	// unfinished — it reads a calendar, not the record of what was closed.
+	ReminderNagTime string
+
+	// Reminders answers what came due and was left open. nil disables the nag
+	// regardless of ReminderNagTime.
+	Reminders *reminders.Service
 }
 
 type Bot struct {
@@ -136,6 +148,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: "add_status"}, bot.onAddStatus)
 	tb.Handle(&tele.Btn{Unique: "add_cancel"}, bot.onAddCancel)
 	tb.Handle(&tele.Btn{Unique: "vis_reason"}, bot.onReasonTap)
+	tb.Handle(&tele.Btn{Unique: "rem_chore"}, bot.onChoreTap)
 
 	// Appointments. /list, /week and their callbacks only read and edit stored
 	// rows, so they work with or without a parser. OnText is registered

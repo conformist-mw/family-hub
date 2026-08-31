@@ -114,7 +114,8 @@ internal/
   valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
-  ics/         # the single VCALENDAR feed HA polls
+  ics/         # the VCALENDAR feeds HA polls (family + school)
+  schooltoday/ # mirrors the school portal timetable; feeds /school.ics
   importer/    # Excel reader used by cmd/import
 data/          # local SQLite (gitignored)
 Доп. занятия.xlsx  # the original source; gitignored+dockerignored (personal data), local only
@@ -159,6 +160,15 @@ data/          # local SQLite (gitignored)
     A reminder's uid carries the whole instant rather than the date, because a
     full RRULE can put two occurrences on one day. Calendars key on the uid, so
     it must stay stable. Token-guarded via `ICS_TOKEN`.
+  - `/school.ics` — a SECOND, separate feed: the child's academic school day,
+    mirrored from the school-today.com parent portal by `internal/schooltoday`
+    (login + the portal's own `TimetableApi`) into `school_lessons`, and served
+    from that cache so HA's poll never waits on a portal login. Kept apart from
+    `/calendar.ics` because a school subject is not a billed course — see the
+    `school_lessons` migration. UIDs are `school-<eventID>@familyhub`. Which
+    portal categories reach it (lesson / meal / daycare / routine) is
+    `SCHOOL_ICS_INCLUDE`, lessons-only by default; token-guarded via
+    `SCHOOL_ICS_TOKEN`. Empty when the sync is unconfigured.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.
@@ -508,6 +518,9 @@ a person can pick that the app refuses.
     On the compound routers the host alternation must stay parenthesized:
     `(Host(a) || Host(b)) && PathPrefix(...)` — `||` binds looser than `&&`,
     and an unparenthesized rule would expose the whole app without auth.
+  - the school ICS router — host plus `PathPrefix(/school.ics)` →
+    `no-auth-chain@file`, guarded by `SCHOOL_ICS_TOKEN`, so HA can poll the
+    academic timetable on its own Remote Calendar.
 - No GitHub Actions. Master on GitHub is upstream history; deploy is a
   local Ansible run.
 
@@ -527,6 +540,9 @@ a person can pick that the app refuses.
   - `family_hub_notify_chat`
   - `family_hub_gemini_api_key`
   - `family_hub_reminder_hour` (optional override)
+  - `family_hub_school_today_email`, `family_hub_school_today_password`,
+    `family_hub_school_today_pupil_id` — parent portal login + pupil id
+  - `family_hub_school_ics_token` — shared secret for `/school.ics`
 - Host-scoped secrets live in `dotfiles/host_vars/hetzner/secrets.sops.yaml`
   instead, auto-decrypted by the `community.sops.sops` vars plugin with no
   explicit load task. `lessons_mini_users` — the Telegram **user** ids allowed

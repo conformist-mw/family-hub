@@ -60,6 +60,9 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 		mux.Handle("POST "+webhookPath, webhook)
 	}
 	mux.HandleFunc("GET /calendar.ics", a.handleCalendarICS)
+	// A second, separate feed: the child's academic timetable mirrored from the
+	// school portal. Kept apart from /calendar.ics so it is its own HA calendar.
+	mux.HandleFunc("GET /school.ics", a.handleSchoolICS)
 	mux.HandleFunc("GET /{$}", a.handleDashboard)
 
 	mux.HandleFunc("GET /visits", a.handleVisits)

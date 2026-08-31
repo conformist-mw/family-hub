@@ -27,7 +27,7 @@ func TestTheNagNamesEachChoreAndWhenItWasDue(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"Сьогодні не закрито",
+		"Не закрито",
 		"• Виставити кешбек · Олег <i>(08:00)</i>",
 		"• Записати пробіг авто <i>(09:30)</i>",
 	} {
@@ -262,5 +262,98 @@ func TestEachOpenChoreGetsItsOwnRow(t *testing.T) {
 	})
 	if len(m.InlineKeyboard) != 3 {
 		t.Fatalf("got %d rows for three chores", len(m.InlineKeyboard))
+	}
+}
+
+// The message at the moment a chore comes due is a different sentence from the
+// evening one. "Пора" opens by saying it is time; the nag opens by saying it
+// was not done. A push that told you off for a chore you are about to do is one
+// you learn to dismiss.
+func TestTheDuePushSaysItIsTimeRatherThanScolding(t *testing.T) {
+	got := choreDueText([]reminders.Occurrence{openChore("Прокрутити пластину", "Демид", 18, 0)})
+	if !strings.Contains(got, "Пора") {
+		t.Fatalf("the push does not say it is time:\n%s", got)
+	}
+	if strings.Contains(got, "не закрито") || strings.Contains(got, "Не закрито") {
+		t.Fatalf("the push scolds for a chore that just came due:\n%s", got)
+	}
+	// Same body as the nag, so the two read as one feature.
+	if !strings.Contains(got, "• Прокрутити пластину · Демид <i>(18:00)</i>") {
+		t.Fatalf("the push lost the chore line:\n%s", got)
+	}
+}
+
+// The bug this window exists to fix. The nag fires at 20:00, so a chore due at
+// 21:00 has no row yet when it runs; a day-shaped window then asked about the
+// next day and nothing ever mentioned it.
+func TestTheNagWindowReachesBackPastItsOwnFiringTime(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	b := &Bot{cfg: Config{ReminderNagTime: "20:00", Loc: loc}}
+
+	// The nag firing on the 11th at 20:00.
+	from, to := b.nagWindow(time.Date(2026, 9, 11, 20, 0, 0, 0, loc))
+	if got := to.Format("2006-01-02 15:04"); got != "2026-09-11 20:00" {
+		t.Fatalf("window ends at %s, want its own firing time", got)
+	}
+	// Yesterday's 21:00 chore — the one the old day-window lost — is inside.
+	late := time.Date(2026, 9, 10, 21, 0, 0, 0, loc)
+	if late.Before(from) || late.After(to) {
+		t.Fatalf("a chore due at %s falls outside [%s, %s]",
+			late.Format("15:04"), from.Format("01-02 15:04"), to.Format("01-02 15:04"))
+	}
+}
+
+// Every occurrence must fall in exactly one nag window, or a chore left open
+// is either reported twice or not at all.
+func TestConsecutiveNagWindowsDoNotOverlapOrGap(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	b := &Bot{cfg: Config{ReminderNagTime: "20:00", Loc: loc}}
+
+	_, prevTo := b.nagWindow(time.Date(2026, 9, 10, 20, 0, 0, 0, loc))
+	from, _ := b.nagWindow(time.Date(2026, 9, 11, 20, 0, 0, 0, loc))
+	if gap := from.Sub(prevTo); gap != time.Minute {
+		t.Fatalf("consecutive windows are %s apart, want one minute (no gap, no overlap)", gap)
+	}
+}
+
+// Before the day's nag has run, the window is still yesterday's — so tapping a
+// button on last night's message redraws the list it was showing.
+func TestBeforeTodaysNagTheWindowIsStillYesterdays(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Kyiv")
+	b := &Bot{cfg: Config{ReminderNagTime: "20:00", Loc: loc}}
+
+	_, to := b.nagWindow(time.Date(2026, 9, 11, 9, 0, 0, 0, loc)) // morning
+	if got := to.Format("2006-01-02 15:04"); got != "2026-09-10 20:00" {
+		t.Fatalf("window ends at %s, want the last nag that actually fired", got)
+	}
+}
+
+// The flood guard. After downtime the materialiser backfills up to a month of
+// occurrences; a push that trusted its mark would deliver all of them at once,
+// into the family chat, as one message.
+func TestAPushNeverReachesBackFurtherThanItsClamp(t *testing.T) {
+	now := time.Date(2026, 9, 11, 20, 0, 0, 0, time.UTC)
+
+	// A mark from a month ago — what a stalled ticker would hand it.
+	from, to := pushWindow(now, now.AddDate(0, -1, 0))
+	if reach := to.Sub(from); reach > maxPushLookback {
+		t.Fatalf("the push reached back %s, want at most %s", reach, maxPushLookback)
+	}
+
+	// An ordinary tick is not clamped: it asks about the minute that passed.
+	from, to = pushWindow(now, now.Add(-time.Minute))
+	if !from.Equal(now) || !to.Equal(now) {
+		t.Fatalf("an ordinary tick asked about [%s, %s]", from, to)
+	}
+}
+
+// Consecutive ticks must not announce the same minute twice.
+func TestConsecutivePushWindowsDoNotOverlap(t *testing.T) {
+	now := time.Date(2026, 9, 11, 20, 0, 0, 0, time.UTC)
+	_, firstTo := pushWindow(now, now.Add(-time.Minute))
+	secondFrom, _ := pushWindow(now.Add(time.Minute), firstTo)
+	if !secondFrom.After(firstTo) {
+		t.Fatalf("the next window starts at %s, on or before the previous end %s",
+			secondFrom, firstTo)
 	}
 }

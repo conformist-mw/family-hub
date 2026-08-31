@@ -15,17 +15,75 @@ import (
 	"familyhub/internal/store"
 )
 
-// The evening chore nag. Deliberately the only thing the bot says about
-// recurring chores: Home Assistant already announces what is due from the ICS
-// feed every morning, so a message from the bot means "you forgot", not
-// "here is your day". A push that always arrives stops being read; one that
-// only arrives when something is open keeps its meaning.
+// The bot says two things about recurring chores, and they are different
+// sentences. At the moment a chore comes due it says "пора" — that is what a
+// reminder is for, and without it a chore you have forgotten is one nothing
+// ever raises. In the evening it says "не закрито", which is about what the
+// day did not answer.
+//
+// This used to be the nag alone, on the theory that Home Assistant announces
+// what is due from the ICS feed. It does not say it here, so a chore recorded
+// itself, waited, and told nobody until twelve hours later — by which time
+// knowing is no use.
 
-// sendReminderNag lists what came due today and nobody closed. It stays quiet
-// when everything is closed — an empty "nothing to report" would be exactly
-// the background noise this avoids.
+// maxPushLookback bounds how far back a due-time push will reach. The mark is
+// set to boot time and moves with each tick, so this only matters when a tick
+// is late — and it has to stay small: the materialiser backfills up to
+// BackfillWindow after downtime, and announcing that would empty a month of
+// history into the family chat in one message.
+//
+// Anything older is not lost, only unannounced: the evening nag still reports
+// what the day left open.
+const maxPushLookback = 10 * time.Minute
+
+// sendDueChores announces what has come due since the mark and is still open,
+// returning the new mark. One message for the whole minute rather than one per
+// chore: three chores at 08:00 is one notification, not three.
+//
+// Already-closed chores are absent by construction — Unclosed reads pending
+// rows — so closing one in the Mini App a minute early means no push at all,
+// which is the right outcome.
+func (b *Bot) sendDueChores(now, since time.Time) time.Time {
+	from, to := pushWindow(now, since)
+	due, err := b.cfg.Reminders.Unclosed(from, to)
+	if err != nil {
+		b.logger.Error("bot: due chore query", "err", err)
+		return since // do not advance the mark past a window nobody saw
+	}
+	if len(due) == 0 {
+		return now
+	}
+	if _, err := b.sendToGroup(choreDueText(due), tele.ModeHTML, buildNagMarkup(due)); err != nil {
+		b.logger.Error("bot: send due chores", "err", err)
+		return since
+	}
+	return now
+}
+
+// pushWindow is the stretch one push announces: everything since the previous
+// tick, clamped to maxPushLookback.
+//
+// The lower bound is exclusive — the previous tick already announced whatever
+// fell exactly on the mark — and due_at has minute resolution, so a minute is
+// the step that makes it exclusive.
+//
+// The clamp is the flood guard, and it is the reason this is a function rather
+// than two lines inside the sender: after downtime the materialiser writes up
+// to BackfillWindow of past occurrences, and a push that trusted its mark
+// would deliver a month of them as one message.
+func pushWindow(now, since time.Time) (from, to time.Time) {
+	if floor := now.Add(-maxPushLookback); since.Before(floor) {
+		since = floor
+	}
+	return since.Add(time.Minute), now
+}
+
+// sendReminderNag lists what came due since the previous nag and nobody
+// closed. It stays quiet when everything is closed — an empty "nothing to
+// report" would be exactly the background noise this avoids.
 func (b *Bot) sendReminderNag(now time.Time) {
-	open, err := b.cfg.Reminders.UnclosedOn(now)
+	from, to := b.nagWindow(now)
+	open, err := b.cfg.Reminders.Unclosed(from, to)
 	if err != nil {
 		b.logger.Error("bot: reminder nag query", "err", err)
 		return
@@ -36,6 +94,25 @@ func (b *Bot) sendReminderNag(now time.Time) {
 	if _, err := b.sendToGroup(reminderNagText(open), tele.ModeHTML, buildNagMarkup(open)); err != nil {
 		b.logger.Error("bot: send reminder nag", "err", err)
 	}
+}
+
+// nagWindow is the stretch one nag reports: the twenty-four hours ending at the
+// most recent nag instant.
+//
+// Anchored on the nag time rather than on `now` so that the message and any
+// later redraw of it agree about which chores belong to it. Anchored on a
+// window rather than on a calendar day because a day cannot report an evening:
+// the nag fires at 20:00, a chore due at 21:00 has no row yet, and tomorrow's
+// nag asks about tomorrow. Every occurrence now falls in exactly one window.
+func (b *Bot) nagWindow(now time.Time) (from, to time.Time) {
+	to = now
+	if t, err := time.ParseInLocation("15:04", b.cfg.ReminderNagTime, b.cfg.Loc); err == nil {
+		to = time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, b.cfg.Loc)
+		if to.After(now) {
+			to = to.AddDate(0, 0, -1) // today's nag has not run yet
+		}
+	}
+	return to.AddDate(0, 0, -1).Add(time.Minute), to
 }
 
 // buildNagMarkup puts one row per open chore: close it, or pass on it. The
@@ -121,7 +198,8 @@ func (b *Bot) onChoreTap(c tele.Context) error {
 // emptied list becomes a closing statement rather than a message with no
 // content and a dead keyboard.
 func (b *Bot) redrawNag(c tele.Context, on time.Time) error {
-	open, err := b.cfg.Reminders.UnclosedOn(on)
+	from, to := b.nagWindow(b.now())
+	open, err := b.cfg.Reminders.Unclosed(from, to)
 	if err != nil {
 		b.logger.Error("bot: redraw nag", "err", err)
 		return nil
@@ -167,13 +245,26 @@ func parseChoreData(data string, loc *time.Location) (int64, time.Time, string, 
 	return id, due, status, nil
 }
 
-// reminderNagText is the message body. Each line carries the time the chore
-// came due, because "you did not do it" is easier to act on when it says
+// choreDueText is the message at the moment a chore comes due. "Пора" rather
+// than the nag's "не закрито": nothing has been missed yet, and a message that
+// opens by telling you off for a chore you are about to do is a message you
+// learn to dismiss.
+func choreDueText(due []reminders.Occurrence) string {
+	return "⏰ <b>Пора:</b>\n\n" + choreLines(due)
+}
+
+// reminderNagText is the evening message body. Each line carries the time the
+// chore came due, because "you did not do it" is easier to act on when it says
 // which one of the morning's three it means.
 func reminderNagText(open []reminders.Occurrence) string {
+	return "🔔 <b>Не закрито:</b>\n\n" + choreLines(open)
+}
+
+// choreLines is the shared body of both messages: same chores, same shape, so
+// the two read as one feature rather than two.
+func choreLines(items []reminders.Occurrence) string {
 	var b strings.Builder
-	b.WriteString("🔔 <b>Сьогодні не закрито:</b>\n\n")
-	for _, o := range open {
+	for _, o := range items {
 		b.WriteString("• ")
 		b.WriteString(html.EscapeString(o.Title))
 		if o.Person != "" {

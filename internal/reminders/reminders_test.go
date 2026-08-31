@@ -154,9 +154,9 @@ func TestUpcomingWithAnInvertedWindowYieldsNothing(t *testing.T) {
 	}
 }
 
-// --- UnclosedOn ---
+// --- Unclosed ---
 
-func TestUnclosedOnListsOnlyWhatNobodyClosed(t *testing.T) {
+func TestUnclosedListsOnlyWhatNobodyClosed(t *testing.T) {
 	loc, _ := time.LoadLocation("Europe/Kyiv")
 	now := time.Date(2026, 9, 5, 21, 0, 0, 0, loc)
 	s, st, database := storeService(t, now)
@@ -174,7 +174,7 @@ func TestUnclosedOnListsOnlyWhatNobodyClosed(t *testing.T) {
 		t.Fatalf("mark skipped: %v", err)
 	}
 
-	open, err := s.UnclosedOn(now)
+	open, err := s.Unclosed(dayOf(now), now)
 	if err != nil {
 		t.Fatalf("unclosed: %v", err)
 	}
@@ -183,7 +183,9 @@ func TestUnclosedOnListsOnlyWhatNobodyClosed(t *testing.T) {
 	}
 }
 
-func TestUnclosedOnIgnoresOtherDays(t *testing.T) {
+// The window bounds the answer at both ends: a caller asking about today does
+// not get last week, whatever the rule has generated since.
+func TestUnclosedIgnoresWhatIsOutsideTheWindow(t *testing.T) {
 	loc, _ := time.LoadLocation("Europe/Kyiv")
 	now := time.Date(2026, 9, 5, 21, 0, 0, 0, loc)
 	s, st, database := storeService(t, now)
@@ -192,7 +194,7 @@ func TestUnclosedOnIgnoresOtherDays(t *testing.T) {
 		t.Fatalf("materialise: %v", err)
 	}
 
-	open, err := s.UnclosedOn(now)
+	open, err := s.Unclosed(dayOf(now), now)
 	if err != nil {
 		t.Fatalf("unclosed: %v", err)
 	}
@@ -562,29 +564,42 @@ func TestCreateStampsTheBackfillFloorFromTheServiceClock(t *testing.T) {
 	}
 }
 
-// The nag asks about one day. Tomorrow's midnight chore belongs to tomorrow.
-func TestUnclosedOnStopsBeforeMidnight(t *testing.T) {
+// The window ends where the caller says, not at a midnight it invented. This
+// used to be a day, and that is what lost the evening chore: see the bot's
+// nagWindow.
+func TestUnclosedHonoursBothEndsOfTheWindow(t *testing.T) {
 	loc, _ := time.LoadLocation("Europe/Kyiv")
 	now := time.Date(2026, 9, 5, 21, 0, 0, 0, loc)
 	s, st, database := storeService(t, now)
-	// Daily at midnight: the 5th's and the 6th's are both in the window.
+	// Daily at midnight: the 5th's and the 6th's both exist by 01:00 on the 6th.
 	seedChore(t, st, database, "Опівнічна", "FREQ=DAILY", "2026-09-01T00:00")
 	if err := s.Materialise(time.Date(2026, 9, 6, 1, 0, 0, 0, loc)); err != nil {
 		t.Fatalf("materialise: %v", err)
 	}
 
-	open, err := s.UnclosedOn(now)
+	// A window ending on the evening of the 5th holds only the 5th's.
+	open, err := s.Unclosed(dayOf(now), now)
 	if err != nil {
 		t.Fatalf("unclosed: %v", err)
 	}
-	for _, o := range open {
-		if got := o.Due.Format("2006-01-02"); got != "2026-09-05" {
-			t.Fatalf("the nag for the 5th listed %s", o.Due.Format(model.LocalDatetime))
-		}
+	if len(open) != 1 || open[0].Due.Format("2006-01-02") != "2026-09-05" {
+		t.Fatalf("window to the 5th evening = %v", labels(open))
 	}
-	if len(open) != 1 {
-		t.Fatalf("got %d open items for one day, want 1", len(open))
+
+	// Stretched past midnight, it holds both — which is exactly what the
+	// evening nag needs, so a chore due after it ran is still reported.
+	both, err := s.Unclosed(dayOf(now), time.Date(2026, 9, 6, 1, 0, 0, 0, loc))
+	if err != nil {
+		t.Fatalf("unclosed: %v", err)
 	}
+	if len(both) != 2 {
+		t.Fatalf("window across midnight = %v, want both", labels(both))
+	}
+}
+
+// dayOf is the start of t's day, for tests that still want a day-shaped window.
+func dayOf(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 // An unreadable active_since must fall back to the rolling window — the

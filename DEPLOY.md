@@ -66,8 +66,16 @@ just deploy-hetzner-tag family-hub
   takes no configuration and does not depend on `NOTIFICATIONS_ENABLED` or on
   a notify chat — that record is data, not a message, and putting it behind a
   notification flag would mean switching the digests off silently stopped the
-  history. Only the evening "still not done" nag is configurable, via
-  `REMINDER_NAG_TIME` (unset = no nag, the record is still written).
+  history. A chore is announced in the group the minute it comes due, which
+  takes no configuration either — a chore that does not tell you when it is
+  time is not a reminder. Only the evening "still not done" nag is
+  configurable, via `REMINDER_NAG_TIME` (unset = no nag; the due-time message
+  and the record both continue).
+
+  The due-time push reaches back at most ten minutes, so a restart after a long
+  outage announces nothing: the materialiser backfills up to 30 days on boot,
+  and without that clamp the whole backlog would arrive as one message. What it
+  skips is not lost — the evening nag still reports what the day left open.
 - The database is `family-hub.db` inside `~/server_data/family-hub`. The path
   is decided in two places that must agree: `family_hub_dir` in the Ansible
   role, and the `-db` flag in this image's `CMD`. If they disagree, SQLite
@@ -85,7 +93,7 @@ A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
 The digest ticker now hosts three wall-clock messages with separate gates, so
 its boot line reports each: `bot: digests started appointment_digests=false
-… reminder_nag=20:00` is the expected prod shape — the appointment summaries
+… reminder_nag=20:00 reminder_push=true` is the expected prod shape — the appointment summaries
 stay off because Home Assistant sends those, while the chore nag runs. It only
 falls back to `bot: digests disabled (NOTIFICATIONS_ENABLED not set, no
 reminder nag time)` when neither is configured. The cost-prompt ticker should log

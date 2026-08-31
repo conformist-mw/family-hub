@@ -3,10 +3,12 @@ package web
 import (
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -437,4 +439,75 @@ func TestHistoryIs404WithoutTheChoresService(t *testing.T) {
 	if rec := get(t, h, "/reminders/history"); rec.Code != http.StatusNotFound {
 		t.Errorf("GET /reminders/history = %d, want 404", rec.Code)
 	}
+}
+
+// A number input rejects anything that is not min + n*step, so a careless step
+// can make a field refuse its own default — which is exactly what `min="1"
+// step="5"` did to the 15 this form starts with. The rule is easy to
+// reintroduce and invisible until somebody tries to save, so it is pinned
+// against every number input on both chore forms rather than against the one
+// that broke.
+func TestNoChoreFormFieldRejectsItsOwnValue(t *testing.T) {
+	h, st, svc := choreApp(t, true)
+	rem, err := svc.Create(model.Reminder{Title: "Кешбек", DurationMin: 15},
+		"FREQ=DAILY", time.Now().Add(-time.Hour), "Оксана")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	_ = st
+
+	for _, path := range []string{"/reminders/new", "/reminders/" + itoa(rem.ID) + "/edit"} {
+		body := get(t, h, path).Body.String()
+		for _, in := range numberInputs(body) {
+			if in.step <= 0 {
+				continue // no step: every value is valid
+			}
+			if in.value < in.min {
+				t.Errorf("%s: %s defaults to %g, below its own min %g",
+					path, in.name, in.value, in.min)
+				continue
+			}
+			// The check the browser makes before it will submit.
+			if steps := (in.value - in.min) / in.step; steps != math.Trunc(steps) {
+				t.Errorf("%s: %s defaults to %g, which min=%g step=%g refuses — "+
+					"the browser will not save this form untouched",
+					path, in.name, in.value, in.min, in.step)
+			}
+		}
+	}
+}
+
+type numberInput struct {
+	name             string
+	value, min, step float64
+}
+
+// numberInputs pulls every <input type="number"> out of a rendered page. A
+// crude parse on purpose: it reads what the browser reads, so a field it
+// cannot understand is a field a browser could not either.
+func numberInputs(body string) []numberInput {
+	var out []numberInput
+	for _, tag := range regexp.MustCompile(`<input[^>]*type="number"[^>]*>`).FindAllString(body, -1) {
+		attr := func(name string) (float64, bool) {
+			m := regexp.MustCompile(name + `="([^"]*)"`).FindStringSubmatch(tag)
+			if len(m) != 2 {
+				return 0, false
+			}
+			v, err := strconv.ParseFloat(m[1], 64)
+			return v, err == nil
+		}
+		in := numberInput{}
+		if m := regexp.MustCompile(`name="([^"]*)"`).FindStringSubmatch(tag); len(m) == 2 {
+			in.name = m[1]
+		}
+		v, hasValue := attr("value")
+		if !hasValue {
+			continue // an empty field is not yet an answer to check
+		}
+		in.value = v
+		in.min, _ = attr("min")
+		in.step, _ = attr("step")
+		out = append(out, in)
+	}
+	return out
 }

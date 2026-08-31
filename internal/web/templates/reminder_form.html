@@ -44,7 +44,13 @@
 
   <label>
     Скільки триває, хв
-    <input type="number" name="durationMin" value="{{$d.Reminder.DurationMin}}" min="1" step="5">
+    {{/*
+      step is validation, not just the spinner's stride: a number input rejects
+      anything that is not min + n*step. min="1" step="5" therefore accepted
+      1, 6, 11, 16 — and refused the 15 this very field defaults to.
+      Duration is a count of minutes and any of them is a real answer.
+    */}}
+    <input type="number" name="durationMin" value="{{$d.Reminder.DurationMin}}" min="1" step="1">
   </label>
 
   <label>

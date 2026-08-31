@@ -27,6 +27,7 @@
       <a href="/reminders" class="{{if eq .Active "reminders"}}active{{end}}">Справи</a>
       <span class="spaces-sep"></span>
       <a href="/lessons" class="{{if eq .Space "lessons"}}active{{end}}">Заняття</a>
+      <a href="/meters" class="{{if eq .Space "meters"}}active{{end}}">Дім</a>
       <a href="/stats" class="{{if eq .Space "stats"}}active{{end}}">Статистика</a>
     </nav>
   </header>
@@ -38,6 +39,13 @@
     <a href="/payments" class="{{if eq .Active "payments"}}active{{end}}">Оплати</a>
     <a href="/enrollments" class="{{if eq .Active "enrollments"}}active{{end}}">Курси</a>
     <a href="/trainers" class="{{if eq .Active "trainers"}}active{{end}}">Тренери</a>
+  </nav>
+  {{else if eq .Space "meters"}}
+  <nav class="subnav">
+    <a href="/meters" class="{{if eq .Active "readings"}}active{{end}}">Показання</a>
+    <a href="/meters/tariffs" class="{{if eq .Active "tariffs"}}active{{end}}">Тарифи</a>
+    <a href="/meters/utilities" class="{{if eq .Active "utilities"}}active{{end}}">Сервіси</a>
+    <a href="/meters/addresses" class="{{if eq .Active "addresses"}}active{{end}}">Адреси</a>
   </nav>
   {{else if eq .Space "stats"}}
   <nav class="subnav">

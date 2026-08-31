@@ -254,6 +254,10 @@ func parseTemplates() map[string]*template.Template {
 		"enrollments.html",
 		"enrollment_form.html",
 		"stats.html",
+		"meters_readings.html",
+		"meters_tariffs.html",
+		"meters_utilities.html",
+		"meters_addresses.html",
 		"trainers.html",
 		"audit.html",
 	}

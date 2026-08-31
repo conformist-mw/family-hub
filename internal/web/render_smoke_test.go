@@ -76,6 +76,10 @@ func TestEveryPageRenders(t *testing.T) {
 		"/enrollments/1/edit",
 		"/enrollments/1/audit",
 		"/trainers",
+		"/meters", // world: Дім — empty until the data copy
+		"/meters/tariffs",
+		"/meters/utilities",
+		"/meters/addresses",
 		"/stats", // world: Статистика
 	} {
 		t.Run(path, func(t *testing.T) {
@@ -112,11 +116,23 @@ func TestAWorldPageCarriesItsOwnNavigation(t *testing.T) {
 	}
 }
 
-// The utilities world has no screens yet. An entry leading to a 404 is worse
-// than no entry, so the hub must not advertise it before PR 2 lands.
-func TestTheHubDoesNotAdvertiseTheUtilitiesWorldYet(t *testing.T) {
-	if body := getBody(t, smokeRouter(t), "/"); strings.Contains(body, `href="/meters"`) {
-		t.Fatal("the hub links to /meters, which does not exist yet")
+// The utilities world is reachable and empty rather than hidden. Empty is a
+// state these screens will keep showing for any month nobody has entered, so
+// walking into one is not a dead end — and the navigation does not have to
+// change again when the data arrives.
+func TestTheUtilitiesWorldIsWalkableWhileEmpty(t *testing.T) {
+	router := smokeRouter(t)
+
+	if body := getBody(t, router, "/"); !strings.Contains(body, `href="/meters"`) {
+		t.Fatal("the hub does not offer a way into the utilities world")
+	}
+
+	meters := getBody(t, router, "/meters")
+	if !strings.Contains(meters, `class="subnav"`) || !strings.Contains(meters, "Тарифи") {
+		t.Fatal("the utilities world renders without its own navigation")
+	}
+	if !strings.Contains(meters, "Даних ще немає") {
+		t.Fatal("an empty utilities screen does not say it is empty")
 	}
 }
 

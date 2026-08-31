@@ -63,7 +63,8 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	// A second, separate feed: the child's academic timetable mirrored from the
 	// school portal. Kept apart from /calendar.ics so it is its own HA calendar.
 	mux.HandleFunc("GET /school.ics", a.handleSchoolICS)
-	mux.HandleFunc("GET /{$}", a.handleDashboard)
+	mux.HandleFunc("GET /{$}", a.handleHub)
+	mux.HandleFunc("GET /lessons", a.handleDashboard)
 
 	mux.HandleFunc("GET /visits", a.handleVisits)
 	mux.HandleFunc("GET /visits/new", a.handleVisitNew)
@@ -162,14 +163,20 @@ const (
 )
 
 type dashboardData struct {
-	Balances     []model.Balance
-	Absences     map[int64]*model.TrainerAbsence // enrollment id → absence covering today
-	Schedule     map[int64]string                // enrollment id → "Пн 18:00 · Чт 18:00"
-	Payments     []model.Payment                 // most recent, for the table under the cards
-	Appointments []model.Appointment             // next few, beside the payments table
+	Balances []model.Balance
+	Absences map[int64]*model.TrainerAbsence // enrollment id → absence covering today
+	Schedule map[int64]string                // enrollment id → "Пн 18:00 · Чт 18:00"
+	Payments []model.Payment                 // most recent, for the table under the cards
+}
+
+// hubData is what the shell shows: the two things that are happening now,
+// across every world. Appointments and open chores used to sit at the bottom
+// of the lessons dashboard, which meant the answer to "what is today" was
+// filed under one of the app's domains rather than above all of them.
+type hubData struct {
+	Appointments []model.Appointment
 	// OpenChores came due today and nobody answered. Opening the app at midday
-	// used to say nothing about the cashback forgotten at 08:00, which is the
-	// one thing the dashboard is well placed to say.
+	// used to say nothing about the cashback forgotten at 08:00.
 	OpenChores []reminders.Occurrence
 }
 
@@ -209,6 +216,14 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	a.render(w, "dashboard.html", "Баланс", "balance", dashboardData{
+		Balances: balances, Absences: absences, Schedule: schedule,
+		Payments: payments,
+	})
+}
+
+// handleHub answers "what is today", above every world rather than inside one.
+func (a *App) handleHub(w http.ResponseWriter, r *http.Request) {
 	appointments, err := a.Store.UpcomingAppointments(
 		time.Now().Format(model.LocalDatetime), dashboardAppointments)
 	if err != nil {
@@ -232,9 +247,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	a.render(w, "dashboard.html", "Баланс", "dashboard", dashboardData{
-		Balances: balances, Absences: absences, Schedule: schedule,
-		Payments: payments, Appointments: appointments, OpenChores: openChores,
+	a.render(w, "hub.html", "Сьогодні", "hub", hubData{
+		Appointments: appointments, OpenChores: openChores,
 	})
 }
 

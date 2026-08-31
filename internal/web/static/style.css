@@ -144,6 +144,64 @@ body {
 .topbar nav a.active { color: var(--hero-text); border-bottom-color: var(--hero-text); }
 .topbar :focus-visible { outline-color: var(--hero-text); }
 
+/* A thin rule between the shell's own screens (Сьогодні · Записи · Справи)
+   and the worlds they lead into. It is the only thing that tells the two
+   halves of the header apart, so it earns its pixel. */
+.spaces-sep {
+  width: 1px;
+  align-self: center;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--hero-muted);
+  opacity: 0.35;
+}
+
+/* The second tier: the current world's own pages. Quieter than the header —
+   it is navigation within a place, not between places. */
+.subnav {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  position: sticky;
+  top: 48px;
+  z-index: 9;
+}
+.subnav a {
+  padding: 10px 12px;
+  text-decoration: none;
+  color: var(--muted);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+}
+.subnav a:hover { color: var(--text); }
+.subnav a.active { color: var(--text); border-bottom-color: var(--text); }
+
+/* Entries into the worlds, on the hub. Deliberately without counters: a badge
+   here would put a once-a-month number on the screen opened many times a day. */
+.spaces-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 24px;
+}
+.space-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--card);
+  text-decoration: none;
+}
+.space-card:hover { border-color: var(--line-strong); }
+.space-name { font-weight: 600; color: var(--text); }
+.space-note { font-size: 13px; color: var(--muted); }
+
 main { max-width: 880px; margin: 0 auto; padding: 20px 16px 40px; }
 
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 12px; }

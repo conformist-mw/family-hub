@@ -198,3 +198,96 @@ func TestSlotVersionRejectsAnImpossibleWeekday(t *testing.T) {
 		t.Fatal("weekday 9 was accepted")
 	}
 }
+
+// Same reason as the reminder tables: a migration goose does not pick up fails
+// silently as "table missing" much later, in a handler.
+func TestUtilityTablesExistAfterMigration(t *testing.T) {
+	database := migrated(t)
+	for _, table := range []string{
+		"addresses", "tariffs", "utilities", "readings", "utility_deliveries"} {
+		var name string
+		err := database.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %q missing after migrate: %v", table, err)
+		}
+	}
+}
+
+// The month a meter is replaced carries two readings: the final one on the old
+// tariff and the first on the new. The data carried over from the old app has
+// three such months, so a two-column key would have made them unstorable.
+func TestAMeterReplacementMonthTakesTwoReadings(t *testing.T) {
+	database := migrated(t)
+	seedUtility(t, database)
+
+	insert := func(tariffID int, amount float64) error {
+		_, err := database.Exec(
+			`INSERT INTO readings (utility_id, tariff_id, period, amount)
+			 VALUES (1, ?, '2026-05', ?)`, tariffID, amount)
+		return err
+	}
+
+	if err := insert(1, 120.50); err != nil {
+		t.Fatalf("final reading on the old tariff: %v", err)
+	}
+	if err := insert(2, 31.00); err != nil {
+		t.Fatalf("first reading on the new tariff was rejected: %v", err)
+	}
+}
+
+// Two readings for the same month on the SAME tariff are not a meter swap,
+// they are a double submit — the paid flag would then depend on which row won.
+func TestTwoReadingsOnOneTariffAndPeriodAreRejected(t *testing.T) {
+	database := migrated(t)
+	seedUtility(t, database)
+
+	mustExec(t, database,
+		`INSERT INTO readings (utility_id, tariff_id, period, amount)
+		 VALUES (1, 1, '2026-05', 120.50)`)
+
+	if _, err := database.Exec(
+		`INSERT INTO readings (utility_id, tariff_id, period, amount)
+		 VALUES (1, 1, '2026-05', 120.50)`); err == nil {
+		t.Fatal("duplicate (utility_id, period, tariff_id) was accepted")
+	}
+}
+
+// kind drives the arithmetic in model.ComputeAmount. A value it cannot mean
+// would silently produce a zero bill rather than an error.
+func TestUnknownTariffKindIsRejected(t *testing.T) {
+	database := migrated(t)
+
+	if _, err := database.Exec(
+		`INSERT INTO tariffs (name, kind, rate1) VALUES ('Смітник', 'per_hour', 10)`); err == nil {
+		t.Fatal("an unknown tariff kind passed the CHECK constraint")
+	}
+}
+
+// The log is what stops "everything is paid" being announced twice for one
+// month. Without the constraint that guarantee rests on the reader alone.
+func TestOneDeliveryPerTypeAddressAndPeriod(t *testing.T) {
+	database := migrated(t)
+	seedUtility(t, database)
+
+	mustExec(t, database,
+		`INSERT INTO utility_deliveries (type, address_id, period)
+		 VALUES ('all_paid_summary', 1, '2026-05')`)
+
+	if _, err := database.Exec(
+		`INSERT INTO utility_deliveries (type, address_id, period)
+		 VALUES ('all_paid_summary', 1, '2026-05')`); err == nil {
+		t.Fatal("duplicate (type, address_id, period) was accepted")
+	}
+}
+
+func seedUtility(t *testing.T, database *sql.DB) {
+	t.Helper()
+	mustExec(t, database, `INSERT INTO addresses (id, name) VALUES (1, 'Дім')`)
+	mustExec(t, database,
+		`INSERT INTO tariffs (id, name, kind, unit, rate1) VALUES (1, 'Газ до 05.26', 'meter', 'м3', 7.96)`)
+	mustExec(t, database,
+		`INSERT INTO tariffs (id, name, kind, unit, rate1) VALUES (2, 'Газ з 05.26', 'meter', 'м3', 8.42)`)
+	mustExec(t, database,
+		`INSERT INTO utilities (id, address_id, name, current_tariff_id) VALUES (1, 1, 'Газ', 2)`)
+}

@@ -298,7 +298,7 @@ func TestClosingSomethingNotYetDueIsRefusedPolitely(t *testing.T) {
 
 // The dashboard's whole complaint in #54: opening the app at midday said
 // nothing about what was forgotten at 08:00.
-func TestTheDashboardShowsWhatIsStillOpenToday(t *testing.T) {
+func TestTheHubShowsWhatIsStillOpenToday(t *testing.T) {
 	h, st, svc := choreApp(t, true)
 	due := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
 	if due.Day() != time.Now().Day() {
@@ -307,8 +307,8 @@ func TestTheDashboardShowsWhatIsStillOpenToday(t *testing.T) {
 	seedExistingChore(t, st, svc, "Кешбек", "FREQ=DAILY", due)
 
 	body := get(t, h, "/").Body.String()
-	if !strings.Contains(body, "Сьогодні не закрито") || !strings.Contains(body, "Кешбек") {
-		t.Fatalf("the dashboard is silent about the open chore:\n%s", body)
+	if !strings.Contains(body, "Не закрито") || !strings.Contains(body, "Кешбек") {
+		t.Fatalf("the hub is silent about the open chore:\n%s", body)
 	}
 }
 
@@ -320,13 +320,13 @@ func TestWithoutTheChoresServiceThePagesAre404(t *testing.T) {
 			t.Errorf("GET %s = %d, want 404", path, rec.Code)
 		}
 	}
-	// And the dashboard still renders, without a chores section.
+	// And the hub still renders, without a chores section.
 	rec := get(t, h, "/")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("dashboard = %d", rec.Code)
+		t.Fatalf("hub = %d", rec.Code)
 	}
-	if strings.Contains(rec.Body.String(), "Сьогодні не закрито") {
-		t.Fatal("the dashboard shows a chores section with no chores service")
+	if strings.Contains(rec.Body.String(), "Не закрито") {
+		t.Fatal("the hub shows a chores section with no chores service")
 	}
 }
 

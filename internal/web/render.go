@@ -193,11 +193,44 @@ var funcs = template.FuncMap{
 	},
 }
 
+// spaceOf maps a page's Active tab to the world it belongs to. The navigation
+// has two tiers — the header picks a world, the world picks a page — and this
+// is what relates them.
+//
+// Derived rather than passed: making Space a second argument to render would
+// mean editing two dozen call sites to restate something every one of them
+// already implies. A page's world is a property of the page, not of the
+// request that reached it.
+//
+// A tab that is not here belongs to the hub, which is the right answer for the
+// hub's own pages and a visible one (no world highlighted) for a tab somebody
+// forgot to add.
+var spaceOf = map[string]string{
+	"balance":     "lessons",
+	"visits":      "lessons",
+	"payments":    "lessons",
+	"enrollments": "lessons",
+	"trainers":    "lessons",
+
+	"readings":  "meters",
+	"tariffs":   "meters",
+	"utilities": "meters",
+	"addresses": "meters",
+	"report":    "meters",
+
+	"stats":         "stats",
+	"stats_lessons": "stats",
+	"stats_meters":  "stats",
+}
+
 type pageData struct {
 	Title  string
 	Active string
-	Flash  string
-	Data   any
+	// Space is the world Active belongs to; see spaceOf. "hub" covers the
+	// hub itself and the two screens that live in the shell with it.
+	Space string
+	Flash string
+	Data  any
 }
 
 func staticHandler() http.Handler {
@@ -207,6 +240,7 @@ func staticHandler() http.Handler {
 
 func parseTemplates() map[string]*template.Template {
 	pages := []string{
+		"hub.html",
 		"dashboard.html",
 		"visits.html",
 		"visit_form.html",
@@ -238,7 +272,11 @@ func (a *App) render(w http.ResponseWriter, page, title, active string, data any
 		http.Error(w, "unknown template: "+page, http.StatusInternalServerError)
 		return
 	}
-	pd := pageData{Title: title, Active: active, Data: data}
+	space := spaceOf[active]
+	if space == "" {
+		space = "hub"
+	}
+	pd := pageData{Title: title, Active: active, Space: space, Data: data}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "base", pd); err != nil {
 		a.Logger.Error("render", "page", page, "err", err)

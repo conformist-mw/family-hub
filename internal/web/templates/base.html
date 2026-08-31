@@ -10,19 +10,41 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  {{/*
+    Two tiers. The header picks a world; the second row is that world's own
+    navigation. A flat list mixed the daily (Баланс, Заняття) with the
+    reference (Курси, Тренери), and adding the utilities screens to it was
+    what made the split necessary.
+
+    Записи and Справи sit in the header rather than in a world: they are not
+    a domain you administer, they are what is happening now.
+  */}}
   <header class="topbar">
     <a class="brand" href="/">Family Hub</a>
-    <nav>
-      <a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">Баланс</a>
-      <a href="/visits" class="{{if eq .Active "visits"}}active{{end}}">Заняття</a>
+    <nav class="spaces">
+      <a href="/" class="{{if eq .Active "hub"}}active{{end}}">Сьогодні</a>
       <a href="/appointments" class="{{if eq .Active "appointments"}}active{{end}}">Записи</a>
-      <a href="/payments" class="{{if eq .Active "payments"}}active{{end}}">Оплати</a>
       <a href="/reminders" class="{{if eq .Active "reminders"}}active{{end}}">Справи</a>
-      <a href="/stats" class="{{if eq .Active "stats"}}active{{end}}">Статистика</a>
-      <a href="/enrollments" class="{{if eq .Active "enrollments"}}active{{end}}">Курси</a>
-      <a href="/trainers" class="{{if eq .Active "trainers"}}active{{end}}">Тренери</a>
+      <span class="spaces-sep"></span>
+      <a href="/lessons" class="{{if eq .Space "lessons"}}active{{end}}">Заняття</a>
+      <a href="/stats" class="{{if eq .Space "stats"}}active{{end}}">Статистика</a>
     </nav>
   </header>
+
+  {{if eq .Space "lessons"}}
+  <nav class="subnav">
+    <a href="/lessons" class="{{if eq .Active "balance"}}active{{end}}">Баланс</a>
+    <a href="/visits" class="{{if eq .Active "visits"}}active{{end}}">Візити</a>
+    <a href="/payments" class="{{if eq .Active "payments"}}active{{end}}">Оплати</a>
+    <a href="/enrollments" class="{{if eq .Active "enrollments"}}active{{end}}">Курси</a>
+    <a href="/trainers" class="{{if eq .Active "trainers"}}active{{end}}">Тренери</a>
+  </nav>
+  {{else if eq .Space "stats"}}
+  <nav class="subnav">
+    <a href="/stats" class="{{if eq .Active "stats"}}active{{end}}">Заняття</a>
+  </nav>
+  {{end}}
+
   <main>
     {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
     {{template "content" .}}

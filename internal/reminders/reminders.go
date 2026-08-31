@@ -159,16 +159,24 @@ func (s *Service) project(after, to time.Time) ([]Occurrence, error) {
 	return out, nil
 }
 
-// UnclosedOn is the evening nag's question: what came due on this date and
-// nobody closed. Answerable only because rows exist — an occurrence recomputed
-// from today's rule could never prove it had come due at all.
-func (s *Service) UnclosedOn(date time.Time) ([]Occurrence, error) {
-	date = date.In(s.loc)
-	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, s.loc)
-	dayEnd := dayStart.AddDate(0, 0, 1).Add(-time.Minute)
-
+// Unclosed is what came due in [from, to] and nobody answered — the evening
+// nag's question, and the due-time push's.
+//
+// It takes an explicit window rather than a date. Asking for "today" lost a
+// whole class of chore: the nag fires at a wall-clock time, so a chore due
+// later that evening has no row yet when it runs, and the next evening's nag
+// asks about the next day — nothing ever mentions it. A window the caller
+// chooses can end where the previous one ended; a day cannot.
+//
+// Only stored rows count. A projection from today's rule could never prove it
+// had come due at all.
+func (s *Service) Unclosed(from, to time.Time) ([]Occurrence, error) {
+	from, to = from.In(s.loc), to.In(s.loc)
+	if to.Before(from) {
+		return nil, nil
+	}
 	rows, err := s.store.PendingOccurrencesIn(
-		dayStart.Format(model.LocalDatetime), dayEnd.Format(model.LocalDatetime))
+		from.Format(model.LocalDatetime), to.Format(model.LocalDatetime))
 	if err != nil {
 		return nil, err
 	}

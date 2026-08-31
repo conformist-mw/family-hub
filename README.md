@@ -35,7 +35,7 @@ The original spreadsheet had a few sharp edges this app removes:
 | | Where | What it is for |
 | --- | --- | --- |
 | Web UI | behind oauth2-proxy | the whole data model: courses, payments, journal, reconciliation, recurring chores and what actually got done |
-| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, and the evening list of chores nobody closed |
+| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, and the evening list of chores nobody closed |
 | Mini App | `/mini`, inside Telegram | what is going on today, the week's visits, the weekly lesson schedule, recording a payment, reconciling a course, managing recurring chores and reviewing how they are going |
 
 The Mini App authenticates the person who opened it — an HMAC over Telegram's

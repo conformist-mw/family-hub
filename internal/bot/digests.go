@@ -26,8 +26,9 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	}
 	digestsOn := b.cfg.appointmentDigestsEnabled()
 	nagOn := b.cfg.reminderNagEnabled()
-	if !digestsOn && !nagOn {
-		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder nag time)")
+	pushOn := b.cfg.reminderPushEnabled()
+	if !digestsOn && !nagOn && !pushOn {
+		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminders)")
 		return
 	}
 	b.logger.Info("bot: digests started",
@@ -36,7 +37,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		"daily", b.cfg.DailyDigestTime,
 		"weekly_dow", b.cfg.WeeklyDigestDOW,
 		"weekly_time", b.cfg.WeeklyDigestTime,
-		"reminder_nag", b.cfg.ReminderNagTime)
+		"reminder_nag", b.cfg.ReminderNagTime,
+		"reminder_push", pushOn)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -45,6 +47,11 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	// sends exactly once. In-memory: a restart may re-send today's digest,
 	// which is preferable to silently skipping it.
 	var lastDaily, lastWeekly, lastNag string
+	// The due-time push has no wall-clock time of its own — it fires whenever
+	// something comes due — so it carries an instant rather than a date. Set
+	// to boot time: a restart announces nothing from before it, which is what
+	// stops a catch-up backfill arriving as a message.
+	lastPush := b.now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -66,6 +73,9 @@ func (b *Bot) RunDigests(ctx context.Context) {
 				b.sendReminderNag(now)
 				lastNag = today
 			}
+			if pushOn {
+				lastPush = b.sendDueChores(now, lastPush)
+			}
 		}
 	}
 }
@@ -82,6 +92,15 @@ func (c Config) appointmentDigestsEnabled() bool {
 
 func (c Config) reminderNagEnabled() bool {
 	return c.ReminderNagTime != "" && c.Reminders != nil
+}
+
+// reminderPushEnabled has no flag of its own. A chore that does not tell you
+// when it comes due is not a reminder, so the push exists wherever chores and
+// a chat both do — the same condition under which the record itself is kept.
+// The nag stays configurable because it is an editorial choice about the
+// evening; this one is the feature working at all.
+func (c Config) reminderPushEnabled() bool {
+	return c.Reminders != nil
 }
 
 // dueThisMinute decides which of the three messages fire on this tick, given

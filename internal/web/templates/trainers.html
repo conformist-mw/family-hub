@@ -4,7 +4,7 @@
   <h1>Тренери</h1>
 </div>
 
-{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
 {{if not $d.Trainers}}
 <p class="empty">Тренерів ще немає. Тренер з’являється, коли його вписують у курс на вкладці <a href="/enrollments">Курси</a>.</p>
@@ -13,7 +13,7 @@
 {{range $d.Trainers}}
 {{$t := .Trainer}}
 <section class="slots" style="margin-bottom:22px">
-  <h2>{{$t.Name}}{{if not $t.Active}} <span class="muted">(в архіві)</span>{{end}}</h2>
+  <h2 class="heading-name">{{$t.Name}}{{if not $t.Active}} <span class="muted">(в архіві)</span>{{end}}</h2>
 
   {{if .Current}}
   <ul class="slot-list">

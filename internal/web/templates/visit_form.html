@@ -4,7 +4,7 @@
   <h1>{{if $d.IsEdit}}Заняття{{else}}Нове заняття{{end}}</h1>
 </div>
 
-{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
 <form class="stack" method="post" action="{{if $d.IsEdit}}/visits/{{$d.Visit.ID}}{{else}}/visits{{end}}">
   <label>

@@ -1,30 +1,119 @@
+/* The desk half of the same app.
+ *
+ * The palette, the radii and the type scale are the Mini App's, taken
+ * deliberately rather than approximated: the two halves are one product, and
+ * a person who closes a chore on the phone at breakfast and opens the ledger
+ * at a laptop at lunch should not feel handed to a different tool. What is not
+ * shared is layout — a phone gets stacked rows, a desk gets tables and a wide
+ * page, and pretending otherwise would make both worse.
+ *
+ * Two rules the old sheet broke and this one keeps:
+ *   - No colour is written as a hex outside :root. Every one is a token, which
+ *     is what makes the dark theme below a palette swap rather than a rewrite.
+ *   - A card is a surface, not a box: it earns its edge from the page behind
+ *     it, not from a border. Bordering everything is what made this look like
+ *     a form from 2012 next to the phone.
+ */
+
 :root {
-  --bg: #f4f5f7;
+  --bg: #f2f3f7;
   --card: #ffffff;
-  --line: #e2e5ea;
-  --text: #1c2330;
-  --muted: #6b7280;
-  --accent: #2563eb;
-  --ok: #16a34a;
-  --low: #d97706;
-  --empty: #dc2626;
-  --radius: 12px;
+  --text: #111214;
+  --muted: #6b6e73;
+  --hint: #8b8e93;
+  --line: #eceef2;
+  --line-strong: #e3e5ea;
+
+  --accent: #127a68;
+  --accent-weak: #e7f2ef;
+  --on-accent: #ffffff;
+
+  /* The Mini App's signature surface. Here it is the top bar, which is the one
+     thing on every page: it is what makes the web read as the same product at
+     a glance, and it is the only place this sheet raises its voice. */
+  --hero-bg: #0f4d43;
+  --hero-text: #ffffff;
+  --hero-muted: #a7ded1;
+  --hero-line: rgba(255, 255, 255, 0.16);
+
+  --warn: #b07c00;
+  --warn-weak: #f2ecdb;
+
+  --danger: #c0392b;
+  --danger-weak: #fbeceb;
+
+  --info: #2f6feb;
+  --info-weak: #e8eefc;
+
+  /* The balance states keep their old names — the templates say state-ok,
+     badge-low, status-empty — and point at the shared palette, so a healthy
+     course is the app's accent rather than a green nobody chose. */
+  --ok: var(--accent);
+  --low: var(--warn);
+  --empty: var(--danger);
+
+  --r-card: 16px;
+  --r-btn: 14px;
+  --r-chip: 12px;
+  --radius: var(--r-card);
+
+  --shadow-card: 0 1px 2px rgba(17, 18, 20, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181c;
+    --card: #212227;
+    --text: #f1f2f4;
+    --muted: #a2a6ad;
+    --hint: #8b8e93;
+    --line: #2c2e34;
+    --line-strong: #33353c;
+
+    --accent: #3dae99;
+    --accent-weak: rgba(61, 174, 153, 0.16);
+    --on-accent: #06231e;
+
+    --hero-bg: #123c35;
+    --hero-text: #f1f2f4;
+    --hero-muted: #86c7b8;
+    --hero-line: rgba(255, 255, 255, 0.12);
+
+    --warn: #e0aa2a;
+    --warn-weak: rgba(224, 170, 42, 0.16);
+
+    --danger: #ef6f61;
+    --danger-weak: rgba(239, 111, 97, 0.16);
+
+    --info: #7ba3f5;
+    --info-weak: rgba(123, 163, 245, 0.16);
+
+    --shadow-card: none;
+  }
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
-  font-size: 16px;
-  line-height: 1.4;
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* Keyboard focus stays visible everywhere. The old sheet left it to the
+   browser, which drops it entirely on anything given a background. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Top bar -------------------------------------------------------------- */
+
 .topbar {
-  background: var(--card);
-  border-bottom: 1px solid var(--line);
+  background: var(--hero-bg);
+  color: var(--hero-text);
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -34,38 +123,87 @@ body {
   z-index: 10;
   overflow-x: auto;
 }
-.brand { font-weight: 700; padding: 14px 0; white-space: nowrap; text-decoration: none; color: var(--text); }
-.topbar nav { display: flex; gap: 4px; }
+.brand {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  padding: 14px 0;
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--hero-text);
+}
+.topbar nav { display: flex; gap: 2px; }
 .topbar nav a {
   padding: 14px 12px;
   text-decoration: none;
-  color: var(--muted);
+  color: var(--hero-muted);
   white-space: nowrap;
   border-bottom: 2px solid transparent;
+  font-size: 15px;
 }
-.topbar nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+.topbar nav a:hover { color: var(--hero-text); }
+.topbar nav a.active { color: var(--hero-text); border-bottom-color: var(--hero-text); }
+.topbar :focus-visible { outline-color: var(--hero-text); }
 
-main { max-width: 880px; margin: 0 auto; padding: 16px; }
+main { max-width: 880px; margin: 0 auto; padding: 20px 16px 40px; }
 
-.page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; }
-.page-head h1 { font-size: 22px; margin: 0; }
+.page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 12px; }
+.page-head h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
 
-.flash { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 10px 14px; border-radius: var(--radius); margin-bottom: 16px; }
+/* A section label, not a heading: small, spaced and quiet, so the content
+   under it is what the eye lands on. Straight from the Mini App.
+   Two things are exempt, because they are not labels:
+     - a parenthetical inside one ("(коли платили)"), which is an aside and
+       reads badly shouted;
+     - a heading that carries somebody's name — .heading-name below. */
+h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--hint); }
+h2 .muted { text-transform: none; letter-spacing: normal; }
+
+/* A name is a name. Uppercasing a trainer or a child turns the page into
+   shouting and, for a name, changes what it says. */
+h2.heading-name, .audit-head h2 {
+  font-size: 18px; font-weight: 650; letter-spacing: -0.01em;
+  text-transform: none; color: var(--text);
+}
+
+.flash {
+  background: var(--accent-weak);
+  color: var(--accent);
+  padding: 11px 14px;
+  border-radius: var(--r-btn);
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+/* The error variant was nine copies of the same inline style, one per
+   template, which is also why none of them could follow a theme. */
+.flash.error { background: var(--danger-weak); color: var(--danger); }
+
+/* Buttons -------------------------------------------------------------- */
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 10px 16px; border-radius: var(--radius); border: 1px solid var(--line);
+  padding: 10px 16px; border-radius: var(--r-btn); border: 1px solid var(--line-strong);
   background: var(--card); color: var(--text); text-decoration: none; cursor: pointer;
-  font-size: 15px; font-weight: 500;
+  font: inherit; font-size: 15px; font-weight: 550;
 }
-.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn.danger { background: #fff; color: var(--empty); border-color: #fecaca; }
-.btn.small { padding: 6px 10px; font-size: 14px; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { background: var(--card); color: var(--danger); border-color: var(--danger-weak); }
+.btn.danger:hover { background: var(--danger-weak); border-color: var(--danger); }
+.btn.small { padding: 6px 11px; font-size: 14px; }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+/* Cards ---------------------------------------------------------------- */
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .card {
-  background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line);
-  border-radius: var(--radius); padding: 10px 12px;
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: 14px;
+  /* The state is a stripe down the edge rather than a full border: it is the
+     only thing on the card that carries a colour, so it reads without
+     competing with the numbers. */
+  border-left: 3px solid transparent;
 }
 .card.state-ok    { border-left-color: var(--ok); }
 .card.state-low   { border-left-color: var(--low); }
@@ -74,145 +212,207 @@ main { max-width: 880px; margin: 0 auto; padding: 16px; }
 .card-activity { font-weight: 600; }
 .card-child { color: var(--muted); font-size: 13px; }
 .card-absence { color: var(--muted); font-size: 13px; }
-.card-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 13px; margin-top: 8px; }
+.card-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--hint); font-size: 13px; margin-top: 8px; }
 .card-meta a { color: inherit; }
 .card-stats { display: flex; gap: 14px; margin-top: 10px; font-size: 14px; flex-wrap: wrap; }
 .card-stats b { font-weight: 700; }
 
 .badge { font-size: 13px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
-.badge-ok    { background: #dcfce7; color: var(--ok); }
-.badge-low   { background: #fef3c7; color: var(--low); }
-.badge-empty { background: #fee2e2; color: var(--empty); }
+.badge-ok    { background: var(--accent-weak); color: var(--accent); }
+.badge-low   { background: var(--warn-weak); color: var(--warn); }
+.badge-empty { background: var(--danger-weak); color: var(--danger); }
 
-table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: var(--radius); overflow: hidden; }
-th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
-th { color: var(--muted); font-weight: 600; font-size: 13px; }
+/* Tables --------------------------------------------------------------- */
+
+table {
+  width: 100%; border-collapse: collapse;
+  background: var(--card); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 15px; }
+th {
+  color: var(--hint); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
 tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--bg); }
+table a { color: var(--accent); }
 
-.empty { color: var(--muted); }
+.empty { color: var(--hint); }
 
-form.stack { display: flex; flex-direction: column; gap: 14px; max-width: 460px; }
+/* Forms ---------------------------------------------------------------- */
+
+form.stack { display: flex; flex-direction: column; gap: 15px; max-width: 460px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
 input, select, textarea {
-  font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
-  background: #fff; color: var(--text); width: 100%;
+  font: inherit; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-btn);
+  background: var(--card); color: var(--text); width: 100%;
 }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; }
 textarea { min-height: 70px; resize: vertical; }
-.form-actions { display: flex; gap: 10px; align-items: center; }
+.form-actions, .actions { display: flex; gap: 10px; align-items: center; }
+fieldset { border: 1px solid var(--line-strong); border-radius: var(--r-card); }
+legend { padding: 0 6px; }
+.danger-zone { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
 
-/* A number and its unit read as one control, so they sit on one line and the
-   number takes only the width a small integer needs. */
 .pair { display: flex; gap: 8px; }
 .pair input { flex: 0 1 7em; }
 .pair select { flex: 1 1 auto; }
 
-.date-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
-.date-quick button { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); background: #fff; border-radius: 999px; cursor: pointer; }
-.date-quick button:active { background: var(--accent); color: #fff; }
+/* Chips: one look for every "pick a period / pick a preset" control, which
+   used to be three near-identical rules under three names. */
+.date-quick, .pick-chips, .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.date-quick { margin-top: 2px; }
+.pick-chips { margin-bottom: 10px; }
+.filters { margin-bottom: 16px; align-items: center; gap: 8px; }
+.date-quick button, .pick-chips button, .chip-link {
+  font: inherit; font-size: 13px; font-weight: 550; padding: 7px 12px;
+  border: 1px solid var(--line-strong); background: var(--card); color: var(--text);
+  border-radius: 999px; cursor: pointer; text-decoration: none;
+}
+.date-quick button:hover, .pick-chips button:hover, .chip-link:hover { border-color: var(--muted); }
+.pick-chips button.active, .chip-link.active {
+  background: var(--accent); color: var(--on-accent); border-color: var(--accent);
+}
+.date-quick button:active { background: var(--accent); color: var(--on-accent); }
 
-.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
 .filters select, .filters input { width: auto; }
 .total { margin-left: auto; color: var(--muted); font-size: 14px; }
 .total b { color: var(--text); font-size: 16px; }
 .billing-block label + label { margin-top: 14px; }
 
-.muted { color: var(--muted); font-weight: 400; font-size: 13px; }
+.muted { color: var(--hint); font-weight: 400; font-size: 13px; }
 .readonly-pair { display: flex; gap: 24px; }
 .readonly-pair > div > div { font-weight: 600; font-size: 18px; }
 label.checkbox { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
 label.checkbox input { width: auto; }
 
-.slots { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 18px; }
-.slots h2 { font-size: 17px; margin: 0 0 12px; }
-.slot-list { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; max-width: 320px; }
-.slot-list li { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
-.slot-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Lists of rows inside a section — slots, absences, chore ledgers. The Mini
+   App's row: the divider lives inside the surface, not around it. */
+.slots { margin-top: 28px; padding-top: 4px; }
+.slots h2 { margin: 0 0 10px; }
+.slot-list {
+  list-style: none; margin: 0 0 14px; padding: 2px 14px;
+  background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow-card);
+}
+.slot-list li {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 11px 0; border-top: 1px solid var(--line);
+}
+.slot-list li:first-child { border-top: none; }
+.slot-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .slot-add select, .slot-add input { width: auto; }
+.chore-actions { display: flex; gap: 6px; }
 
-.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
 
-.pick-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.pick-chips button { font: inherit; font-size: 13px; padding: 7px 12px; border: 1px solid var(--line); background: #fff; border-radius: 999px; cursor: pointer; }
-.pick-chips button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* Stats ---------------------------------------------------------------- */
 
-.stat-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
-.stat-total { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
-.stat-total-label { color: var(--muted); font-size: 13px; }
-.stat-total-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+.stat-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 26px; }
+.stat-total {
+  background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow-card); padding: 16px;
+}
+.stat-total-label { color: var(--hint); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+.stat-total-value { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; margin-top: 6px; }
 
 .stat-block { margin-bottom: 26px; }
-.stat-block h2 { font-size: 17px; margin: 0 0 12px; }
+.stat-block h2 { margin: 0 0 12px; }
 .bars { display: flex; flex-direction: column; gap: 8px; }
 .bar-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; font-size: 14px; }
 .bar-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar-track { background: var(--bg); border-radius: 999px; height: 14px; overflow: hidden; }
+.bar-track { background: var(--line); border-radius: 999px; height: 12px; overflow: hidden; }
 .bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
-.bar-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-value { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
 
-@media (max-width: 560px) {
-  .stat-totals { grid-template-columns: 1fr; }
-  .bar-row { grid-template-columns: 110px 1fr auto; gap: 8px; font-size: 13px; }
-  .bar-label { font-size: 13px; }
-}
+/* Pills ---------------------------------------------------------------- */
 
 .row-actions { display: flex; gap: 8px; }
-.status-pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
-.status-done { background: #dcfce7; color: var(--ok); }
-.status-rescheduled { background: #e0e7ff; color: #4338ca; }
-.status-cancelled { background: #fee2e2; color: var(--empty); }
-.status-skipped { background: #f3f4f6; color: var(--muted); }
-.warn-pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #fee2e2; color: var(--empty); white-space: nowrap; }
-
-@media (max-width: 560px) {
-  main { padding: 12px; }
-  .cards { grid-template-columns: 1fr; }
-  table, thead, tbody, th, td, tr { display: block; }
-  thead { display: none; }
-  tr { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; padding: 6px 10px; }
-  td { border: none; padding: 5px 0; display: flex; justify-content: space-between; gap: 12px; }
-  td::before { content: attr(data-label); color: var(--muted); font-size: 13px; }
+.status-pill, .warn-pill {
+  display: inline-block; font-size: 12px; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
 }
+.status-done      { background: var(--accent-weak); color: var(--accent); }
+.status-planned   { background: var(--info-weak); color: var(--info); }
+.status-rescheduled { background: var(--info-weak); color: var(--info); }
+.status-cancelled { background: var(--danger-weak); color: var(--danger); }
+.status-skipped   { background: var(--warn-weak); color: var(--warn); }
+.warn-pill        { background: var(--danger-weak); color: var(--danger); }
 
-/* audit page */
-.chip-link { font-size: 13px; padding: 7px 12px; border: 1px solid var(--line); background: #fff; border-radius: 999px; text-decoration: none; color: inherit; }
-.chip-link.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.audit-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-.audit-head h2 { margin: 0 0 2px; font-size: 18px; }
-.audit-summary { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0; font-size: 14px; }
-.audit-forecast { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 14px; }
-.audit-topup { color: #991b1b; }
-table.ledger { width: 100%; border-collapse: collapse; font-size: 14px; }
-table.ledger td { padding: 6px 8px; border-top: 1px solid var(--line); }
-.ledger-date { white-space: nowrap; color: var(--muted); width: 1%; }
-.ledger-bal { text-align: right; color: var(--muted); width: 1%; }
-tr.ledger-payment { background: #f0fdf4; }
+/* Audit ---------------------------------------------------------------- */
+
+.audit-card {
+  background: var(--card); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card); padding: 18px;
+}
+.audit-head h2 { margin: 0 0 4px; }
+.audit-summary { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0; font-size: 14px; }
+.audit-forecast {
+  background: var(--bg); border-radius: var(--r-chip); padding: 10px 12px; margin: 12px 0; font-size: 14px;
+}
+.audit-topup { color: var(--danger); font-weight: 600; }
+table.ledger { width: 100%; border-collapse: collapse; font-size: 14px; box-shadow: none; border-radius: 0; background: none; }
+table.ledger td { padding: 8px; border-top: 1px solid var(--line); border-bottom: none; }
+table.ledger tbody tr:hover td { background: none; }
+.ledger-date { white-space: nowrap; color: var(--hint); width: 1%; font-variant-numeric: tabular-nums; }
+.ledger-bal { text-align: right; color: var(--muted); width: 1%; font-variant-numeric: tabular-nums; }
+tr.ledger-payment { background: var(--accent-weak); }
 tr.ledger-future { opacity: .55; }
-tr.ledger-future.uncovered { opacity: .8; background: #fef2f2; color: #991b1b; }
+tr.ledger-future.uncovered { opacity: .85; background: var(--danger-weak); color: var(--danger); }
 
-/* screenshot mode: leave only the audit card */
 body.screenshot .topbar, body.screenshot .no-screenshot { display: none; }
 @media print {
   .topbar, .no-screenshot { display: none; }
-  .audit-card { border: none; padding: 0; }
+  .audit-card { box-shadow: none; padding: 0; }
 }
 
-/* dashboard: recent payments under the cards */
-.dash-payments { margin-top: 22px; }
-.dash-payments-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.dash-payments-head h2 { margin: 0; font-size: 16px; }
-.dash-payments-head a { font-size: 13px; color: var(--muted); }
-table.dash-table { font-size: 14px; }
-table.dash-table td { padding: 7px 10px; border-top: 1px solid var(--line); }
-.dash-date { white-space: nowrap; color: var(--muted); width: 1%; }
-.dash-what { white-space: nowrap; color: var(--muted); }
-.dash-amount { text-align: right; white-space: nowrap; font-weight: 600; width: 1%; }
+/* Dashboard ------------------------------------------------------------ */
 
-/* dashboard: payments and upcoming appointments side by side */
+.dash-payments { margin-top: 24px; }
+.dash-payments-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.dash-payments-head h2 { margin: 0; }
+.dash-payments-head a { font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+table.dash-table { font-size: 14px; }
+table.dash-table td { padding: 10px 12px; border-top: 1px solid var(--line); border-bottom: none; }
+table.dash-table tr:first-child td { border-top: none; }
+.dash-date { white-space: nowrap; color: var(--hint); width: 1%; font-variant-numeric: tabular-nums; }
+.dash-what { white-space: nowrap; color: var(--muted); }
+.dash-amount { text-align: right; white-space: nowrap; font-weight: 600; width: 1%; font-variant-numeric: tabular-nums; }
+
 .dash-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
 @media (max-width: 720px) { .dash-columns { grid-template-columns: 1fr; gap: 0; } }
 
-/* appointments */
-.status-planned { background: #e0f2fe; color: #075985; }
+/* Appointments --------------------------------------------------------- */
+
 tr.appt-past { opacity: .55; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.appt-cost { text-align: right; white-space: nowrap; }
+.appt-cost { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Narrow ---------------------------------------------------------------- */
+
+@media (max-width: 560px) {
+  main { padding: 14px 12px 32px; }
+  .cards { grid-template-columns: 1fr; }
+  .stat-totals { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 110px 1fr auto; gap: 8px; font-size: 13px; }
+  .bar-label { font-size: 13px; }
+  .field-row { grid-template-columns: 1fr; }
+
+  /* A table becomes a stack of cards, each row labelled by its header. */
+  table, tbody, td, tr { display: block; }
+  thead { display: none; }
+  table { background: none; box-shadow: none; border-radius: 0; overflow: visible; }
+  tr {
+    background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow-card);
+    margin-bottom: 10px; padding: 8px 14px;
+  }
+  tbody tr:hover td { background: none; }
+  td { border: none; padding: 6px 0; display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+  td:not(:last-child) { border-bottom: 1px solid var(--line); }
+  td::before { content: attr(data-label); color: var(--hint); font-size: 13px; }
+  td:empty { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

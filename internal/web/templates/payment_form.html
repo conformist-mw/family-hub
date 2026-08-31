@@ -5,7 +5,7 @@
   <h1>{{if $d.IsEdit}}Оплата{{else}}Нова оплата{{end}}</h1>
 </div>
 
-{{if $d.Error}}<div class="flash" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">{{$d.Error}}</div>{{end}}
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
 <form class="stack" method="post" action="{{if $d.IsEdit}}/payments/{{$p.ID}}{{else}}/payments{{end}}">
   <label>

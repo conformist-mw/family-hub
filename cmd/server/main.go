@@ -20,6 +20,7 @@ import (
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
+	"familyhub/internal/schooltoday"
 	"familyhub/internal/store"
 	"familyhub/internal/web"
 )
@@ -60,6 +61,36 @@ func main() {
 	// messages: switch the digests off and the history silently stops.
 	remindersSvc := reminders.NewService(st, time.Local, logger, time.Now)
 	go remindersSvc.RunMaterialiser(ctx)
+
+	// The school-today syncer mirrors the child's academic timetable into the
+	// store for the /school.ics feed. Independent of the bot and of
+	// notifications — it only writes the cache HA reads — and off unless a
+	// portal account and a pupil id are configured.
+	if email := os.Getenv("SCHOOL_TODAY_EMAIL"); email != "" {
+		pupilID, _ := strconv.ParseInt(os.Getenv("SCHOOL_TODAY_PUPIL_ID"), 10, 64)
+		password := os.Getenv("SCHOOL_TODAY_PASSWORD")
+		if password == "" || pupilID == 0 {
+			logger.Warn("schooltoday: disabled (SCHOOL_TODAY_PASSWORD or SCHOOL_TODAY_PUPIL_ID missing)")
+		} else {
+			baseURL := os.Getenv("SCHOOL_TODAY_BASE_URL")
+			if baseURL == "" {
+				baseURL = "https://school-today.com"
+			}
+			schoolSvc := schooltoday.NewService(
+				st, schooltoday.NewClient(baseURL),
+				schooltoday.Config{
+					Email:      email,
+					Password:   password,
+					PupilID:    pupilID,
+					WeeksAhead: envInt("SCHOOL_TODAY_WEEKS_AHEAD", 3),
+					Interval:   envDuration("SCHOOL_TODAY_SYNC_INTERVAL", 12*time.Hour),
+				},
+				time.Local, logger, time.Now)
+			go schoolSvc.RunSyncer(ctx)
+		}
+	} else {
+		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
+	}
 
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
@@ -241,6 +272,23 @@ func parseBool(s string) bool {
 	default:
 		return false
 	}
+}
+
+// envInt reads an integer env var, falling back to def when unset or unparseable.
+func envInt(key string, def int) int {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil {
+		return v
+	}
+	return def
+}
+
+// envDuration reads a Go duration env var ("12h", "30m"), falling back to def
+// when unset, unparseable or non-positive.
+func envDuration(key string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(strings.TrimSpace(os.Getenv(key))); err == nil && d > 0 {
+		return d
+	}
+	return def
 }
 
 // splitCSV parses a comma-separated list, dropping empty entries — the people

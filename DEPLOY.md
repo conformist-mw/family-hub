@@ -113,7 +113,25 @@ tolerating silently, but it is a real limit, not a rounding error.
 
 ## Migrations
 
-Migrations run twice, on purpose. The Ansible role runs `/app/migrate` in a
+A snapshot is taken first. The Ansible role snapshots the database into
+`~/server_data/backups/premigrate-family-hub-<stamp>.db.gz` before it runs
+`/app/migrate`, keeping the last five and leaving the nightly snapshots alone
+(they rotate on a different prefix). It exists because the two events happen on
+different clocks: the nightly backup runs at 03:20, migrations run whenever
+somebody deploys, and `0006` dropped three columns off `regular_slots` sixteen
+hours after the newest snapshot. Nothing was lost that time because the
+snapshot was taken by hand — which is a person remembering, not a control.
+
+It is taken with SQLite's backup API rather than by copying the file: the app
+is running and the database is in WAL mode, so a copy taken under a live writer
+yields a file that only looks intact. The snapshot reaches Backblaze on the
+next nightly mirror, not immediately, so the ten minutes after a migration are
+covered on disk but not yet offsite.
+
+To roll back a bad migration, stop the container, `gunzip` the snapshot over
+`family-hub.db` (removing the `-wal` and `-shm` beside it), and start it again.
+
+Migrations then run twice, on purpose. The Ansible role runs `/app/migrate` in a
 throwaway container **before** it touches the running one, and the server also
 migrates on boot.
 

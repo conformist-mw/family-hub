@@ -2,10 +2,26 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 
 	"familyhub/internal/model"
 )
+
+// ErrDuplicateReading is a second reading for the same utility, period and
+// tariff. Same period under a *different* tariff is legal and is how the month
+// a meter is replaced is recorded; the same tariff twice is a double entry.
+var ErrDuplicateReading = errors.New("показання за цей період і тариф уже є")
+
+// asDuplicate turns SQLite's unique-constraint failure into something a form
+// can show. Only the readings key is folded this way: elsewhere a constraint
+// failure is a bug, and swallowing it into a friendly sentence would hide it.
+func asDuplicate(err error) error {
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrDuplicateReading
+	}
+	return err
+}
 
 // rowScanner is what *sql.Row and *sql.Rows have in common, so one scan
 // function serves both the single-row and the list query.
@@ -205,4 +221,90 @@ func (s *Store) CurrentMonthStatus(period string, addressID int64) ([]UtilityMon
 		out = append(out, st)
 	}
 	return out, rows.Err()
+}
+
+// ── writes ───────────────────────────────────────────────────────────────────
+
+// CreateReading stores a reading exactly as handed over. Neither the amount
+// nor the tariff is recomputed here: the caller picked the tariff that applied
+// when the meter was read, and ComputeAmount priced it against that tariff. A
+// store that recalculated would be a second opinion about a settled number.
+func (s *Store) CreateReading(r model.Reading) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO readings (utility_id, tariff_id, period, reading_date,
+			prev1, curr1, prev2, curr2, consumed1, consumed2,
+			amount, paid_date, comment)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.UtilityID, r.TariffID, r.Period, orNil(r.ReadingDate),
+		orNilF(r.Prev1), orNilF(r.Curr1), orNilF(r.Prev2), orNilF(r.Curr2),
+		orNilF(r.Consumed1), orNilF(r.Consumed2),
+		r.Amount, orNil(r.PaidDate), r.Comment)
+	if err != nil {
+		return 0, asDuplicate(err)
+	}
+	return res.LastInsertId()
+}
+
+// UpdateReading rewrites a reading in place. tariff_id is not among the
+// columns: the tariff a month was billed at is settled when it is written, and
+// re-pointing it at today's price is how a record starts lying about what was
+// actually charged.
+func (s *Store) UpdateReading(r model.Reading) error {
+	_, err := s.db.Exec(`
+		UPDATE readings SET
+			period = ?, reading_date = ?,
+			prev1 = ?, curr1 = ?, prev2 = ?, curr2 = ?,
+			consumed1 = ?, consumed2 = ?,
+			amount = ?, paid_date = ?, comment = ?
+		WHERE id = ?`,
+		r.Period, orNil(r.ReadingDate),
+		orNilF(r.Prev1), orNilF(r.Curr1), orNilF(r.Prev2), orNilF(r.Curr2),
+		orNilF(r.Consumed1), orNilF(r.Consumed2),
+		r.Amount, orNil(r.PaidDate), r.Comment, r.ID)
+	return asDuplicate(err)
+}
+
+// TogglePaid marks a reading paid as of today, or clears the date if it was
+// already marked. One button rather than two: the mistake it has to undo is
+// its own.
+func (s *Store) TogglePaid(id int64, today string) error {
+	res, err := s.db.Exec(`
+		UPDATE readings
+		SET paid_date = CASE WHEN paid_date IS NULL THEN ? ELSE NULL END
+		WHERE id = ?`, today, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) DeleteReading(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM readings WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// orNil and orNilF keep a nil pointer nil on the way into SQL. Passing the
+// typed nil straight through would store a zero, and a zero reading is not the
+// same fact as an unread meter.
+func orNil(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func orNilF(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }

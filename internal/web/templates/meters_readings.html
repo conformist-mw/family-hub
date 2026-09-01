@@ -32,7 +32,7 @@
 
 <table>
   <thead>
-    <tr><th></th><th>Сервіс</th><th>Показання</th><th>Спожито</th><th>Сума</th><th>Стан</th></tr>
+    <tr><th></th><th>Сервіс</th><th>Показання</th><th>Спожито</th><th>Сума</th><th>Стан</th><th></th></tr>
   </thead>
   <tbody>
     {{range $d.Rows}}
@@ -58,9 +58,25 @@
         {{else if .Paid}}<span class="badge badge-ok">сплачено</span>
         {{else}}<span class="badge badge-low">не сплачено</span>{{end}}
       </td>
+      {{/* A month a meter was replaced holds two readings and has no single
+           row to edit; adding is still offered, because that is how the second
+           one gets recorded in the first place. */}}
+      <td data-label="" class="row-actions">
+        {{if not .HasReading}}
+          <a class="btn small primary" href="/meters/readings/new?utility_id={{.UtilityID}}&period={{$d.Period}}">Внести</a>
+        {{else}}
+          {{if eq .ReadingCount 1}}
+          <a class="btn small" href="/meters/readings/{{.FirstReading}}">✎</a>
+          <form method="post" action="/meters/readings/{{.FirstReading}}/paid">
+            <button class="btn small" type="submit">{{if .Paid}}↩{{else}}₴{{end}}</button>
+          </form>
+          {{end}}
+          <a class="btn small" href="/meters/readings/new?utility_id={{.UtilityID}}&period={{$d.Period}}">+</a>
+        {{end}}
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="6" class="empty">Активних сервісів немає.</td></tr>
+    <tr><td colspan="7" class="empty">Активних сервісів немає.</td></tr>
     {{end}}
   </tbody>
 </table>

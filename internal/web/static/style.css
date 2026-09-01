@@ -297,6 +297,10 @@ tr:last-child td { border-bottom: none; }
 tbody tr:hover td { background: var(--bg); }
 table a { color: var(--accent); }
 
+/* Actions sit on one line inside a cell: the paid toggle has to be a form (it
+   writes), and a bare form would otherwise break the row onto two lines. */
+.row-actions { display: flex; gap: 6px; align-items: center; }
+.row-actions form { display: inline; margin: 0; }
 .empty { color: var(--hint); }
 
 /* Forms ---------------------------------------------------------------- */

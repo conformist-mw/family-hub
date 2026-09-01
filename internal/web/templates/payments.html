@@ -2,10 +2,10 @@
 {{$d := .Data}}
 <div class="page-head">
   <h1>Оплати</h1>
-  <a class="btn primary" href="/payments/new">+ Оплата</a>
+  <a class="btn primary" href="/lessons/payments/new">+ Оплата</a>
 </div>
 
-<form class="filters" method="get" action="/payments">
+<form class="filters" method="get" action="/lessons/payments">
   <select name="person" onchange="this.form.submit()">
     <option value="">Усі</option>
     {{range $d.Persons}}
@@ -29,7 +29,7 @@
         {{if .LessonsPaid}}{{.LessonsPaid}} зан.{{else if .CoversUntil}}абон. {{dateShort (deref .CoversFrom)}}—{{dateShort (deref .CoversUntil)}}{{else}}—{{end}}
       </td>
       <td data-label="Сума">{{money .Amount}}</td>
-      <td data-label=""><a class="btn small" href="/payments/{{.ID}}/edit">✎</a></td>
+      <td data-label=""><a class="btn small" href="/lessons/payments/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
     <tr><td colspan="6" class="empty">Оплат немає.</td></tr>

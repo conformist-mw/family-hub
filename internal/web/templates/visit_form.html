@@ -6,7 +6,7 @@
 
 {{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
-<form class="stack" method="post" action="{{if $d.IsEdit}}/visits/{{$d.Visit.ID}}{{else}}/visits{{end}}">
+<form class="stack" method="post" action="{{if $d.IsEdit}}/lessons/visits/{{$d.Visit.ID}}{{else}}/lessons/visits{{end}}">
   <label>
     Курс
     {{if $d.Frequent}}
@@ -57,12 +57,12 @@
 
   <div class="form-actions">
     <button class="btn primary" type="submit">Зберегти</button>
-    <a class="btn" href="/visits">Скасувати</a>
+    <a class="btn" href="/lessons/visits">Скасувати</a>
   </div>
 </form>
 
 {{if $d.IsEdit}}
-<form method="post" action="/visits/{{$d.Visit.ID}}/delete" onsubmit="return confirm('Видалити запис?')" style="margin-top:14px">
+<form method="post" action="/lessons/visits/{{$d.Visit.ID}}/delete" onsubmit="return confirm('Видалити запис?')" style="margin-top:14px">
   <button class="btn danger" type="submit">Видалити запис</button>
 </form>
 {{end}}

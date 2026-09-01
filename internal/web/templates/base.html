@@ -35,10 +35,10 @@
   {{if eq .Space "lessons"}}
   <nav class="subnav">
     <a href="/lessons" class="{{if eq .Active "balance"}}active{{end}}">Баланс</a>
-    <a href="/visits" class="{{if eq .Active "visits"}}active{{end}}">Візити</a>
-    <a href="/payments" class="{{if eq .Active "payments"}}active{{end}}">Оплати</a>
-    <a href="/enrollments" class="{{if eq .Active "enrollments"}}active{{end}}">Курси</a>
-    <a href="/trainers" class="{{if eq .Active "trainers"}}active{{end}}">Тренери</a>
+    <a href="/lessons/visits" class="{{if eq .Active "visits"}}active{{end}}">Візити</a>
+    <a href="/lessons/payments" class="{{if eq .Active "payments"}}active{{end}}">Оплати</a>
+    <a href="/lessons/enrollments" class="{{if eq .Active "enrollments"}}active{{end}}">Курси</a>
+    <a href="/lessons/trainers" class="{{if eq .Active "trainers"}}active{{end}}">Тренери</a>
   </nav>
   {{else if eq .Space "meters"}}
   <nav class="subnav">
@@ -49,7 +49,8 @@
   </nav>
   {{else if eq .Space "stats"}}
   <nav class="subnav">
-    <a href="/stats" class="{{if eq .Active "stats"}}active{{end}}">Заняття</a>
+    <a href="/stats" class="{{if eq .Active "stats"}}active{{end}}">Разом</a>
+    <a href="/stats/lessons" class="{{if eq .Active "stats_lessons"}}active{{end}}">Заняття</a>
   </nav>
   {{end}}
 

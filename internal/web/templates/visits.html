@@ -2,10 +2,10 @@
 {{$d := .Data}}
 <div class="page-head">
   <h1>Заняття</h1>
-  <a class="btn primary" href="/visits/new">+ Заняття</a>
+  <a class="btn primary" href="/lessons/visits/new">+ Заняття</a>
 </div>
 
-<form class="filters" method="get" action="/visits">
+<form class="filters" method="get" action="/lessons/visits">
   <select name="person" onchange="this.form.submit()">
     <option value="">Усі</option>
     {{range $d.Persons}}
@@ -34,7 +34,7 @@
       <td data-label="Статус"><span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span></td>
       <td data-label="Комментар">{{.Comment}}</td>
       <td data-label="Додано" class="muted">{{addedAt .Created}}</td>
-      <td data-label=""><a class="btn small" href="/visits/{{.ID}}/edit">✎</a></td>
+      <td data-label=""><a class="btn small" href="/lessons/visits/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
     <tr><td colspan="7" class="empty">Записів немає.</td></tr>

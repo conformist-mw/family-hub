@@ -71,12 +71,12 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("GET /meters/utilities", a.handleMeterUtilities)
 	mux.HandleFunc("GET /meters/addresses", a.handleMeterAddresses)
 
-	mux.HandleFunc("GET /visits", a.handleVisits)
-	mux.HandleFunc("GET /visits/new", a.handleVisitNew)
-	mux.HandleFunc("POST /visits", a.handleVisitCreate)
-	mux.HandleFunc("GET /visits/{id}/edit", a.handleVisitEdit)
-	mux.HandleFunc("POST /visits/{id}", a.handleVisitUpdate)
-	mux.HandleFunc("POST /visits/{id}/delete", a.handleVisitDelete)
+	mux.HandleFunc("GET /lessons/visits", a.handleVisits)
+	mux.HandleFunc("GET /lessons/visits/new", a.handleVisitNew)
+	mux.HandleFunc("POST /lessons/visits", a.handleVisitCreate)
+	mux.HandleFunc("GET /lessons/visits/{id}/edit", a.handleVisitEdit)
+	mux.HandleFunc("POST /lessons/visits/{id}", a.handleVisitUpdate)
+	mux.HandleFunc("POST /lessons/visits/{id}/delete", a.handleVisitDelete)
 
 	mux.HandleFunc("GET /appointments", a.handleAppointments)
 	mux.HandleFunc("GET /appointments/new", a.handleAppointmentNew)
@@ -85,12 +85,12 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /appointments/{id}", a.handleAppointmentUpdate)
 	mux.HandleFunc("POST /appointments/{id}/delete", a.handleAppointmentDelete)
 
-	mux.HandleFunc("GET /payments", a.handlePayments)
-	mux.HandleFunc("GET /payments/new", a.handlePaymentNew)
-	mux.HandleFunc("POST /payments", a.handlePaymentCreate)
-	mux.HandleFunc("GET /payments/{id}/edit", a.handlePaymentEdit)
-	mux.HandleFunc("POST /payments/{id}", a.handlePaymentUpdate)
-	mux.HandleFunc("POST /payments/{id}/delete", a.handlePaymentDelete)
+	mux.HandleFunc("GET /lessons/payments", a.handlePayments)
+	mux.HandleFunc("GET /lessons/payments/new", a.handlePaymentNew)
+	mux.HandleFunc("POST /lessons/payments", a.handlePaymentCreate)
+	mux.HandleFunc("GET /lessons/payments/{id}/edit", a.handlePaymentEdit)
+	mux.HandleFunc("POST /lessons/payments/{id}", a.handlePaymentUpdate)
+	mux.HandleFunc("POST /lessons/payments/{id}/delete", a.handlePaymentDelete)
 
 	mux.HandleFunc("GET /reminders", a.handleReminders)
 	mux.HandleFunc("GET /reminders/new", a.handleReminderNew)
@@ -102,24 +102,53 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /reminders/{id}/delete", a.handleReminderDelete)
 	mux.HandleFunc("POST /reminders/{id}/mark", a.handleReminderMark)
 
-	mux.HandleFunc("GET /stats", a.handleStats)
+	mux.HandleFunc("GET /stats", a.handleStatsOverview)
+	mux.HandleFunc("GET /stats/lessons", a.handleStats)
 
-	mux.HandleFunc("GET /trainers", a.handleTrainers)
-	mux.HandleFunc("POST /trainers/{id}/absences", a.handleAbsenceCreate)
-	mux.HandleFunc("POST /trainers/{id}/absences/{absenceId}/delete", a.handleAbsenceDelete)
+	mux.HandleFunc("GET /lessons/trainers", a.handleTrainers)
+	mux.HandleFunc("POST /lessons/trainers/{id}/absences", a.handleAbsenceCreate)
+	mux.HandleFunc("POST /lessons/trainers/{id}/absences/{absenceId}/delete", a.handleAbsenceDelete)
 
-	mux.HandleFunc("GET /enrollments", a.handleEnrollments)
-	mux.HandleFunc("GET /enrollments/new", a.handleEnrollmentNew)
-	mux.HandleFunc("POST /enrollments", a.handleEnrollmentCreate)
-	mux.HandleFunc("GET /enrollments/{id}/edit", a.handleEnrollmentEdit)
-	mux.HandleFunc("POST /enrollments/{id}", a.handleEnrollmentUpdate)
-	mux.HandleFunc("POST /enrollments/{id}/delete", a.handleEnrollmentDelete)
-	mux.HandleFunc("POST /enrollments/{id}/slots", a.handleSlotCreate)
-	mux.HandleFunc("POST /enrollments/{id}/slots/{slotId}/delete", a.handleSlotDelete)
-	mux.HandleFunc("GET /enrollments/{id}/audit", a.handleAudit)
-	mux.HandleFunc("POST /enrollments/{id}/audit/send", a.handleAuditSend)
+	mux.HandleFunc("GET /lessons/enrollments", a.handleEnrollments)
+	mux.HandleFunc("GET /lessons/enrollments/new", a.handleEnrollmentNew)
+	mux.HandleFunc("POST /lessons/enrollments", a.handleEnrollmentCreate)
+	mux.HandleFunc("GET /lessons/enrollments/{id}/edit", a.handleEnrollmentEdit)
+	mux.HandleFunc("POST /lessons/enrollments/{id}", a.handleEnrollmentUpdate)
+	mux.HandleFunc("POST /lessons/enrollments/{id}/delete", a.handleEnrollmentDelete)
+	mux.HandleFunc("POST /lessons/enrollments/{id}/slots", a.handleSlotCreate)
+	mux.HandleFunc("POST /lessons/enrollments/{id}/slots/{slotId}/delete", a.handleSlotDelete)
+	mux.HandleFunc("GET /lessons/enrollments/{id}/audit", a.handleAudit)
+	mux.HandleFunc("POST /lessons/enrollments/{id}/audit/send", a.handleAuditSend)
+
+	// The pre-worlds URLs, kept alive by prefix rather than one entry per
+	// path: the four domains carry nested routes (/{id}/edit, /{id}/audit,
+	// /{id}/absences/{absenceId}/delete) and listing them again here would be
+	// a second copy of the route table to keep in step.
+	for _, legacy := range []string{"/visits", "/payments", "/enrollments", "/trainers"} {
+		mux.HandleFunc(legacy, movedToLessons)
+		mux.HandleFunc(legacy+"/", movedToLessons)
+	}
 
 	return csrfGuard(webhookPath, logger, mux)
+}
+
+// movedToLessons sends a pre-worlds URL to its place under /lessons, keeping
+// the tail and the query string — /enrollments/3/audit?range=month lands on
+// /lessons/enrollments/3/audit?range=month rather than on a bare list.
+//
+// 301 for a bookmark, 308 for anything else. A 301 lets the browser retry a
+// POST as GET, so a form submitted from a page that was open across the move
+// would look accepted and write nothing. 308 keeps the method and the body.
+func movedToLessons(w http.ResponseWriter, r *http.Request) {
+	target := "/lessons" + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	code := http.StatusPermanentRedirect
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		code = http.StatusMovedPermanently
+	}
+	http.Redirect(w, r, target, code)
 }
 
 // csrfGuard rejects cross-site POSTs. Auth is an oauth2-proxy cookie, so

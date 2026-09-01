@@ -101,7 +101,7 @@ func (a *App) handleAuditSend(w http.ResponseWriter, r *http.Request) {
 		back.Set("from", data.From)
 		back.Set("to", data.To)
 	}
-	http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/audit?"+back.Encode(), http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/enrollments/"+strconv.FormatInt(id, 10)+"/audit?"+back.Encode(), http.StatusSeeOther)
 }
 
 func dateShort(s string) string {

@@ -88,7 +88,7 @@ func (a *App) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		a.renderTrainers(w, err.Error())
 		return
 	}
-	http.Redirect(w, r, "/trainers", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/trainers", http.StatusSeeOther)
 }
 
 func (a *App) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
@@ -97,5 +97,5 @@ func (a *App) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/trainers", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/trainers", http.StatusSeeOther)
 }

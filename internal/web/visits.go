@@ -163,7 +163,7 @@ func (a *App) handleVisitCreate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/visits", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/visits", http.StatusSeeOther)
 }
 
 func (a *App) handleVisitEdit(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +207,7 @@ func (a *App) handleVisitUpdate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/visits", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/visits", http.StatusSeeOther)
 }
 
 func (a *App) handleVisitDelete(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +216,7 @@ func (a *App) handleVisitDelete(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/visits", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/visits", http.StatusSeeOther)
 }
 
 func (a *App) parseVisitForm(r *http.Request) (model.Visit, string) {

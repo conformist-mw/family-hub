@@ -9,11 +9,11 @@
 {{if $d.Sent}}<div class="flash no-screenshot">Відправлено в групу.</div>{{end}}
 
 <div class="pick-chips no-screenshot">
-  <a class="chip-link {{if eq $d.Range "last_payment"}}active{{end}}" href="/enrollments/{{$e.ID}}/audit">з оплати</a>
-  <a class="chip-link {{if eq $d.Range "month"}}active{{end}}" href="/enrollments/{{$e.ID}}/audit?range=month">місяць</a>
-  <a class="chip-link {{if eq $d.Range "all"}}active{{end}}" href="/enrollments/{{$e.ID}}/audit?range=all">усе</a>
+  <a class="chip-link {{if eq $d.Range "last_payment"}}active{{end}}" href="/lessons/enrollments/{{$e.ID}}/audit">з оплати</a>
+  <a class="chip-link {{if eq $d.Range "month"}}active{{end}}" href="/lessons/enrollments/{{$e.ID}}/audit?range=month">місяць</a>
+  <a class="chip-link {{if eq $d.Range "all"}}active{{end}}" href="/lessons/enrollments/{{$e.ID}}/audit?range=all">усе</a>
 </div>
-<form class="slot-add no-screenshot" method="get" action="/enrollments/{{$e.ID}}/audit" style="margin-bottom:14px">
+<form class="slot-add no-screenshot" method="get" action="/lessons/enrollments/{{$e.ID}}/audit" style="margin-bottom:14px">
   <input type="hidden" name="range" value="custom">
   <input type="date" name="from" value="{{$d.From}}" required>
   <input type="date" name="to" value="{{$d.To}}" required>
@@ -80,7 +80,7 @@
 <div class="form-actions no-screenshot" style="margin-top:14px">
   <button class="btn primary" type="button" id="audit-copy">Скопіювати текст</button>
   {{if $d.CanSend}}
-  <form method="post" action="/enrollments/{{$e.ID}}/audit/send">
+  <form method="post" action="/lessons/enrollments/{{$e.ID}}/audit/send">
     <input type="hidden" name="range" value="{{$d.Range}}">
     {{if eq $d.Range "custom"}}
     <input type="hidden" name="from" value="{{$d.From}}">

@@ -151,7 +151,7 @@ func (a *App) handleEnrollmentCreate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/enrollments", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/enrollments", http.StatusSeeOther)
 }
 
 func (a *App) handleEnrollmentEdit(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +202,7 @@ func (a *App) handleEnrollmentUpdate(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/enrollments", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/enrollments", http.StatusSeeOther)
 }
 
 // parseEnrollmentForm reads the fields both create and update share. Person
@@ -257,7 +257,7 @@ func (a *App) handleEnrollmentDelete(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/enrollments", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/enrollments", http.StatusSeeOther)
 }
 
 func (a *App) handleSlotCreate(w http.ResponseWriter, r *http.Request) {
@@ -280,13 +280,13 @@ func (a *App) handleSlotCreate(w http.ResponseWriter, r *http.Request) {
 			// This page has no slot-level error slot; the value is rejected
 			// rather than stored, which is the part that matters.
 			a.Logger.Warn("web: slot rejected", "err", invalid.Message, "enrollment", id)
-			http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
+			http.Redirect(w, r, "/lessons/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
 			return
 		}
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/enrollments/"+strconv.FormatInt(id, 10)+"/edit", http.StatusSeeOther)
 }
 
 func (a *App) handleSlotDelete(w http.ResponseWriter, r *http.Request) {
@@ -296,7 +296,7 @@ func (a *App) handleSlotDelete(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/enrollments/"+id+"/edit", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/enrollments/"+id+"/edit", http.StatusSeeOther)
 }
 
 func (a *App) renderEnrollmentForm(w http.ResponseWriter, data enrollmentFormData) {

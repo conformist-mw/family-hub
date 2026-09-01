@@ -7,7 +7,7 @@
 
 {{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
-<form class="stack" method="post" action="{{if $d.IsEdit}}/payments/{{$p.ID}}{{else}}/payments{{end}}">
+<form class="stack" method="post" action="{{if $d.IsEdit}}/lessons/payments/{{$p.ID}}{{else}}/lessons/payments{{end}}">
   <label>
     Курс
     <select name="enrollment_id" id="enrollment" required>
@@ -50,12 +50,12 @@
 
   <div class="form-actions">
     <button class="btn primary" type="submit">Зберегти</button>
-    <a class="btn" href="/payments">Скасувати</a>
+    <a class="btn" href="/lessons/payments">Скасувати</a>
   </div>
 </form>
 
 {{if $d.IsEdit}}
-<form method="post" action="/payments/{{$p.ID}}/delete" onsubmit="return confirm('Видалити оплату?')" style="margin-top:14px">
+<form method="post" action="/lessons/payments/{{$p.ID}}/delete" onsubmit="return confirm('Видалити оплату?')" style="margin-top:14px">
   <button class="btn danger" type="submit">Видалити оплату</button>
 </form>
 {{end}}

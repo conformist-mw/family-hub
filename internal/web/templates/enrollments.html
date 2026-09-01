@@ -2,7 +2,7 @@
 {{$enrollments := .Data}}
 <div class="page-head">
   <h1>Курси</h1>
-  <a class="btn primary" href="/enrollments/new">+ Курс</a>
+  <a class="btn primary" href="/lessons/enrollments/new">+ Курс</a>
 </div>
 
 <table>
@@ -21,7 +21,7 @@
         {{if gt .SlotCount 0}}{{.SlotCount}}/тиж{{else if .Active}}<span class="warn-pill">немає нагадувань</span>{{else}}—{{end}}
       </td>
       <td data-label="Статус">{{if .Active}}активний{{else}}архів{{end}}</td>
-      <td data-label=""><a class="btn small" href="/enrollments/{{.ID}}/audit" title="Звірка">Σ</a> <a class="btn small" href="/enrollments/{{.ID}}/edit">✎</a></td>
+      <td data-label=""><a class="btn small" href="/lessons/enrollments/{{.ID}}/audit" title="Звірка">Σ</a> <a class="btn small" href="/lessons/enrollments/{{.ID}}/edit">✎</a></td>
     </tr>
     {{else}}
     <tr><td colspan="8" class="empty">Курсів немає.</td></tr>

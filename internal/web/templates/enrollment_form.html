@@ -7,7 +7,7 @@
 
 {{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
-<form class="stack" method="post" action="{{if $d.IsEdit}}/enrollments/{{$e.ID}}{{else}}/enrollments{{end}}">
+<form class="stack" method="post" action="{{if $d.IsEdit}}/lessons/enrollments/{{$e.ID}}{{else}}/lessons/enrollments{{end}}">
   {{if $d.IsEdit}}
     <div class="readonly-pair">
       <div><span class="muted">Хто</span><div>{{$e.Person}}</div></div>
@@ -104,7 +104,7 @@
 
   <div class="form-actions">
     <button class="btn primary" type="submit">Зберегти</button>
-    <a class="btn" href="/enrollments">Скасувати</a>
+    <a class="btn" href="/lessons/enrollments">Скасувати</a>
   </div>
 </form>
 
@@ -136,7 +136,7 @@
     {{range $d.Slots}}
     <li>
       <span>{{weekday .Weekday}}, {{.Time}} <span class="muted">· {{.DurationMin}} хв</span></span>
-      <form method="post" action="/enrollments/{{$e.ID}}/slots/{{.ID}}/delete">
+      <form method="post" action="/lessons/enrollments/{{$e.ID}}/slots/{{.ID}}/delete">
         <button class="btn small danger" type="submit">×</button>
       </form>
     </li>
@@ -146,7 +146,7 @@
   <p class="muted">Слотів немає. Додай день і час — бот увечері нагадає відмітити заняття.</p>
   {{end}}
 
-  <form class="slot-add" method="post" action="/enrollments/{{$e.ID}}/slots">
+  <form class="slot-add" method="post" action="/lessons/enrollments/{{$e.ID}}/slots">
     <select name="weekday">
       {{range $d.Weekdays}}<option value="{{.N}}">{{.Label}}</option>{{end}}
     </select>
@@ -156,7 +156,7 @@
   </form>
 </section>
 
-<form method="post" action="/enrollments/{{$e.ID}}/delete" onsubmit="return confirm('Видалити курс? Можливо лише якщо немає занять і оплат.')" style="margin-top:18px">
+<form method="post" action="/lessons/enrollments/{{$e.ID}}/delete" onsubmit="return confirm('Видалити курс? Можливо лише якщо немає занять і оплат.')" style="margin-top:18px">
   <button class="btn danger" type="submit">Видалити курс</button>
 </form>
 {{end}}

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	tele "gopkg.in/telebot.v3"
+
 	"familyhub/internal/model"
 	"familyhub/internal/reminders"
 )
@@ -237,18 +239,129 @@ func TestBadChoreCallbackDataIsRejected(t *testing.T) {
 	}
 }
 
-// A long title must not wrap the button into a wall.
-func TestALongChoreTitleIsShortenedForItsButton(t *testing.T) {
-	long := "Виставити кешбек в обох банківських застосунках"
-	got := shortTitle(long)
-	if len([]rune(got)) > 18 {
-		t.Fatalf("label is %d runes: %q", len([]rune(got)), got)
+// The label used to carry the chore's title, cut to fit — which on a real
+// title left an ellipsis exactly where the meaning was. No label carries a
+// title any more, so none can be cut.
+func TestAButtonLabelNeverCarriesTheTitle(t *testing.T) {
+	long := "Перевірити нарахування комунальних у банку"
+	m := buildNagMarkup([]reminders.Occurrence{openChore(long, "", 8, 0)})
+
+	for _, btn := range m.InlineKeyboard[0] {
+		if strings.Contains(btn.Text, "…") {
+			t.Fatalf("a label is still being cut: %q", btn.Text)
+		}
+		if strings.Contains(btn.Text, "Перевірити") {
+			t.Fatalf("a label still carries the title: %q", btn.Text)
+		}
 	}
-	if !strings.HasSuffix(got, "…") {
-		t.Fatalf("shortened label does not say it was cut: %q", got)
+}
+
+// One chore needs no number: the text above says which. Words rather than bare
+// glyphs, because there is room for them.
+func TestALoneChoreGetsSpelledOutButtons(t *testing.T) {
+	m := buildNagMarkup([]reminders.Occurrence{openChore("Кешбек", "", 8, 0)})
+	if got := m.InlineKeyboard[0][0].Text; got != "✓ Зроблено" {
+		t.Fatalf("done button = %q", got)
 	}
-	if short := shortTitle("Кешбек"); short != "Кешбек" {
-		t.Fatalf("a short title was touched: %q", short)
+	if got := m.InlineKeyboard[0][1].Text; got != "✗ Не треба" {
+		t.Fatalf("skip button = %q", got)
+	}
+}
+
+// Several chores in one message need telling apart, so the line is numbered
+// and the button says which number it answers.
+func TestSeveralChoresAreNumberedInBothLinesAndButtons(t *testing.T) {
+	items := []reminders.Occurrence{
+		openChore("Кешбек", "", 8, 0),
+		openChore("Пробіг", "", 9, 0),
+	}
+	m := buildNagMarkup(items)
+	if got := m.InlineKeyboard[1][0].Text; got != "2 ✓" {
+		t.Fatalf("second chore's done button = %q, want \"2 ✓\"", got)
+	}
+
+	body := choreLines(items)
+	if !strings.Contains(body, "2 • Пробіг") {
+		t.Fatalf("the second line is not numbered to match its button:\n%s", body)
+	}
+}
+
+// The answer replaces the bullet, so a message still says what it was about
+// after it has been answered.
+func TestAnAnsweredChoreKeepsItsLineAndGainsAMark(t *testing.T) {
+	done := openChore("Кешбек", "Олег", 8, 0)
+	done.Status = model.OccDone
+	skipped := openChore("Пробіг", "", 9, 0)
+	skipped.Status = model.OccSkipped
+
+	body := choreLines([]reminders.Occurrence{done, skipped})
+	if !strings.Contains(body, "1 ✓ Кешбек · Олег") {
+		t.Fatalf("a closed chore lost its line or its mark:\n%s", body)
+	}
+	if !strings.Contains(body, "2 ✗ Пробіг") {
+		t.Fatalf("a skipped chore is not marked as skipped:\n%s", body)
+	}
+}
+
+// The redraw rebuilds the message from its own keyboard, so what it lists can
+// never drift from what it listed — even days later, when every window has
+// moved on.
+func TestAMessageRemembersItsChoresThroughItsKeyboard(t *testing.T) {
+	items := []reminders.Occurrence{
+		openChore("Кешбек", "", 8, 0),
+		openChore("Пробіг", "", 9, 0),
+	}
+	refs := choreRefsFromMarkup(asTelegramSentIt(buildNagMarkup(items)))
+	if len(refs) != 2 {
+		t.Fatalf("recovered %d chores from the keyboard, want 2: %+v", len(refs), refs)
+	}
+	if refs[0].id != items[0].ReminderID || refs[1].id != items[1].ReminderID {
+		t.Fatalf("recovered the wrong chores: %+v", refs)
+	}
+	if refs[0].dueAt != items[0].Due.Format(model.LocalDatetime) {
+		t.Fatalf("recovered due_at = %q", refs[0].dueAt)
+	}
+}
+
+// asTelegramSentIt turns a keyboard we built into the shape one comes back in:
+// Unique gone, callback_data fused. Reading our own outgoing markup would test
+// the easy half and miss the path that actually runs.
+func asTelegramSentIt(m *tele.ReplyMarkup) *tele.ReplyMarkup {
+	out := &tele.ReplyMarkup{}
+	for _, row := range m.InlineKeyboard {
+		var got []tele.InlineButton
+		for _, btn := range row {
+			if btn.Unique != "" {
+				btn.Data = "\f" + btn.Unique + "|" + btn.Data
+				btn.Unique = ""
+			}
+			got = append(got, btn)
+		}
+		out.InlineKeyboard = append(out.InlineKeyboard, got)
+	}
+	return out
+}
+
+// A foreign button in the same keyboard — the "open the app" row is added to
+// every message — must not be read as a chore.
+func TestTheAppButtonIsNotMistakenForAChore(t *testing.T) {
+	m := buildNagMarkup([]reminders.Occurrence{openChore("Кешбек", "", 8, 0)})
+	m.InlineKeyboard = append(m.InlineKeyboard,
+		[]tele.InlineButton{{Text: "Відкрити застосунок", URL: "https://example.test"}})
+
+	if refs := choreRefsFromMarkup(m); len(refs) != 1 {
+		t.Fatalf("recovered %d chores, want 1: %+v", len(refs), refs)
+	}
+}
+
+// "Пора" and "не закрито" are different sentences about different moments; a
+// redraw must not turn one into the other.
+func TestARedrawKeepsTheMessagesOwnOpeningLine(t *testing.T) {
+	if got := choreHeaderOf("⏰ Пора:\n\n• Кешбек"); got != dueHeader {
+		t.Fatalf("the due push was redrawn as %q", got)
+	}
+	if got := choreHeaderOf("🔔 Не закрито:\n\n• Кешбек"); got != nagHeader {
+		t.Fatalf("the nag was redrawn as %q", got)
 	}
 }
 

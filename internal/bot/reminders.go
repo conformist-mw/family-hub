@@ -159,27 +159,33 @@ func (b *Bot) nagWindow(now time.Time) (from, to time.Time) {
 func buildNagMarkup(open []reminders.Occurrence) *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0, len(open))
-	for _, o := range open {
+	for i, o := range open {
 		id := strconv.FormatInt(o.ReminderID, 10)
 		due := o.Due.Format(model.LocalDatetime)
+		done, skip := choreButtonLabels(i, len(open))
 		rows = append(rows, m.Row(
-			m.Data("✓ "+shortTitle(o.Title), "rem_chore", id, due, model.OccDone),
-			m.Data("✗", "rem_chore", id, due, model.OccSkipped),
+			m.Data(done, choreCallbackUnique, id, due, model.OccDone),
+			m.Data(skip, choreCallbackUnique, id, due, model.OccSkipped),
 		))
 	}
 	m.Inline(rows...)
 	return m
 }
 
-// shortTitle keeps a button readable on a phone. A label that wraps turns a
-// row of two buttons into a wall.
-func shortTitle(s string) string {
-	const max = 18
-	r := []rune(s)
-	if len(r) <= max {
-		return s
+// choreButtonLabels keeps a button's meaning whole. The label used to carry the
+// chore's title, truncated to fit — which on a real title ("Проверить
+// начисления коммунальных в банке") left an ellipsis where the meaning was.
+//
+// A lone message needs no title on the button: there is one chore, and the
+// text above says which. Several need telling apart, so the line is numbered
+// and the button carries the number. Either way the label is short, fixed and
+// never cut.
+func choreButtonLabels(i, total int) (done, skip string) {
+	if total == 1 {
+		return "✓ Зроблено", "✗ Не треба"
 	}
-	return strings.TrimRight(string(r[:max-1]), " ") + "…"
+	n := strconv.Itoa(i + 1)
+	return n + " ✓", n + " ✗"
 }
 
 // onChoreTap closes one chore from the evening message and redraws it, so the
@@ -201,7 +207,7 @@ func (b *Bot) onChoreTap(c tele.Context) error {
 	if prev, err := b.store.GetOccurrence(id, dueAt.Format(model.LocalDatetime)); err == nil &&
 		prev.Status == status {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Вже закрито"})
-		return b.redrawNag(c, dueAt)
+		return b.redrawNag(c)
 	}
 
 	// senderName is the same Telegram first name the Mini App stores, so both
@@ -220,23 +226,119 @@ func (b *Bot) onChoreTap(c tele.Context) error {
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
 		return nil
 	}
-	return b.redrawNag(c, dueAt)
+	return b.redrawNag(c)
 }
 
-// redrawNag rewrites the message with whatever is still open on that date. An
-// emptied list becomes a closing statement rather than a message with no
-// content and a dead keyboard.
-func (b *Bot) redrawNag(c tele.Context, on time.Time) error {
-	from, to := b.nagWindow(b.now())
-	open, err := b.cfg.Reminders.Unclosed(from, to)
-	if err != nil {
-		b.logger.Error("bot: redraw nag", "err", err)
+// redrawNag re-renders the message that was tapped, with the same chores it
+// always listed and each line now showing its answer.
+//
+// It used to rebuild the list from the nag window instead, which meant the
+// text changed into something else entirely: tap a button on the 11:00 "Пора"
+// message and it became the evening list, or "Сьогодні все закрито" when
+// nothing else was open. The reader lost the one thing they had opened the
+// message to see.
+//
+// The chores are recovered from the message's own keyboard rather than from a
+// window or from parsing the prose. Every button already carries its chore's
+// id and due_at, so the message knows exactly what it is about — including a
+// message days old, whose window has long since moved on.
+func (b *Bot) redrawNag(c tele.Context) error {
+	msg := c.Message()
+	if msg == nil {
 		return nil
 	}
-	if len(open) == 0 {
-		return c.Edit("🔔 <b>Сьогодні все закрито.</b>", tele.ModeHTML, b.appMarkup())
+	refs := choreRefsFromMarkup(msg.ReplyMarkup)
+	if len(refs) == 0 {
+		return nil // nothing to redraw against; the toast already answered
 	}
-	return c.Edit(reminderNagText(open), tele.ModeHTML, buildNagMarkup(open))
+	items := make([]reminders.Occurrence, 0, len(refs))
+	for _, ref := range refs {
+		row, err := b.store.GetOccurrence(ref.id, ref.dueAt)
+		if err != nil {
+			b.logger.Error("bot: redraw chore", "reminder_id", ref.id, "due_at", ref.dueAt, "err", err)
+			return nil // a partial redraw would silently drop a line
+		}
+		due, err := row.Due(b.cfg.Loc)
+		if err != nil {
+			b.logger.Error("bot: redraw chore due_at", "value", row.DueAt, "err", err)
+			return nil
+		}
+		items = append(items, reminders.Occurrence{
+			ReminderID: row.ReminderID, Title: row.Title, Person: row.Person,
+			Due: due, Status: row.Status, Stored: true,
+		})
+	}
+	return c.Edit(choreHeaderOf(msg.Text)+choreLines(items), tele.ModeHTML, buildNagMarkup(items))
+}
+
+// choreRef is one chore as a message's keyboard remembers it.
+type choreRef struct {
+	id    int64
+	dueAt string
+}
+
+// choreRefsFromMarkup reads back the chores a message lists, in the order it
+// lists them, from the callback data its buttons carry.
+//
+// Telegram echoes callback_data verbatim, so the buttons still hold what
+// buildNagMarkup wrote: "\frem_chore|<id>|<due_at>|<status>". telebot only
+// splits that apart for the callback being handled, not for the markup hanging
+// off the message, so the prefix is stripped here.
+//
+// Each chore owns a row of two buttons; taking the first of each keeps one
+// entry per chore without deduplicating.
+func choreRefsFromMarkup(m *tele.ReplyMarkup) []choreRef {
+	if m == nil {
+		return nil
+	}
+	var out []choreRef
+	for _, row := range m.InlineKeyboard {
+		for _, btn := range row {
+			data, ok := choreCallbackPayload(btn)
+			if !ok {
+				continue // not one of ours: the "open the app" button
+			}
+			parts := strings.Split(data, "|")
+			if len(parts) != 3 {
+				continue
+			}
+			id, err := strconv.ParseInt(parts[0], 10, 64)
+			if err != nil {
+				continue
+			}
+			out = append(out, choreRef{id: id, dueAt: parts[1]})
+			break // one entry per row, not one per button
+		}
+	}
+	return out
+}
+
+// choreCallbackPayload returns a button's "<id>|<due_at>|<status>", and
+// whether the button is one of ours at all.
+//
+// Two shapes, because a keyboard is read in two directions. One we built
+// carries Unique separately and Data bare — telebot only fuses them into
+// "\f<unique>|<data>" as it sends. One that came back from Telegram has only
+// callback_data, so it arrives fused with Unique empty.
+func choreCallbackPayload(btn tele.InlineButton) (string, bool) {
+	if btn.Unique == choreCallbackUnique {
+		return btn.Data, true
+	}
+	const prefix = "\f" + choreCallbackUnique + "|"
+	if rest, found := strings.CutPrefix(btn.Data, prefix); found {
+		return rest, true
+	}
+	return "", false
+}
+
+// choreHeaderOf keeps the message's own opening line. "Пора" and "не закрито"
+// are different sentences about different moments, and a redraw has no
+// business turning one into the other.
+func choreHeaderOf(text string) string {
+	if strings.HasPrefix(text, dueHeaderPlain) {
+		return dueHeader
+	}
+	return nagHeader
 }
 
 func choreDoneToast(status string) string {
@@ -279,22 +381,46 @@ func parseChoreData(data string, loc *time.Location) (int64, time.Time, string, 
 // opens by telling you off for a chore you are about to do is a message you
 // learn to dismiss.
 func choreDueText(due []reminders.Occurrence) string {
-	return "⏰ <b>Пора:</b>\n\n" + choreLines(due)
+	return dueHeader + choreLines(due)
 }
 
 // reminderNagText is the evening message body. Each line carries the time the
 // chore came due, because "you did not do it" is easier to act on when it says
 // which one of the morning's three it means.
 func reminderNagText(open []reminders.Occurrence) string {
-	return "🔔 <b>Не закрито:</b>\n\n" + choreLines(open)
+	return nagHeader + choreLines(open)
 }
+
+const (
+	dueHeader = "⏰ <b>Пора:</b>\n\n"
+	nagHeader = "🔔 <b>Не закрито:</b>\n\n"
+	// dueHeaderPlain is how the due header reaches us back: Message.Text is
+	// the rendered text, with the HTML markup gone.
+	dueHeaderPlain = "⏰ Пора:"
+	// choreCallbackUnique is the endpoint name buildNagMarkup writes and
+	// choreRefsFromMarkup reads back.
+	choreCallbackUnique = "rem_chore"
+)
 
 // choreLines is the shared body of both messages: same chores, same shape, so
 // the two read as one feature rather than two.
+//
+// The bullet is the answer. A closed chore keeps its line and gains a ✓ or a ✗
+// where the dot was, so the message still says what it was about after it has
+// been answered — the whole text used to be replaced by a summary, which threw
+// away the one thing the reader had come back to check.
+//
+// Numbering appears only when there is more than one chore, because that is
+// the only time a button needs to say which line it belongs to.
 func choreLines(items []reminders.Occurrence) string {
 	var b strings.Builder
-	for _, o := range items {
-		b.WriteString("• ")
+	for i, o := range items {
+		if len(items) > 1 {
+			b.WriteString(strconv.Itoa(i + 1))
+			b.WriteString(" ")
+		}
+		b.WriteString(choreMark(o.Status))
+		b.WriteString(" ")
 		b.WriteString(html.EscapeString(o.Title))
 		if o.Person != "" {
 			b.WriteString(" · ")
@@ -305,4 +431,16 @@ func choreLines(items []reminders.Occurrence) string {
 		b.WriteString(")</i>\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// choreMark is the same glyph set the web calendar uses, so a chore reads the
+// same wherever it is seen.
+func choreMark(status string) string {
+	switch status {
+	case model.OccDone:
+		return "✓"
+	case model.OccSkipped:
+		return "✗"
+	}
+	return "•"
 }

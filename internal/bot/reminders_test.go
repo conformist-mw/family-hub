@@ -357,3 +357,66 @@ func TestConsecutivePushWindowsDoNotOverlap(t *testing.T) {
 			secondFrom, firstTo)
 	}
 }
+
+// The bug: two chores came due in prod (08:00 and 09:00), both were recorded,
+// and neither was announced.
+//
+// The push and the materialiser are separate tickers over the same minute. If
+// the push queries before the row is written, it sees an empty window — and
+// the old code took that as "this minute is done" and moved the mark. The next
+// tick then asked about 08:01, so the 08:00 row, written a fraction of a
+// second late, was outside every window that would ever be built.
+//
+// A pass that saw nothing has not seen the minute; it has only seen it empty
+// so far.
+func TestAMinuteThatLookedEmptyIsAskedAboutAgain(t *testing.T) {
+	at := func(hh, mm, ss int) time.Time {
+		return time.Date(2026, 9, 1, hh, mm, ss, 0, time.UTC)
+	}
+	// Ticks land at :40 — a container started at :40, as prod's did.
+	mark := at(7, 59, 40)
+
+	// 08:00 tick: the row is not written yet, so the pass finds nothing.
+	from, to := pushWindow(at(8, 0, 40), mark)
+	if !covers(from, to, at(8, 0, 0)) {
+		t.Fatalf("the 08:00 window does not even cover 08:00: [%s, %s]", from, to)
+	}
+	mark = markAfterPass(at(8, 0, 40), mark, 0)
+
+	// 08:01 tick: the row exists now. It has to be inside this window.
+	from, to = pushWindow(at(8, 1, 40), mark)
+	if !covers(from, to, at(8, 0, 0)) {
+		t.Fatalf("a chore due at 08:00 is lost once its minute looked empty: [%s, %s]",
+			from.Format("15:04"), to.Format("15:04"))
+	}
+}
+
+// The other half of the same rule: once a chore has actually been announced,
+// its minute must never come back, or every unclosed chore is re-sent for as
+// long as the clamp reaches it.
+func TestAnAnnouncedMinuteIsNeverAskedAboutAgain(t *testing.T) {
+	at := func(hh, mm, ss int) time.Time {
+		return time.Date(2026, 9, 1, hh, mm, ss, 0, time.UTC)
+	}
+	mark := markAfterPass(at(8, 0, 40), at(7, 59, 40), 1) // one chore sent at 08:00
+
+	// Four quiet minutes later the mark has not moved, so the window has
+	// grown — but it must still start after the minute already announced.
+	for _, tick := range []time.Time{at(8, 1, 40), at(8, 2, 40), at(8, 5, 40)} {
+		from, to := pushWindow(tick, mark)
+		if covers(from, to, at(8, 0, 0)) {
+			t.Fatalf("tick %s re-announces the 08:00 chore: [%s, %s]",
+				tick.Format("15:04"), from.Format("15:04"), to.Format("15:04"))
+		}
+		mark = markAfterPass(tick, mark, 0)
+	}
+}
+
+// covers mirrors what the store does with the bounds: due_at has minute
+// resolution, so the comparison truncates seconds.
+func covers(from, to, due time.Time) bool {
+	f := from.Format(model.LocalDatetime)
+	t := to.Format(model.LocalDatetime)
+	d := due.Format(model.LocalDatetime)
+	return d >= f && d <= t
+}

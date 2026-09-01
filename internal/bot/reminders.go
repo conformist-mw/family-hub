@@ -43,6 +43,9 @@ const maxPushLookback = 10 * time.Minute
 // Already-closed chores are absent by construction — Unclosed reads pending
 // rows — so closing one in the Mini App a minute early means no push at all,
 // which is the right outcome.
+//
+// The mark only moves when something was said; see markAfterPass for why an
+// empty pass must leave it alone.
 func (b *Bot) sendDueChores(now, since time.Time) time.Time {
 	from, to := pushWindow(now, since)
 	due, err := b.cfg.Reminders.Unclosed(from, to)
@@ -51,10 +54,36 @@ func (b *Bot) sendDueChores(now, since time.Time) time.Time {
 		return since // do not advance the mark past a window nobody saw
 	}
 	if len(due) == 0 {
-		return now
+		return markAfterPass(now, since, 0)
 	}
 	if _, err := b.sendToGroup(choreDueText(due), tele.ModeHTML, buildNagMarkup(due)); err != nil {
 		b.logger.Error("bot: send due chores", "err", err)
+		return since
+	}
+	return markAfterPass(now, since, len(due))
+}
+
+// markAfterPass is where the push mark lands after one pass, and the whole of
+// the rule that a minute is only finished once something was actually said
+// about it.
+//
+// A pass that found nothing has not covered its window — it has only found it
+// empty *so far*. The push and the materialiser are separate tickers over the
+// same minute, and nothing orders them: the materialiser builds its ticker
+// after an opening backfill pass, so its phase drifts from the push's by
+// however long that took. When the push queries first, the row for 08:00 does
+// not exist yet.
+//
+// Advancing the mark there loses the chore permanently, because the next
+// window starts at 08:01 and due_at never moves. So the mark stays put and the
+// window grows until something is found — bounded by maxPushLookback, which is
+// what keeps a stale mark from turning into a flood.
+//
+// Once a pass has sent, the mark moves to now and every minute up to it is
+// closed for good, which is what stops an unclosed chore being re-announced
+// on each of the following ticks.
+func markAfterPass(now, since time.Time, found int) time.Time {
+	if found == 0 {
 		return since
 	}
 	return now

@@ -20,7 +20,44 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
+// monthNames is the nominative form a heading reads in ("серпень 2026"),
+// unlike the genitive a date takes ("1 вересня").
+var monthNames = [12]string{"січень", "лютий", "березень", "квітень", "травень",
+	"червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"}
+
 var funcs = template.FuncMap{
+	// amount is money in a stated currency. The utilities world is the only
+	// place a currency is stored per row rather than assumed, so it cannot use
+	// the hard-coded symbol below.
+	"amount": func(v float64, currency string) string {
+		sym := model.CurrencySymbol(currency)
+		if v == math.Trunc(v) {
+			return fmt.Sprintf("%.0f %s", v, sym)
+		}
+		return fmt.Sprintf("%.2f %s", v, sym)
+	},
+	// tariffKind names how a tariff calculates, which is what tells a reader
+	// why one row has meter numbers and the next has only a sum.
+	"tariffKind": func(kind string) string {
+		switch kind {
+		case model.KindMeter:
+			return "лічильник"
+		case model.KindMeterZoned:
+			return "двозонний"
+		case model.KindFlat:
+			return "фіксований"
+		}
+		return kind
+	},
+	// periodLabel turns "2026-08" into "серпень 2026" for a heading; the raw
+	// form stays in URLs and inputs.
+	"periodLabel": func(period string) string {
+		t, err := time.Parse("2006-01", period)
+		if err != nil {
+			return period
+		}
+		return monthNames[t.Month()-1] + " " + t.Format("2006")
+	},
 	"money": func(v float64) string {
 		if v == math.Trunc(v) {
 			return fmt.Sprintf("%.0f ₴", v)

@@ -2,7 +2,26 @@
 <div class="page-head">
   <h1>Тарифи</h1>
 </div>
-<p class="empty">
-  Ціни, за якими рахуються показання. Даних ще немає — переїзд із home-meters заплановано на 2 вересня.
-</p>
+
+{{/* A tariff is shared between properties and services, so what depends on it
+     is shown beside it: changing one that has history reprices that history. */}}
+<table>
+  <thead>
+    <tr><th>Назва</th><th>Як рахується</th><th>Ставка</th><th>Сервісів</th><th>Показань</th><th>Останнє</th></tr>
+  </thead>
+  <tbody>
+    {{range .Data}}
+    <tr>
+      <td data-label="Назва">{{.Name}}{{if not .Active}} <span class="muted">· в архіві</span>{{end}}</td>
+      <td data-label="Як рахується">{{tariffKind .Kind}}{{if .Unit}} <span class="muted">{{.Unit}}</span>{{end}}</td>
+      <td data-label="Ставка">{{.Rate1}}{{if .Rate2}} · {{.Rate2}}{{end}}</td>
+      <td data-label="Сервісів">{{.UtilitiesCount}}</td>
+      <td data-label="Показань">{{.ReadingsCount}}</td>
+      <td data-label="Останнє">{{if .LastPeriod}}{{periodLabel .LastPeriod}}{{else}}—{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">Тарифів немає.</td></tr>
+    {{end}}
+  </tbody>
+</table>
 {{end}}

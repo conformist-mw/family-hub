@@ -1,8 +1,70 @@
 {{define "content"}}
+{{$d := .Data}}
 <div class="page-head">
-  <h1>Показання</h1>
+  <h1>{{periodLabel $d.Period}}</h1>
 </div>
-<p class="empty">
-  Показання лічильників за місяць. Даних ще немає — переїзд із home-meters заплановано на 2 вересня.
-</p>
+
+{{if $d.Addresses}}
+<form class="filters" method="get" action="/meters">
+  <input type="hidden" name="period" value="{{$d.Period}}">
+  <select name="address_id" onchange="this.form.submit()">
+    {{range $d.Addresses}}
+    <option value="{{.ID}}" {{if eq .ID $d.AddressID}}selected{{end}}>{{.Name}}</option>
+    {{end}}
+  </select>
+  <span class="total">
+    Усього: <b>{{amount $d.Total $d.Currency}}</b>
+    {{if $d.Unpaid}}· не сплачено <b>{{amount $d.Unpaid $d.Currency}}</b>{{end}}
+    {{if $d.Missing}}· не внесено <b>{{$d.Missing}}</b>{{end}}
+  </span>
+</form>
+
+{{/* The month is walked with the arrows; the forward one is absent rather than
+     disabled on the current month, because there is nothing to enter for a
+     month that has not happened. */}}
+<div class="pager">
+  <a class="btn small" href="/meters?address_id={{$d.AddressID}}&period={{$d.PrevPeriod}}">← {{periodLabel $d.PrevPeriod}}</a>
+  <span></span>
+  {{if $d.NextPeriod}}
+  <a class="btn small" href="/meters?address_id={{$d.AddressID}}&period={{$d.NextPeriod}}">{{periodLabel $d.NextPeriod}} →</a>
+  {{else}}<span></span>{{end}}
+</div>
+
+<table>
+  <thead>
+    <tr><th></th><th>Сервіс</th><th>Показання</th><th>Спожито</th><th>Сума</th><th>Стан</th></tr>
+  </thead>
+  <tbody>
+    {{range $d.Rows}}
+    <tr>
+      <td data-label="">{{.UtilityIcon}}</td>
+      <td data-label="Сервіс">
+        {{if .UtilityURL}}<a href="{{.UtilityURL}}" rel="noopener noreferrer" target="_blank">{{.UtilityName}}</a>
+        {{else}}{{.UtilityName}}{{end}}
+      </td>
+      <td data-label="Показання">
+        {{if eq .ReadingCount 1}}
+          {{if .Curr1}}{{.Curr1}}{{if .Curr2}} · {{.Curr2}}{{end}}{{else}}—{{end}}
+        {{else if gt .ReadingCount 1}}
+          <span class="muted">два записи</span>
+        {{else}}—{{end}}
+      </td>
+      <td data-label="Спожито">
+        {{if .Consumed1}}{{.Consumed1}}{{if .Consumed2}} · {{.Consumed2}}{{end}} <span class="muted">{{.Unit}}</span>{{else}}—{{end}}
+      </td>
+      <td data-label="Сума">{{if .HasReading}}{{amount .Amount .Currency}}{{else}}—{{end}}</td>
+      <td data-label="Стан">
+        {{if not .HasReading}}<span class="badge badge-empty">немає</span>
+        {{else if .Paid}}<span class="badge badge-ok">сплачено</span>
+        {{else}}<span class="badge badge-low">не сплачено</span>{{end}}
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">Активних сервісів немає.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">Адрес ще немає.</p>
+{{end}}
 {{end}}

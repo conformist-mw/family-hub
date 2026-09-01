@@ -2,7 +2,23 @@
 <div class="page-head">
   <h1>Адреси</h1>
 </div>
-<p class="empty">
-  Об'єкти, за які приходять рахунки. Даних ще немає — переїзд із home-meters заплановано на 2 вересня.
-</p>
+
+<table>
+  <thead>
+    <tr><th>Назва</th><th>Адреса</th><th>Площа</th><th>Валюта</th><th>Сервісів</th></tr>
+  </thead>
+  <tbody>
+    {{range .Data}}
+    <tr>
+      <td data-label="Назва">{{.Name}}{{if not .Active}} <span class="muted">· в архіві</span>{{end}}</td>
+      <td data-label="Адреса">{{if .Comment}}{{.Comment}}{{else}}—{{end}}</td>
+      <td data-label="Площа">{{if .Area}}{{.Area}} м²{{else}}—{{end}}</td>
+      <td data-label="Валюта">{{.Currency}}</td>
+      <td data-label="Сервісів">{{.Utilities}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="5" class="empty">Адрес немає.</td></tr>
+    {{end}}
+  </tbody>
+</table>
 {{end}}

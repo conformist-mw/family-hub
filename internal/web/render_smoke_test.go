@@ -117,10 +117,9 @@ func TestAWorldPageCarriesItsOwnNavigation(t *testing.T) {
 	}
 }
 
-// The utilities world is reachable and empty rather than hidden. Empty is a
-// state these screens will keep showing for any month nobody has entered, so
-// walking into one is not a dead end — and the navigation does not have to
-// change again when the data arrives.
+// The utilities world is reachable and says it is empty rather than being
+// hidden. This is the same empty state the screens keep showing for a month
+// nobody has entered, so it is not scaffolding to be removed later.
 func TestTheUtilitiesWorldIsWalkableWhileEmpty(t *testing.T) {
 	router := smokeRouter(t)
 
@@ -132,8 +131,17 @@ func TestTheUtilitiesWorldIsWalkableWhileEmpty(t *testing.T) {
 	if !strings.Contains(meters, `class="subnav"`) || !strings.Contains(meters, "Тарифи") {
 		t.Fatal("the utilities world renders without its own navigation")
 	}
-	if !strings.Contains(meters, "Даних ще немає") {
-		t.Fatal("an empty utilities screen does not say it is empty")
+	if !strings.Contains(meters, "Адрес ще немає") {
+		t.Fatalf("an empty month does not say what is missing:\n%s", meters)
+	}
+	for _, page := range []struct{ path, empty string }{
+		{"/meters/tariffs", "Тарифів немає"},
+		{"/meters/utilities", "Сервісів немає"},
+		{"/meters/addresses", "Адрес немає"},
+	} {
+		if body := getBody(t, router, page.path); !strings.Contains(body, page.empty) {
+			t.Errorf("%s does not say it is empty", page.path)
+		}
 	}
 }
 

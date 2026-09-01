@@ -74,7 +74,7 @@ func TestRoutesReachTheirOwnSurface(t *testing.T) {
 func TestWebStillRejectsCrossSitePost(t *testing.T) {
 	h := testHandler(t)
 
-	r := httptest.NewRequest(http.MethodPost, "/visits", strings.NewReader(""))
+	r := httptest.NewRequest(http.MethodPost, "/lessons/visits", strings.NewReader(""))
 	r.Header.Set("Sec-Fetch-Site", "cross-site")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, r)

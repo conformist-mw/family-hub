@@ -67,20 +67,21 @@ func TestEveryPageRenders(t *testing.T) {
 		"/reminders/new",
 		"/reminders/history",
 		"/lessons", // world: Заняття
-		"/visits",
-		"/visits/new",
-		"/payments",
-		"/payments/new",
-		"/enrollments",
-		"/enrollments/new",
-		"/enrollments/1/edit",
-		"/enrollments/1/audit",
-		"/trainers",
+		"/lessons/visits",
+		"/lessons/visits/new",
+		"/lessons/payments",
+		"/lessons/payments/new",
+		"/lessons/enrollments",
+		"/lessons/enrollments/new",
+		"/lessons/enrollments/1/edit",
+		"/lessons/enrollments/1/audit",
+		"/lessons/trainers",
 		"/meters", // world: Дім — empty until the data copy
 		"/meters/tariffs",
 		"/meters/utilities",
 		"/meters/addresses",
 		"/stats", // world: Статистика
+		"/stats/lessons",
 	} {
 		t.Run(path, func(t *testing.T) {
 			rec := httptest.NewRecorder()

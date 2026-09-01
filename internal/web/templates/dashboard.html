@@ -4,7 +4,7 @@
 {{$schedule := $d.Schedule}}
 <div class="page-head">
   <h1>Баланс</h1>
-  <a class="btn primary" href="/visits/new">+ Заняття</a>
+  <a class="btn primary" href="/lessons/visits/new">+ Заняття</a>
 </div>
 
 <div class="cards">
@@ -32,11 +32,11 @@
         {{if eq .BillingType "monthly"}} · до {{if .CoversUntil}}{{dateShort .CoversUntil}}{{else}}—{{end}}{{end}}
         · міс: {{.DoneThisMonth}}
       </span>
-      <a href="/enrollments/{{.ID}}/audit">звірка</a>
+      <a href="/lessons/enrollments/{{.ID}}/audit">звірка</a>
     </div>
   </div>
   {{else}}
-  <p class="empty">Курсів ще немає. Заведи їх на вкладці <a href="/enrollments">Курси</a>.</p>
+  <p class="empty">Курсів ще немає. Заведи їх на вкладці <a href="/lessons/enrollments">Курси</a>.</p>
   {{end}}
 </div>
 
@@ -45,7 +45,7 @@
   <section class="dash-payments">
     <div class="dash-payments-head">
       <h2>Останні оплати</h2>
-      <a href="/payments">всі →</a>
+      <a href="/lessons/payments">всі →</a>
     </div>
     <table class="dash-table">
       <tbody>

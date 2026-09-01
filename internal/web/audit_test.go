@@ -46,7 +46,7 @@ func TestAuditPageRenders(t *testing.T) {
 
 	h := NewRouter(database, slog.New(slog.NewTextHandler(io.Discard, nil)), "", nil, nil, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/enrollments/1/audit", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/lessons/enrollments/1/audit", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}

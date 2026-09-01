@@ -7,7 +7,7 @@
 {{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
 
 {{if not $d.Trainers}}
-<p class="empty">Тренерів ще немає. Тренер з’являється, коли його вписують у курс на вкладці <a href="/enrollments">Курси</a>.</p>
+<p class="empty">Тренерів ще немає. Тренер з’являється, коли його вписують у курс на вкладці <a href="/lessons/enrollments">Курси</a>.</p>
 {{end}}
 
 {{range $d.Trainers}}
@@ -23,7 +23,7 @@
         🏖 {{dateShort .DateFrom}} — {{dateShort .DateTo}}
         <span class="muted">· {{absenceKind .Kind}}{{if .Comment}} · {{.Comment}}{{end}}</span>
       </span>
-      <form method="post" action="/trainers/{{$t.ID}}/absences/{{.ID}}/delete">
+      <form method="post" action="/lessons/trainers/{{$t.ID}}/absences/{{.ID}}/delete">
         <button class="btn small danger" type="submit">×</button>
       </form>
     </li>
@@ -33,7 +33,7 @@
   <p class="muted">Відсутностей не заплановано — нагадування йдуть як завжди.</p>
   {{end}}
 
-  <form class="slot-add" method="post" action="/trainers/{{$t.ID}}/absences">
+  <form class="slot-add" method="post" action="/lessons/trainers/{{$t.ID}}/absences">
     <input type="date" name="date_from" required title="З (включно)">
     <input type="date" name="date_to" required title="По (включно)">
     <select name="kind">
@@ -48,7 +48,7 @@
     {{range .Past}}
     <li>
       <span>{{dateShort .DateFrom}} — {{dateShort .DateTo}} <span class="muted">· {{absenceKind .Kind}}{{if .Comment}} · {{.Comment}}{{end}}</span></span>
-      <form method="post" action="/trainers/{{$t.ID}}/absences/{{.ID}}/delete">
+      <form method="post" action="/lessons/trainers/{{$t.ID}}/absences/{{.ID}}/delete">
         <button class="btn small danger" type="submit">×</button>
       </form>
     </li>

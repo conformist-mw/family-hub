@@ -126,17 +126,18 @@ data/          # local SQLite (gitignored)
 - `cmd/server/main.go` boots: loads `.env`, opens DB, runs migrations,
   optionally creates a Bot, registers the HTTP mux, starts the server.
 - Routes (see `internal/web/router.go`):
-  - `/` — balance dashboard
-  - `/visits`, `/visits/new`, `/visits/{id}/edit`, …
+  - `/` — the hub: what is happening today, across every world
+  - `/lessons` — balance dashboard, and the Заняття world's landing page
+  - `/lessons/visits`, `/lessons/visits/new`, `/lessons/visits/{id}/edit`, …
   - `/appointments`, `/appointments/new`, `/appointments/{id}/edit`,
     `POST /appointments/{id}/delete` (soft) — the hands-on side of what the bot
     captures: the list puts upcoming first and dims the past, the form owns
     location/note/status/cost which free-text capture never sets — including
     filling in an amount long after the visit
-  - `/payments`, `/payments/new`, …
-  - `/enrollments`, `/enrollments/{id}/edit` (price, threshold, schedule,
-    trainer)
-  - `/enrollments/{id}/audit` — reconciliation ("сверка") for one course:
+  - `/lessons/payments`, `/lessons/payments/new`, …
+  - `/lessons/enrollments`, `/lessons/enrollments/{id}/edit` (price, threshold,
+    schedule, trainer)
+  - `/lessons/enrollments/{id}/audit` — reconciliation ("сверка") for one course:
     a visits+payments ledger with a running balance over a period (since
     last payment / this month / all time / custom), a forecast of upcoming
     lessons (grey; unpaid ones flagged with the top-up amount; trainer
@@ -148,9 +149,18 @@ data/          # local SQLite (gitignored)
     this button, `NotifyHTML` for the appointment notifications below), so
     `internal/web` never imports telebot and the button hides when the bot
     is off.
-  - `/trainers` — trainers with their absences; add/delete an absence
-  - `/stats` — totals (month/year/all time) and CSS bar charts by month,
-    by person, by course
+  - `/lessons/trainers` — trainers with their absences; add/delete an absence
+  - `/stats` — the Статистика world's landing page: each world's totals side by
+    side. Only Заняття has figures so far; the utilities row joins it when its
+    statistics exist rather than standing as an empty promise
+  - `/stats/lessons` — totals (month/year/all time) and CSS bar charts by
+    month, by person, by course
+  - `/visits*`, `/payments*`, `/enrollments*`, `/trainers*` — the pre-worlds
+    addresses, redirected under `/lessons` by prefix (`movedToLessons`) so the
+    nested routes need no second copy of the route table. Tail and query are
+    kept; `301` for a GET bookmark, `308` for anything else, because a `301`
+    lets a browser retry a POST as GET and turn a form submitted from a
+    stale-but-open page into a silent no-op
   - `/calendar.ics` — one feed for HA's Remote Calendar: weekly RRULE events
     per lesson slot (with EXDATE holes for trainer absences), all-day absence
     events, one VEVENT per appointment (from 30 days back, non-cancelled), and

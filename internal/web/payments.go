@@ -98,7 +98,7 @@ func (a *App) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
 		a.paymentWriteError(w, p, false, err)
 		return
 	}
-	http.Redirect(w, r, "/payments", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/payments", http.StatusSeeOther)
 }
 
 func (a *App) handlePaymentEdit(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +133,7 @@ func (a *App) handlePaymentUpdate(w http.ResponseWriter, r *http.Request) {
 		a.paymentWriteError(w, p, true, err)
 		return
 	}
-	http.Redirect(w, r, "/payments", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/payments", http.StatusSeeOther)
 }
 
 func (a *App) handlePaymentDelete(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func (a *App) handlePaymentDelete(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/payments", http.StatusSeeOther)
+	http.Redirect(w, r, "/lessons/payments", http.StatusSeeOther)
 }
 
 // paymentForm lifts the posted fields into the shared form. Validation is not

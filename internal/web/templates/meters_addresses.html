@@ -1,11 +1,12 @@
 {{define "content"}}
 <div class="page-head">
   <h1>Адреси</h1>
+  <a class="btn primary" href="/meters/addresses/new">+ Адреса</a>
 </div>
 
 <table>
   <thead>
-    <tr><th>Назва</th><th>Адреса</th><th>Площа</th><th>Валюта</th><th>Сервісів</th></tr>
+    <tr><th>Назва</th><th>Адреса</th><th>Площа</th><th>Валюта</th><th>Сервісів</th><th></th></tr>
   </thead>
   <tbody>
     {{range .Data}}
@@ -15,9 +16,15 @@
       <td data-label="Площа">{{if .Area}}{{.Area}} м²{{else}}—{{end}}</td>
       <td data-label="Валюта">{{.Currency}}</td>
       <td data-label="Сервісів">{{.Utilities}}</td>
+      <td data-label="" class="row-actions">
+        <a class="btn small" href="/meters/addresses/{{.ID}}">✎</a>
+        <form method="post" action="/meters/addresses/{{.ID}}/toggle">
+          <button class="btn small" type="submit">{{if .Active}}в архів{{else}}повернути{{end}}</button>
+        </form>
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="5" class="empty">Адрес немає.</td></tr>
+    <tr><td colspan="6" class="empty">Адрес немає.</td></tr>
     {{end}}
   </tbody>
 </table>

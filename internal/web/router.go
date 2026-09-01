@@ -78,6 +78,27 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /meters/readings/{id}/paid", a.handleReadingPaid)
 	mux.HandleFunc("POST /meters/readings/{id}/delete", a.handleReadingDelete)
 
+	mux.HandleFunc("GET /meters/addresses/new", a.handleAddressNew)
+	mux.HandleFunc("POST /meters/addresses/new", a.handleAddressSave)
+	mux.HandleFunc("GET /meters/addresses/{id}", a.handleAddressEdit)
+	mux.HandleFunc("POST /meters/addresses/{id}", a.handleAddressSave)
+	mux.HandleFunc("POST /meters/addresses/{id}/toggle",
+		a.handleMeterToggle(store.TableAddresses, "/meters/addresses"))
+
+	mux.HandleFunc("GET /meters/utilities/new", a.handleUtilityNew)
+	mux.HandleFunc("POST /meters/utilities/new", a.handleUtilitySave)
+	mux.HandleFunc("GET /meters/utilities/{id}", a.handleUtilityEdit)
+	mux.HandleFunc("POST /meters/utilities/{id}", a.handleUtilitySave)
+	mux.HandleFunc("POST /meters/utilities/{id}/toggle",
+		a.handleMeterToggle(store.TableUtilities, "/meters/utilities"))
+
+	mux.HandleFunc("GET /meters/tariffs/new", a.handleTariffNew)
+	mux.HandleFunc("POST /meters/tariffs/new", a.handleTariffSave)
+	mux.HandleFunc("GET /meters/tariffs/{id}", a.handleTariffEdit)
+	mux.HandleFunc("POST /meters/tariffs/{id}", a.handleTariffSave)
+	mux.HandleFunc("POST /meters/tariffs/{id}/toggle",
+		a.handleMeterToggle(store.TableTariffs, "/meters/tariffs"))
+
 	mux.HandleFunc("GET /lessons/visits", a.handleVisits)
 	mux.HandleFunc("GET /lessons/visits/new", a.handleVisitNew)
 	mux.HandleFunc("POST /lessons/visits", a.handleVisitCreate)

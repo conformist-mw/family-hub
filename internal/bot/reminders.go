@@ -160,8 +160,18 @@ func buildNagMarkup(open []reminders.Occurrence) *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0, len(open))
 	for i, o := range open {
+		if o.Closed() {
+			// Answered: its line already shows the ✓ or the ✗, and a button
+			// that only ever answers "вже закрито" is a button that lies about
+			// being live. Changing a wrong answer moves to the Mini App and
+			// the web, which is where the rest of the correcting happens.
+			continue
+		}
 		id := strconv.FormatInt(o.ReminderID, 10)
 		due := o.Due.Format(model.LocalDatetime)
+		// i and len(open) are the chore's place in the LIST, not among the
+		// buttons still standing: once one is answered its neighbours must
+		// keep the numbers their lines show.
 		done, skip := choreButtonLabels(i, len(open))
 		rows = append(rows, m.Row(
 			m.Data(done, choreCallbackUnique, id, due, model.OccDone),
@@ -268,7 +278,10 @@ func (b *Bot) redrawNag(c tele.Context) error {
 			Due: due, Status: row.Status, Stored: true,
 		})
 	}
-	return c.Edit(choreHeaderOf(msg.Text)+choreLines(items), tele.ModeHTML, buildNagMarkup(items))
+	// withAppButton so a redraw keeps the row the message was sent with; it is
+	// the only thing left on the keyboard once every chore has been answered.
+	opts := b.withAppButton([]any{tele.ModeHTML, buildNagMarkup(items)})
+	return c.Edit(choreHeaderOf(msg.Text)+choreLines(items), opts...)
 }
 
 // choreRef is one chore as a message's keyboard remembers it.

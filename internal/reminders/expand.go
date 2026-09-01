@@ -27,6 +27,13 @@ type Occurrence struct {
 	Stored bool
 }
 
+// Closed reports whether the occurrence needs no further action — done or
+// deliberately skipped. Mirrors model.ReminderOccurrence.Closed for the shape
+// the service hands out, so callers do not compare status strings by hand.
+func (o Occurrence) Closed() bool {
+	return o.Status == model.OccDone || o.Status == model.OccSkipped
+}
+
 // expandVersioned returns every occurrence of one reminder in [from, to],
 // using for each stretch of the window whichever rule version was in force
 // over it.

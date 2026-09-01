@@ -533,3 +533,40 @@ func covers(from, to, due time.Time) bool {
 	d := due.Format(model.LocalDatetime)
 	return d >= f && d <= t
 }
+
+// An answered chore loses its buttons. Keeping them meant a row that could
+// only ever reply "вже закрито" — a control that looks live and is not.
+func TestAnAnsweredChoreLosesItsButtons(t *testing.T) {
+	items := []reminders.Occurrence{
+		openChore("Кешбек", "", 8, 0),
+		openChore("Пробіг", "", 9, 0),
+		openChore("Кактус", "", 11, 0),
+	}
+	items[1].Status = model.OccDone
+
+	m := buildNagMarkup(items)
+	if len(m.InlineKeyboard) != 2 {
+		t.Fatalf("got %d rows for three chores with one answered, want 2", len(m.InlineKeyboard))
+	}
+	// The survivors keep the numbers their lines show: 1 and 3, not 1 and 2.
+	if got := m.InlineKeyboard[0][0].Text; got != "1 ✓" {
+		t.Fatalf("first surviving button = %q, want \"1 ✓\"", got)
+	}
+	if got := m.InlineKeyboard[1][0].Text; got != "3 ✓" {
+		t.Fatalf("second surviving button = %q, want \"3 ✓\" — numbers must follow the lines", got)
+	}
+	// And the answered one still has its line.
+	if !strings.Contains(choreLines(items), "2 ✓ Пробіг") {
+		t.Fatalf("the answered chore lost its line:\n%s", choreLines(items))
+	}
+}
+
+// Once everything is answered the keyboard is empty, so nothing is left to tap.
+func TestAFullyAnsweredMessageHasNoChoreButtons(t *testing.T) {
+	items := []reminders.Occurrence{openChore("Кешбек", "", 8, 0)}
+	items[0].Status = model.OccSkipped
+
+	if m := buildNagMarkup(items); len(m.InlineKeyboard) != 0 {
+		t.Fatalf("got %d rows, want none: %+v", len(m.InlineKeyboard), m.InlineKeyboard)
+	}
+}

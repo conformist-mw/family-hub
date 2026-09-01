@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,15 @@ var monthNames = [12]string{"січень", "лютий", "березень", "�
 	"червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"}
 
 var funcs = template.FuncMap{
+	// num renders an optional meter figure for an input's value. A nil pointer
+	// is an unread meter, and the template's own formatting prints that as the
+	// literal "<nil>" — which lands in the form field and is then submitted.
+	"num": func(p *float64) string {
+		if p == nil {
+			return ""
+		}
+		return strconv.FormatFloat(*p, 'f', -1, 64)
+	},
 	// amount is money in a stated currency. The utilities world is the only
 	// place a currency is stored per row rather than assumed, so it cannot use
 	// the hard-coded symbol below.
@@ -293,6 +303,7 @@ func parseTemplates() map[string]*template.Template {
 		"stats.html",
 		"stats_overview.html",
 		"meters_readings.html",
+		"reading_form.html",
 		"meters_tariffs.html",
 		"meters_utilities.html",
 		"meters_addresses.html",

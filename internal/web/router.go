@@ -71,6 +71,13 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("GET /meters/utilities", a.handleMeterUtilities)
 	mux.HandleFunc("GET /meters/addresses", a.handleMeterAddresses)
 
+	mux.HandleFunc("GET /meters/readings/new", a.handleReadingNew)
+	mux.HandleFunc("POST /meters/readings/new", a.handleReadingCreate)
+	mux.HandleFunc("GET /meters/readings/{id}", a.handleReadingEdit)
+	mux.HandleFunc("POST /meters/readings/{id}", a.handleReadingUpdate)
+	mux.HandleFunc("POST /meters/readings/{id}/paid", a.handleReadingPaid)
+	mux.HandleFunc("POST /meters/readings/{id}/delete", a.handleReadingDelete)
+
 	mux.HandleFunc("GET /lessons/visits", a.handleVisits)
 	mux.HandleFunc("GET /lessons/visits/new", a.handleVisitNew)
 	mux.HandleFunc("POST /lessons/visits", a.handleVisitCreate)

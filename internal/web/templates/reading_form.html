@@ -1,0 +1,73 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{$d.Utility.Icon}} {{$d.Utility.Name}}</h1>
+  <span class="muted">{{$d.Address.Name}}</span>
+</div>
+
+{{if $d.Error}}<div class="flash">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post"
+      action="{{if $d.IsEdit}}/meters/readings/{{$d.Reading.ID}}{{else}}/meters/readings/new{{end}}">
+  <input type="hidden" name="utility_id" value="{{$d.Utility.ID}}">
+
+  <label>Період
+    <input type="month" name="period" value="{{$d.Reading.Period}}" required>
+  </label>
+
+  {{/* The tariff is shown, not chosen. A new reading takes the one in effect
+       now; a stored one keeps what it was billed at. Re-pointing it at today's
+       price is how a past month starts lying. */}}
+  <p class="muted">
+    Тариф: <b>{{$d.Tariff.Name}}</b> · {{tariffKind $d.Tariff.Kind}} ·
+    {{$d.Tariff.Rate1}}{{if $d.Tariff.Rate2}} · {{$d.Tariff.Rate2}}{{end}}
+    {{if $d.Tariff.Unit}}<span class="muted">за {{$d.Tariff.Unit}}</span>{{end}}
+  </p>
+
+  {{if ne $d.Tariff.Kind "flat"}}
+  <div class="row">
+    <label>Було{{if eq $d.Tariff.Kind "meter_zoned"}} (день){{end}}
+      <input type="text" inputmode="decimal" name="prev1" value="{{num $d.Reading.Prev1}}">
+    </label>
+    <label>Стало{{if eq $d.Tariff.Kind "meter_zoned"}} (день){{end}}
+      <input type="text" inputmode="decimal" name="curr1" value="{{num $d.Reading.Curr1}}">
+    </label>
+  </div>
+  {{end}}
+
+  {{if eq $d.Tariff.Kind "meter_zoned"}}
+  <div class="row">
+    <label>Було (ніч)
+      <input type="text" inputmode="decimal" name="prev2" value="{{num $d.Reading.Prev2}}">
+    </label>
+    <label>Стало (ніч)
+      <input type="text" inputmode="decimal" name="curr2" value="{{num $d.Reading.Curr2}}">
+    </label>
+  </div>
+  {{end}}
+
+  <label>Дата зняття
+    <input type="date" name="reading_date" value="{{deref $d.Reading.ReadingDate}}">
+  </label>
+
+  <label class="check">
+    <input type="checkbox" name="paid" {{if $d.Reading.PaidDate}}checked{{end}}> Сплачено
+  </label>
+
+  <label>Коментар
+    <input type="text" name="comment" value="{{$d.Reading.Comment}}">
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/meters?address_id={{$d.Address.ID}}&period={{$d.Reading.Period}}">Скасувати</a>
+  </div>
+</form>
+
+{{if $d.IsEdit}}
+<form class="stack" method="post" action="/meters/readings/{{$d.Reading.ID}}/delete"
+      onsubmit="return confirm('Видалити показання?')">
+  <button class="btn danger" type="submit">Видалити</button>
+</form>
+{{end}}
+{{end}}

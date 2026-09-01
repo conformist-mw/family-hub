@@ -3,6 +3,7 @@ package schooltoday
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"familyhub/internal/model"
@@ -163,9 +164,11 @@ func (s *Service) toLesson(e Event) (model.SchoolLesson, bool) {
 	if err != nil {
 		return model.SchoolLesson{}, false
 	}
+	// Trimmed: the portal pads a filled-in topic with trailing whitespace,
+	// which shows up as a gap before the closing tag in every consumer.
 	topic := ""
 	if e.Topic != nil {
-		topic = *e.Topic
+		topic = strings.TrimSpace(*e.Topic)
 	}
 	return model.SchoolLesson{
 		EventID:    e.EventID,

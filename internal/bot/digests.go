@@ -10,15 +10,18 @@ import (
 )
 
 // RunDigests ticks once a minute and fires the wall-clock messages (in
-// cfg.Loc): the daily and weekly appointment digests, and the evening list of
-// recurring chores nobody closed. It blocks until ctx is done; meant to run in
-// its own goroutine alongside polling/webhook.
+// cfg.Loc): the daily and weekly appointment digests, the evening list of
+// recurring chores nobody closed, and tomorrow's school timetable. It blocks
+// until ctx is done; meant to run in its own goroutine alongside
+// polling/webhook.
 //
-// The three have separate gates on purpose. The appointment digests are off in
+// They have separate gates on purpose. The appointment digests are off in
 // prod because Home Assistant sends those summaries from the ICS feed; the
 // chore nag is not something HA can send, since HA reads a calendar and knows
-// nothing about what was closed. Gating the nag on the same flag would have
-// left it permanently silent in the one place it matters.
+// nothing about what was closed, and neither is the school digest, since HA's
+// calendar API drops the category that separates a lesson from after-school
+// care. Gating either on the same flag would have left it permanently silent
+// in the one place it matters.
 func (b *Bot) RunDigests(ctx context.Context) {
 	if b.cfg.NotifyChat == 0 {
 		b.logger.Info("bot: digests disabled (no notify chat)")
@@ -27,7 +30,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	digestsOn := b.cfg.appointmentDigestsEnabled()
 	nagOn := b.cfg.reminderNagEnabled()
 	pushOn := b.cfg.reminderPushEnabled()
-	if !digestsOn && !nagOn && !pushOn {
+	schoolOn := b.cfg.schoolDigestEnabled()
+	if !digestsOn && !nagOn && !pushOn && !schoolOn {
 		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminders)")
 		return
 	}
@@ -38,7 +42,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		"weekly_dow", b.cfg.WeeklyDigestDOW,
 		"weekly_time", b.cfg.WeeklyDigestTime,
 		"reminder_nag", b.cfg.ReminderNagTime,
-		"reminder_push", pushOn)
+		"reminder_push", pushOn,
+		"school_digest", b.cfg.SchoolDigestTime)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -46,7 +51,7 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	// Dates on which each digest already fired, so a minute-resolution match
 	// sends exactly once. In-memory: a restart may re-send today's digest,
 	// which is preferable to silently skipping it.
-	var lastDaily, lastWeekly, lastNag string
+	var lastDaily, lastWeekly, lastNag, lastSchool string
 	// The due-time push has no wall-clock time of its own — it fires whenever
 	// something comes due — so it carries an instant rather than a date. Set
 	// to boot time: a restart announces nothing from before it, which is what
@@ -59,7 +64,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		case <-ticker.C:
 			now := b.now()
 			today := now.Format("2006-01-02")
-			daily, weekly, nag := b.cfg.dueThisMinute(now, lastDaily, lastWeekly, lastNag)
+			daily, weekly, nag, school := b.cfg.dueThisMinute(
+				now, lastDaily, lastWeekly, lastNag, lastSchool)
 
 			if daily {
 				b.sendDailyDigest(now)
@@ -72,6 +78,10 @@ func (b *Bot) RunDigests(ctx context.Context) {
 			if nag {
 				b.sendReminderNag(now)
 				lastNag = today
+			}
+			if school {
+				b.sendSchoolDigest(now)
+				lastSchool = today
 			}
 			if pushOn {
 				lastPush = b.sendDueChores(now, lastPush)
@@ -103,14 +113,14 @@ func (c Config) reminderPushEnabled() bool {
 	return c.Reminders != nil
 }
 
-// dueThisMinute decides which of the three messages fire on this tick, given
-// what already went out today.
+// dueThisMinute decides which of the wall-clock messages fire on this tick,
+// given what already went out today.
 //
 // Split out of the loop deliberately. The rule this feature exists to protect
 // — that the chore nag does not answer to NOTIFICATIONS_ENABLED — lived inside
 // RunDigests, where a test could not reach it: a review found the old early
 // return could be restored and the whole suite would still pass.
-func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag string) (daily, weekly, nag bool) {
+func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag, lastSchool string) (daily, weekly, nag, school bool) {
 	hm := now.Format("15:04")
 	today := now.Format("2006-01-02")
 	digestsOn := c.appointmentDigestsEnabled()
@@ -121,7 +131,8 @@ func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag stri
 		int(now.Weekday()) == c.WeeklyDigestDOW &&
 		hm == c.WeeklyDigestTime && lastWeekly != today
 	nag = c.reminderNagEnabled() && hm == c.ReminderNagTime && lastNag != today
-	return daily, weekly, nag
+	school = c.schoolDigestEnabled() && hm == c.SchoolDigestTime && lastSchool != today
+	return daily, weekly, nag, school
 }
 
 func (b *Bot) sendDailyDigest(now time.Time) {

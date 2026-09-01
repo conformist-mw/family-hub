@@ -54,6 +54,13 @@ type Config struct {
 	// unfinished — it reads a calendar, not the record of what was closed.
 	ReminderNagTime string
 
+	// SchoolDigestTime is when the bot sends tomorrow's school timetable.
+	// "" disables it. Not behind NotificationsEnabled either, and for a
+	// sharper reason than the nag: HA's calendar API hands a template only
+	// summary/start/end/description, so it cannot tell a lesson from the
+	// after-school block and cannot say when the child is actually free.
+	SchoolDigestTime string
+
 	// Reminders answers what came due and was left open. nil disables the nag
 	// regardless of ReminderNagTime.
 	Reminders *reminders.Service

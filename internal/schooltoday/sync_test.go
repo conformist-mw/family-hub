@@ -162,3 +162,21 @@ func TestSyncLoginFailureLeavesCacheIntact(t *testing.T) {
 		t.Fatalf("cache should be untouched after a failed login, got %d rows", len(got))
 	}
 }
+
+// The portal pads a filled-in topic with trailing whitespace, which every
+// consumer would otherwise render as a gap before the closing tag.
+func TestAPaddedTopicIsTrimmed(t *testing.T) {
+	svc := &Service{cfg: Config{PupilID: 7}, loc: time.UTC}
+	padded := "Вступ. Розвиток української мови. "
+	got, ok := svc.toLesson(Event{
+		EventID: 1, Subject: "Українська мова [9]",
+		Start: "2026-09-01T09:50:00", End: "2026-09-01T10:30:00",
+		Topic: &padded,
+	})
+	if !ok {
+		t.Fatal("lesson dropped")
+	}
+	if got.Topic != "Вступ. Розвиток української мови." {
+		t.Fatalf("topic = %q, want it trimmed", got.Topic)
+	}
+}

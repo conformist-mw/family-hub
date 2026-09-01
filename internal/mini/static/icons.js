@@ -52,3 +52,6 @@ export const IconRepeat = ({ size = 22 }) =>
 
 export const IconCheck = ({ size = 16 }) =>
   svg(size, html`<path d="M5 12.5l4.5 4.5L19 7" />`, { weight: 2.6 })
+
+export const IconBack = ({ size = 22 }) =>
+  svg(size, html`<path d="M15 5l-7 7 7 7" />`)

@@ -521,6 +521,10 @@ button { font-family: inherit; }
   color: var(--hint);
   font: inherit;
 }
+/* The way out of a space. It is a tab so the row stays one row, but it is not
+   a destination inside the space, so it never takes the active colour and is
+   held narrow — the space's own tabs are what the thumb is aiming for. */
+.tab-back { flex: 0 0 auto; padding: 0 16px; }
 .tab-active { color: var(--accent); }
 .tab-label { font-size: 11px; }
 .tab-active .tab-label { font-weight: 600; }

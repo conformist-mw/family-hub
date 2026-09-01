@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 
 	"familyhub/internal/model"
 )
@@ -110,4 +111,79 @@ func (s *Store) TariffUsedInReadings(id int64) (bool, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM readings WHERE tariff_id = ?`, id).Scan(&n)
 	return n > 0, err
+}
+
+// ── writes ───────────────────────────────────────────────────────────────────
+
+// ErrTariffHasHistory refuses a change to how a tariff calculates once
+// readings have been priced by it. Name, comment and the active flag stay
+// editable — archiving a superseded tariff is the normal thing to do when a
+// price changes, and production is full of archived tariffs that still carry
+// their history. What must not move is kind, unit and the rates: the stored
+// amount of every past month was computed from them, and rewriting them leaves
+// those numbers unverifiable against the tariff they claim to come from.
+var ErrTariffHasHistory = errors.New("тариф уже використано в показаннях — ставку і спосіб розрахунку змінити не можна")
+
+func (s *Store) CreateTariff(t model.Tariff) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO tariffs (name, kind, unit, rate1, rate2, effective_from, effective_to, active, comment)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.Name, t.Kind, orNil(t.Unit), t.Rate1, orNilF(t.Rate2),
+		orNil(t.EffectiveFrom), orNil(t.EffectiveTo), boolToInt(t.Active), t.Comment)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateTariff writes the whole row when the tariff is unused, and only the
+// descriptive half once it has priced something.
+func (s *Store) UpdateTariff(t model.Tariff) error {
+	used, err := s.TariffUsedInReadings(t.ID)
+	if err != nil {
+		return err
+	}
+	if used {
+		if changed, err := s.tariffMathChanged(t); err != nil {
+			return err
+		} else if changed {
+			return ErrTariffHasHistory
+		}
+	}
+	_, err = s.db.Exec(`
+		UPDATE tariffs
+		SET name = ?, kind = ?, unit = ?, rate1 = ?, rate2 = ?,
+		    effective_from = ?, effective_to = ?, comment = ?
+		WHERE id = ?`,
+		t.Name, t.Kind, orNil(t.Unit), t.Rate1, orNilF(t.Rate2),
+		orNil(t.EffectiveFrom), orNil(t.EffectiveTo), t.Comment, t.ID)
+	return err
+}
+
+// tariffMathChanged compares only what an amount was computed from. A form
+// that posts the locked fields back unchanged — which is what a disabled input
+// does — must save, not fail.
+func (s *Store) tariffMathChanged(t model.Tariff) (bool, error) {
+	old, err := s.TariffByID(t.ID)
+	if err != nil {
+		return false, err
+	}
+	if old.Kind != t.Kind || old.Rate1 != t.Rate1 {
+		return true, nil
+	}
+	return !sameFloat(old.Rate2, t.Rate2) || !sameString(old.Unit, t.Unit), nil
+}
+
+func sameFloat(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func sameString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

@@ -1,0 +1,62 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{if $d.IsEdit}}{{$d.Utility.Icon}} {{$d.Utility.Name}}{{else}}Новий сервіс{{end}}</h1>
+</div>
+
+{{if $d.Error}}<div class="flash">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post"
+      action="{{if $d.IsEdit}}/meters/utilities/{{$d.Utility.ID}}{{else}}/meters/utilities/new{{end}}">
+  <label>Назва
+    <input type="text" name="name" value="{{$d.Utility.Name}}" required>
+  </label>
+  <label>Адреса
+    <select name="address_id">
+      {{range $d.Addresses}}
+      <option value="{{.ID}}" {{if eq .ID $d.Utility.AddressID}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  {{/* The tariff the NEXT reading will use. Archived ones are offered too: a
+       service being corrected may legitimately still point at a superseded
+       price. */}}
+  <label>Наступний тариф
+    <select name="current_tariff_id">
+      <option value="">— не заданий —</option>
+      {{range $d.Tariffs}}
+      <option value="{{.ID}}" {{if and $d.Utility.CurrentTariffID (eq .ID (deref64 $d.Utility.CurrentTariffID))}}selected{{end}}>
+        {{.Name}}{{if not .Active}} (в архіві){{end}}
+      </option>
+      {{end}}
+    </select>
+  </label>
+
+  <div class="row">
+    <label>Іконка
+      <input type="text" name="icon" value="{{$d.Utility.Icon}}" placeholder="⚡">
+    </label>
+    {{/* Entered directly rather than derived from a category catalogue, which
+         was a second place for the colour to disagree with itself. */}}
+    <label>Колір
+      <input type="text" name="color" value="{{$d.Utility.Color}}" placeholder="#1E983B">
+    </label>
+    <label>Порядок
+      <input type="number" name="sort_order" value="{{$d.Utility.SortOrder}}">
+    </label>
+  </div>
+
+  <label>Сайт постачальника
+    <input type="url" name="url" value="{{$d.Utility.URL}}">
+  </label>
+  <label>Коментар
+    <input type="text" name="comment" value="{{$d.Utility.Comment}}">
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/meters/utilities">Скасувати</a>
+  </div>
+</form>
+{{end}}

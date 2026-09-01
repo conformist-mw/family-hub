@@ -1,11 +1,12 @@
 {{define "content"}}
 <div class="page-head">
   <h1>Сервіси</h1>
+  <a class="btn primary" href="/meters/utilities/new">+ Сервіс</a>
 </div>
 
 <table>
   <thead>
-    <tr><th></th><th>Сервіс</th><th>Адреса</th><th>Наступний тариф</th></tr>
+    <tr><th></th><th>Сервіс</th><th>Адреса</th><th>Наступний тариф</th><th></th></tr>
   </thead>
   <tbody>
     {{range .Data}}
@@ -19,9 +20,15 @@
       {{/* The tariff the NEXT reading will use. A stored reading keeps its own,
            which is why this column is titled that way and not "тариф". */}}
       <td data-label="Наступний тариф">{{if .CurrentTariffName}}{{.CurrentTariffName}}{{else}}<span class="muted">не заданий</span>{{end}}</td>
+      <td data-label="" class="row-actions">
+        <a class="btn small" href="/meters/utilities/{{.ID}}">✎</a>
+        <form method="post" action="/meters/utilities/{{.ID}}/toggle">
+          <button class="btn small" type="submit">{{if .Active}}в архів{{else}}повернути{{end}}</button>
+        </form>
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="4" class="empty">Сервісів немає.</td></tr>
+    <tr><td colspan="5" class="empty">Сервісів немає.</td></tr>
     {{end}}
   </tbody>
 </table>

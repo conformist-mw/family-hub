@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 
 	"familyhub/internal/model"
 )
@@ -168,4 +169,86 @@ func (s *Store) UtilityLastPeriod(id int64) (string, error) {
 		return "", err
 	}
 	return p.String, nil
+}
+
+// ── writes ───────────────────────────────────────────────────────────────────
+
+func (s *Store) CreateAddress(a model.Address) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO addresses (name, comment, area, currency, active, sort_order)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		a.Name, a.Comment, orNilF(a.Area), a.Currency, boolToInt(a.Active), a.SortOrder)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateAddress(a model.Address) error {
+	_, err := s.db.Exec(`
+		UPDATE addresses
+		SET name = ?, comment = ?, area = ?, currency = ?, sort_order = ?
+		WHERE id = ?`,
+		a.Name, a.Comment, orNilF(a.Area), a.Currency, a.SortOrder, a.ID)
+	return err
+}
+
+func (s *Store) CreateUtility(u model.Utility) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO utilities (address_id, name, current_tariff_id, icon, color, url, active, sort_order, comment)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.AddressID, u.Name, orNilI(u.CurrentTariffID), u.Icon, u.Color, u.URL,
+		boolToInt(u.Active), u.SortOrder, u.Comment)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateUtility(u model.Utility) error {
+	_, err := s.db.Exec(`
+		UPDATE utilities
+		SET address_id = ?, name = ?, current_tariff_id = ?, icon = ?, color = ?,
+		    url = ?, sort_order = ?, comment = ?
+		WHERE id = ?`,
+		u.AddressID, u.Name, orNilI(u.CurrentTariffID), u.Icon, u.Color, u.URL,
+		u.SortOrder, u.Comment, u.ID)
+	return err
+}
+
+// ToggleActive flips the active flag on one row of one of the utilities
+// tables. Archiving is a toggle rather than a field on the edit form because
+// it is the one change made from the list, on a row you are not otherwise
+// editing.
+//
+// table is not caller-supplied text: only the three constants below reach it.
+func (s *Store) ToggleActive(table string, id int64) error {
+	switch table {
+	case TableAddresses, TableUtilities, TableTariffs:
+	default:
+		return fmt.Errorf("store: cannot toggle %q", table)
+	}
+	res, err := s.db.Exec(`UPDATE `+table+` SET active = 1 - active WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// The tables ToggleActive accepts, so the name is never a string from a
+// request.
+const (
+	TableAddresses = "addresses"
+	TableUtilities = "utilities"
+	TableTariffs   = "tariffs"
+)
+
+func orNilI(p *int64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }

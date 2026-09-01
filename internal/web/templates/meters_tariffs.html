@@ -1,13 +1,14 @@
 {{define "content"}}
 <div class="page-head">
   <h1>Тарифи</h1>
+  <a class="btn primary" href="/meters/tariffs/new">+ Тариф</a>
 </div>
 
 {{/* A tariff is shared between properties and services, so what depends on it
      is shown beside it: changing one that has history reprices that history. */}}
 <table>
   <thead>
-    <tr><th>Назва</th><th>Як рахується</th><th>Ставка</th><th>Сервісів</th><th>Показань</th><th>Останнє</th></tr>
+    <tr><th>Назва</th><th>Як рахується</th><th>Ставка</th><th>Сервісів</th><th>Показань</th><th>Останнє</th><th></th></tr>
   </thead>
   <tbody>
     {{range .Data}}
@@ -18,9 +19,15 @@
       <td data-label="Сервісів">{{.UtilitiesCount}}</td>
       <td data-label="Показань">{{.ReadingsCount}}</td>
       <td data-label="Останнє">{{if .LastPeriod}}{{periodLabel .LastPeriod}}{{else}}—{{end}}</td>
+      <td data-label="" class="row-actions">
+        <a class="btn small" href="/meters/tariffs/{{.ID}}">✎</a>
+        <form method="post" action="/meters/tariffs/{{.ID}}/toggle">
+          <button class="btn small" type="submit">{{if .Active}}в архів{{else}}повернути{{end}}</button>
+        </form>
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="6" class="empty">Тарифів немає.</td></tr>
+    <tr><td colspan="7" class="empty">Тарифів немає.</td></tr>
     {{end}}
   </tbody>
 </table>

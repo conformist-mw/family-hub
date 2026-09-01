@@ -1,0 +1,61 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{if $d.IsEdit}}{{$d.Tariff.Name}}{{else}}Новий тариф{{end}}</h1>
+</div>
+
+{{if $d.Error}}<div class="flash">{{$d.Error}}</div>{{end}}
+
+{{if $d.Locked}}
+<p class="muted">
+  За цим тарифом уже нараховано показання, тому спосіб розрахунку і ставки
+  заблоковані: сума кожного минулого місяця рахувалася саме з них. Нова ціна —
+  це новий тариф, а не правка старого.
+</p>
+{{end}}
+
+<form class="stack" method="post"
+      action="{{if $d.IsEdit}}/meters/tariffs/{{$d.Tariff.ID}}{{else}}/meters/tariffs/new{{end}}">
+  <label>Назва
+    <input type="text" name="name" value="{{$d.Tariff.Name}}" required>
+  </label>
+
+  <label>Спосіб розрахунку
+    <select name="kind" {{if $d.Locked}}disabled{{end}}>
+      <option value="meter" {{if eq $d.Tariff.Kind "meter"}}selected{{end}}>лічильник</option>
+      <option value="meter_zoned" {{if eq $d.Tariff.Kind "meter_zoned"}}selected{{end}}>двозонний</option>
+      <option value="flat" {{if eq $d.Tariff.Kind "flat"}}selected{{end}}>фіксований</option>
+    </select>
+  </label>
+
+  <div class="row">
+    <label>Ставка
+      <input type="text" inputmode="decimal" name="rate1" value="{{$d.Tariff.Rate1}}" {{if $d.Locked}}disabled{{end}} required>
+    </label>
+    <label>Ставка, друга зона
+      <input type="text" inputmode="decimal" name="rate2" value="{{num $d.Tariff.Rate2}}" {{if $d.Locked}}disabled{{end}}>
+    </label>
+    <label>Одиниця
+      <input type="text" name="unit" value="{{deref $d.Tariff.Unit}}" placeholder="м3" {{if $d.Locked}}disabled{{end}}>
+    </label>
+  </div>
+
+  <div class="row">
+    <label>Діє з
+      <input type="date" name="effective_from" value="{{deref $d.Tariff.EffectiveFrom}}">
+    </label>
+    <label>Діє до
+      <input type="date" name="effective_to" value="{{deref $d.Tariff.EffectiveTo}}">
+    </label>
+  </div>
+
+  <label>Коментар
+    <input type="text" name="comment" value="{{$d.Tariff.Comment}}">
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/meters/tariffs">Скасувати</a>
+  </div>
+</form>
+{{end}}

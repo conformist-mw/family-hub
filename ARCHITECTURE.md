@@ -168,7 +168,10 @@ data/          # local SQLite (gitignored)
     `school_lessons` migration. UIDs are `school-<eventID>@familyhub`. Which
     portal categories reach it (lesson / meal / daycare / routine) is
     `SCHOOL_ICS_INCLUDE`, lessons-only by default; token-guarded via
-    `SCHOOL_ICS_TOKEN`. Empty when the sync is unconfigured.
+    `SCHOOL_ICS_TOKEN`. Empty when the sync is unconfigured. The feed is a
+    calendar, not the evening digest's source: it deliberately shows only the
+    academic day, and the digest needs the rest of it, so the digest reads
+    `school_lessons` directly (below).
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.
@@ -361,13 +364,30 @@ data/          # local SQLite (gitignored)
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`),
   `RunCostPrompts` for the above, and `RunBillingReminders` (below). All four
   need a configured notify chat.
-- `RunDigests` hosts three wall-clock messages with **separate** gates: the
+- `RunDigests` hosts four wall-clock messages with **separate** gates: the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
-  prod — HA owns those summaries), and the evening chore nag, gated by
-  `REMINDER_NAG_TIME` alone. They are split because HA can send the first and
-  cannot send the second: it reads a calendar and knows nothing about what was
-  closed. One shared flag would have left the nag permanently silent in prod,
-  the only place it matters.
+  prod — HA owns those summaries), the evening chore nag, gated by
+  `REMINDER_NAG_TIME` alone, and tomorrow's school timetable
+  (`internal/bot/school.go`), gated by `SCHOOL_DIGEST_TIME` alone. They are
+  split because HA can send the first and cannot send the others. It reads a
+  calendar, so it knows nothing about what was closed; and its calendar API
+  hands a template only summary/start/end/description, dropping the category
+  that separates a lesson from the after-school block — so it cannot say when
+  the child is actually free. One shared flag would have left both permanently
+  silent in prod, the only place they matter.
+- The school digest reports the day the timetable really describes, which is
+  why it does not read `/school.ics`. Everything runs in time order — a slot's
+  place in the day is its place in the message — with a blank line wherever the
+  day crosses between lessons and the rest of it, and a glyph per category
+  instead of a heading: a heading would have to claim the breakfast comes after
+  the afternoon, or that a midday walk between two lessons ends the day.
+  Lessons carry both ends, adjacent same-subject non-lesson blocks merge, and a
+  closing line gives the end of the *last* slot of the day. A
+  lessons-only reading of a Tuesday stops at 13:10 while the child is at school
+  until 15:40. A day holding slots but no lessons — the school fills in meals
+  before subjects — says the timetable is not published yet rather than sending
+  nothing, because silence is indistinguishable from a broken sync. A day
+  holding nothing at all stays quiet.
 - A fifth ticker lives outside the bot entirely — `reminders.RunMaterialiser`,
   started from `main.go`. It records what came due, which is data rather than a
   message, so it must not answer to a notification flag or to a notify chat

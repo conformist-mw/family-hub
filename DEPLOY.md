@@ -57,7 +57,7 @@ just deploy-hetzner-tag family-hub
   replies to the "how much was it?" prompt both arrive that way.
 - Prod env (bot token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
   `TELEGRAM_REMINDER_DELAY_MIN`, `GEMINI_API_KEY`, `VISIT_PEOPLE`,
-  `TZ=Europe/Kyiv`) comes from the role +
+  `SCHOOL_DIGEST_TIME=19:30`, `TZ=Europe/Kyiv`) comes from the role +
   `roles/family-hub/vars/secrets.sops.yaml`. Reminders only fire on prod
   because `TELEGRAM_NOTIFY_CHAT` is unset locally.
 - The appointment digests stay off in prod (`NOTIFICATIONS_ENABLED` unset):
@@ -91,12 +91,13 @@ docker logs --tail=50 family-hub     # expect "listening", "scheduler started"
 
 A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_min=60`
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
-The digest ticker now hosts three wall-clock messages with separate gates, so
+The digest ticker now hosts four wall-clock messages with separate gates, so
 its boot line reports each: `bot: digests started appointment_digests=false
-… reminder_nag=20:00 reminder_push=true` is the expected prod shape — the appointment summaries
-stay off because Home Assistant sends those, while the chore nag runs. It only
+… reminder_nag=20:00 reminder_push=true school_digest=19:30` is the expected
+prod shape — the appointment summaries stay off because Home Assistant sends
+those, while the chore nag and the school timetable run from here. It only
 falls back to `bot: digests disabled (NOTIFICATIONS_ENABLED not set, no
-reminder nag time)` when neither is configured. The cost-prompt ticker should log
+reminders)` when none is configured. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
 `bot: billing reminders started`. Neither that one nor the pre-lesson warning
 takes any configuration: how far ahead each course warns is its own

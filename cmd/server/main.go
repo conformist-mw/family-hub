@@ -145,7 +145,10 @@ func main() {
 			// because HA sends the appointment summaries, and HA has nothing
 			// to say about what went unfinished.
 			ReminderNagTime: os.Getenv("REMINDER_NAG_TIME"),
-			Reminders:       remindersSvc,
+			// Same exemption, sharper reason: HA's calendar API drops the
+			// category, so it cannot tell a lesson from after-school care.
+			SchoolDigestTime: os.Getenv("SCHOOL_DIGEST_TIME"),
+			Reminders:        remindersSvc,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already

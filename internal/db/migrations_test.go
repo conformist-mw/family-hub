@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -204,7 +205,7 @@ func TestSlotVersionRejectsAnImpossibleWeekday(t *testing.T) {
 func TestUtilityTablesExistAfterMigration(t *testing.T) {
 	database := migrated(t)
 	for _, table := range []string{
-		"addresses", "tariffs", "utilities", "readings", "utility_deliveries"} {
+		"addresses", "tariffs", "utilities", "readings"} {
 		var name string
 		err := database.QueryRow(
 			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
@@ -264,20 +265,21 @@ func TestUnknownTariffKindIsRejected(t *testing.T) {
 	}
 }
 
-// The log is what stops "everything is paid" being announced twice for one
-// month. Without the constraint that guarantee rests on the reader alone.
-func TestOneDeliveryPerTypeAddressAndPeriod(t *testing.T) {
+// The delivery log guarded automatic messages against repeating themselves.
+// There are none left — one button on the month view replaced both, and
+// pressing it is the decision — so the table went with them. Pinned here
+// because a table nothing writes is easy to add back by reflex.
+func TestTheDeliveryLogIsGone(t *testing.T) {
 	database := migrated(t)
-	seedUtility(t, database)
 
-	mustExec(t, database,
-		`INSERT INTO utility_deliveries (type, address_id, period)
-		 VALUES ('all_paid_summary', 1, '2026-05')`)
-
-	if _, err := database.Exec(
-		`INSERT INTO utility_deliveries (type, address_id, period)
-		 VALUES ('all_paid_summary', 1, '2026-05')`); err == nil {
-		t.Fatal("duplicate (type, address_id, period) was accepted")
+	var name string
+	err := database.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='utility_deliveries'`).Scan(&name)
+	if err == nil {
+		t.Fatal("utility_deliveries is back; nothing writes it")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("checking for the table: %v", err)
 	}
 }
 

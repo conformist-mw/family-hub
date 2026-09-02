@@ -57,6 +57,11 @@ func smokeRouter(t *testing.T) http.Handler {
 	return NewRouter(database, logger, "", nil, nil, svc)
 }
 
+// Two utilities templates are not in this list and cannot be: reading_form and
+// meters_report both need a utility to render, and this fixture keeps that
+// world empty on purpose. They are executed against real rows in
+// meters_readings_test and meters_report_test, which is the stronger check —
+// this one only proves a template does not fail halfway.
 func TestEveryPageRenders(t *testing.T) {
 	router := smokeRouter(t)
 	for _, path := range []string{

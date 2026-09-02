@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -192,5 +193,109 @@ func TestServiceNamesAreEscaped(t *testing.T) {
 	}
 	if !strings.Contains(got, "&lt;b&gt;2&lt;/b&gt;") {
 		t.Fatalf("name not escaped:\n%s", got)
+	}
+}
+
+// ── the report screen ────────────────────────────────────────────────────────
+
+// The question a bill summary is read for is what the money went on, so the
+// answer is at the top rather than wherever the service sorts in the list.
+func TestTheReportScreenPutsTheBiggestFirst(t *testing.T) {
+	router, _ := reportRouter(t)
+	body := metersBody(t, router, "/meters/report?address_id=1&period=2026-06")
+
+	security := strings.Index(body, "Охорона") // 500
+	gas := strings.Index(body, "Газ")          // 180
+	if security < 0 || gas < 0 {
+		t.Fatalf("a service is missing:\n%s", body)
+	}
+	if security > gas {
+		t.Errorf("rows are not ordered by amount:\n%s", body)
+	}
+	if !strings.Contains(body, "Разом") || !strings.Contains(body, "680 ₴") {
+		t.Errorf("no total:\n%s", body)
+	}
+}
+
+// It is made to be screenshotted into a chat, and a screenshot of a page
+// wrapped in navigation is mostly navigation.
+func TestTheReportScreenCarriesNoNavigation(t *testing.T) {
+	router, _ := reportRouter(t)
+	body := metersBody(t, router, "/meters/report?address_id=1&period=2026-06")
+
+	for _, unwanted := range []string{`class="topbar"`, `class="subnav"`, `class="spaces"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("the report carries %s", unwanted)
+		}
+	}
+	if !strings.Contains(body, `class="bare"`) {
+		t.Errorf("the report is not the shell-less page:\n%s", body)
+	}
+	// It still has to be a whole document.
+	if !strings.Contains(body, "</html>") {
+		t.Error("the report stopped mid-template")
+	}
+}
+
+// The colour is only ever seen here; the lists use the emoji for that job.
+func TestTheReportUsesEachUtilitysColour(t *testing.T) {
+	router, _ := reportRouter(t)
+	post(t, router, "/meters/utilities/1", url.Values{
+		"name": {"Газ"}, "address_id": {"1"}, "current_tariff_id": {"1"}, "color": {"#1E983B"},
+	})
+	body := metersBody(t, router, "/meters/report?address_id=1&period=2026-06")
+	if !strings.Contains(body, "border-left-color:#1E983B") {
+		t.Errorf("the accent colour is not used:\n%s", body)
+	}
+}
+
+// The screen and the message are the same figures in the same order, so the
+// screenshot and the text cannot disagree.
+func TestTheScreenAndTheMessageAgree(t *testing.T) {
+	router, notifier := reportRouter(t)
+	post(t, router, "/meters/report", url.Values{"address_id": {"1"}, "period": {"2026-06"}})
+
+	body := metersBody(t, router, "/meters/report?address_id=1&period=2026-06")
+	for _, figure := range []string{"680 ₴", "500 ₴", "180 ₴"} {
+		if !strings.Contains(body, figure) {
+			t.Errorf("the screen is missing %q", figure)
+		}
+		if !strings.Contains(notifier.html[0], figure) {
+			t.Errorf("the message is missing %q", figure)
+		}
+	}
+	if !strings.Contains(body, "Вода") || !strings.Contains(notifier.html[0], "Вода") {
+		t.Error("the unread service is named in one place and not the other")
+	}
+}
+
+// A month nobody has entered is a page that says so, not an empty frame.
+func TestTheReportScreenForAnEmptyMonth(t *testing.T) {
+	router, _ := reportRouter(t)
+	body := metersBody(t, router, "/meters/report?address_id=1&period=2026-07")
+
+	if !strings.Contains(body, "Нічого не внесено") {
+		t.Errorf("an empty month renders as a blank report:\n%s", body)
+	}
+	if !strings.Contains(body, "Ще не внесено:") {
+		t.Error("the empty month does not name what is missing")
+	}
+}
+
+func TestTheReportScreenForAnUnknownAddress(t *testing.T) {
+	router, _ := reportRouter(t)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/meters/report?address_id=99", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown address = %d, want 404", rec.Code)
+	}
+}
+
+// The month view is where the report is reached from.
+func TestTheMonthViewLinksToTheReport(t *testing.T) {
+	router, _ := reportRouter(t)
+	body := metersBody(t, router, "/meters?address_id=1&period=2026-06")
+	if !strings.Contains(body, "/meters/report?address_id=1&period=2026-06") {
+		t.Errorf("no link to the report:\n%s", body)
 	}
 }

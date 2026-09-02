@@ -291,6 +291,7 @@ func parseTemplates() map[string]*template.Template {
 		"stats.html",
 		"stats_overview.html",
 		"meters_readings.html",
+		"meters_report.html",
 		"reading_form.html",
 		"address_form.html",
 		"utility_form.html",
@@ -323,6 +324,21 @@ func (a *App) render(w http.ResponseWriter, page, title, active string, data any
 	pd := pageData{Title: title, Active: active, Space: space, Data: data}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "base", pd); err != nil {
+		a.Logger.Error("render", "page", page, "err", err)
+	}
+}
+
+// renderBare renders a page without the shell — no header, no world
+// navigation, no flash. The report exists to be screenshotted into a chat, and
+// a screenshot of a page wrapped in navigation is mostly navigation.
+func (a *App) renderBare(w http.ResponseWriter, page, title string, data any) {
+	tmpl, ok := a.templates[page]
+	if !ok {
+		http.Error(w, "unknown template: "+page, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.ExecuteTemplate(w, "bare", pageData{Title: title, Data: data}); err != nil {
 		a.Logger.Error("render", "page", page, "err", err)
 	}
 }

@@ -35,6 +35,10 @@ type metersReadingsData struct {
 	// Missing counts utilities with no reading — the number the screen is
 	// opened to drive to zero.
 	Missing int
+	// CanSend is false when the bot is off, which hides the button rather than
+	// offering one that answers with an error.
+	CanSend bool
+	Sent    bool
 }
 
 func (a *App) handleMeterReadings(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +48,12 @@ func (a *App) handleMeterReadings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d := metersReadingsData{Addresses: addresses, Period: currentPeriod()}
+	d := metersReadingsData{
+		Addresses: addresses,
+		Period:    currentPeriod(),
+		CanSend:   a.Notifier != nil,
+		Sent:      r.URL.Query().Get("sent") == "1",
+	}
 	if p := r.URL.Query().Get("period"); isPeriod(p) {
 		d.Period = p
 	}

@@ -1,0 +1,28 @@
+{{define "content"}}
+{{$d := .Data}}
+<section class="report">
+  <h1>{{$d.AddressName}}</h1>
+  <p class="report-period">{{periodLabel $d.Period}}</p>
+
+  {{/* The accent stripe is the utility's own colour, which is the only place
+       utilities.color is actually seen — in the lists an emoji does that job. */}}
+  <ul class="report-rows">
+    {{range $d.Rows}}
+    <li class="report-row" style="border-left-color:{{if .UtilityColor}}{{.UtilityColor}}{{else}}transparent{{end}}">
+      <span class="report-icon">{{.UtilityIcon}}</span>
+      <span class="report-name">{{.UtilityName}}</span>
+      <span class="report-amount">
+        {{amount .Amount .Currency}}
+        {{if not .Paid}}<span class="report-unpaid">не сплачено</span>{{end}}
+      </span>
+    </li>
+    {{else}}
+    <li class="report-row"><span class="report-name empty">Нічого не внесено.</span></li>
+    {{end}}
+  </ul>
+
+  <p class="report-total">Разом <b>{{amount $d.Total $d.Currency}}</b></p>
+  {{if $d.Unpaid}}<p class="report-note">Не сплачено: <b>{{amount $d.Unpaid $d.Currency}}</b></p>{{end}}
+  {{if $d.Missing}}<p class="report-note">Ще не внесено: {{range $i, $n := $d.Missing}}{{if $i}}, {{end}}{{$n}}{{end}}</p>{{end}}
+</section>
+{{end}}

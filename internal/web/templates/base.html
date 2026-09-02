@@ -60,3 +60,21 @@
   </main>
 </body>
 </html>{{end}}
+
+{{/* The shell-less page. Same head, no header, no navigation: used by the
+     report, which is made to be screenshotted into the family chat, and a
+     screenshot of a page wrapped in navigation is mostly navigation. */}}
+{{define "bare"}}<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Family Hub</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bare">
+  <main>{{template "content" .}}</main>
+</body>
+</html>
+{{end}}

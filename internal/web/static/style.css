@@ -478,3 +478,27 @@ tr.appt-past { opacity: .55; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* The report screen. Made to be screenshotted into the family chat, so it
+   carries no navigation and is sized to fit one phone screen: a screenshot
+   that has to be scrolled is two screenshots. */
+body.bare { padding: 0; }
+body.bare main { max-width: 460px; margin: 0 auto; padding: 20px 16px; }
+.report h1 { font-size: 22px; font-weight: 650; margin: 0; }
+.report-period { color: var(--muted); margin: 2px 0 16px; }
+.report-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.report-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-left: 3px solid transparent;
+  border-radius: var(--r-card);
+  background: var(--card);
+}
+.report-icon { flex: 0 0 auto; }
+.report-name { flex: 1 1 auto; }
+.report-amount { flex: 0 0 auto; font-weight: 600; white-space: nowrap; }
+.report-unpaid { display: block; font-size: 12px; font-weight: 400; color: var(--danger); text-align: right; }
+.report-total { display: flex; justify-content: space-between; font-size: 18px; margin: 16px 0 0; }
+.report-note { color: var(--muted); font-size: 13px; margin: 4px 0 0; }

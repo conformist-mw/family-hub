@@ -149,3 +149,124 @@ To migrate by hand:
 docker run --rm -v ~/server_data/family-hub:/data \
   --entrypoint /app/migrate olegsmedyuk/family-hub:latest -db /data/family-hub.db
 ```
+
+## The home-meters cutover
+
+Done on 1 September 2026. Kept here because the app still shows the data it
+moved, and because the shape of the operation is the reusable part: schema
+first, copy second, writing screens third.
+
+`home-meters` was a separate container with its own SQLite file, its own domain
+`meters.conformist.name`, and its own scheduled messages into **the same**
+family group. It is stopped and not to be restarted — see the divergence note
+below.
+
+The order it ran in, and why:
+
+1. **Migration 0008 deployed alone.** Five empty tables in prod, no UI, no
+   routes. The copy script inserts *literal ids*, so its correctness rests on
+   the target tables being empty; deploying the schema by itself is the
+   cheapest way to guarantee that.
+2. **Both containers stopped, database snapshotted, script run.** Stopping
+   `family-hub` is what lets the copy assume nothing is writing; stopping
+   `home-meters` is what stops the two diverging from the moment the copy
+   finishes.
+3. **Writing screens deployed after.** Once the tables hold data an id
+   conflict is no longer possible, so the forms could go out freely.
+
+The script, run from the host, which has no `sqlite3` — hence python out of an
+image that happens to carry one:
+
+```sh
+docker stop home-meters family-hub
+cp -a ~/server_data/family-hub/family-hub.db \
+      ~/server_data/family-hub/family-hub.db.pre-utilities-$(date +%Y%m%d-%H%M%S)
+
+docker run --rm --entrypoint python3 \
+  -v ~/server_data/home-meters:/src -v ~/server_data/family-hub:/dst \
+  ghcr.io/mealie-recipes/mealie:v3.22.0 -c '
+import sqlite3
+src = sqlite3.connect("/src/meters.db"); src.row_factory = sqlite3.Row
+dst = sqlite3.connect("/dst/family-hub.db")
+
+def copy(sql, to, cols, rename=None):
+    rows = [tuple(r[c] for c in cols) for r in src.execute(sql)]
+    tgt = ",".join((rename or {}).get(c, c) for c in cols)
+    dst.executemany("insert into %s (%s) values (%s)" % (to, tgt, ",".join("?"*len(cols))), rows)
+    print(to, len(rows))
+
+copy("select * from addresses", "addresses",
+     ["id","name","comment","area","currency","active","sort_order","created_at"])
+copy("select * from tariffs", "tariffs",
+     ["id","name","kind","unit","rate1","rate2","effective_from","effective_to",
+      "active","comment","created_at"])
+copy("select * from services", "utilities",
+     ["id","address_id","name","current_tariff_id","icon","color","active",
+      "sort_order","comment","created_at","url"])
+copy("select * from readings", "readings",
+     ["id","service_id","tariff_id","period","reading_date","prev1","curr1",
+      "prev2","curr2","consumed1","consumed2","amount","paid_date","comment","created_at"],
+     rename={"service_id":"utility_id"})
+dst.commit()
+'
+
+docker start family-hub
+```
+
+What it printed, and what to expect if it is ever replayed from a fresh copy of
+the old database:
+
+```
+addresses 2
+tariffs 17
+utilities 11
+readings 406
+```
+
+`notification_deliveries` was **not** copied. The two scheduled types never
+moved (see below), and the event types that did are gone too — migration 0009
+dropped `utility_deliveries` entirely once the automatic messages were replaced
+by a button.
+
+Checks run against the result, before restarting anything:
+
+- `pragma quick_check` → `ok`, `pragma foreign_key_check` → no rows
+- no dangling `readings.utility_id`, `readings.tariff_id`, `utilities.address_id`
+- `sum(amount)` identical on both sides — `256220.82`
+- periods `2022-03 … 2026-08`
+- the family's own tables untouched: `appointments`, `school_lessons` unchanged
+
+Ids are preserved verbatim. Remapping them would have been the one place those
+406 rows could be silently corrupted, because `readings.tariff_id` points at
+the tariff that applied *then* — so there is no remapping step at all.
+
+### What deliberately did not move
+
+- **`notification_settings`** — the old app's scheduled reminders. They are
+  chores here (#5 «Записать данные счётчиков», #7 «Проверить начисления
+  коммунальных в банке»), and a chore knows what a scheduled message cannot:
+  whether it was actually done, what was missed, and what belongs in the
+  calendar feed. Two mechanisms posting to one chat was the reason for the
+  merge, not a detail of it.
+- **`services.category`** — a catalogue whose only job was to fill in `icon`
+  and `color`, which are columns on the utility itself. A lookup table that
+  populates two fields is a second place for them to disagree.
+- **The PNG renderer.** `internal/notify/image.go` drew the month as an image;
+  it needed `gg`, `freetype` and `x/image`, and could not even draw the emoji
+  the services carry, because freetype does not rasterise them. `/meters/report`
+  is a page made to be screenshotted instead, and no `Notifier` gained a
+  send-photo method.
+
+### After the copy, the two apps diverge
+
+Anything entered in the old app from 1 September onward does not appear here.
+August was closed in `home-meters` before the copy — all 11 services entered
+and paid — which is what made the date safe to bring forward by a day.
+`home-meters` has stayed stopped since; restarting it would start a second,
+invisible record of the same bills.
+
+To retire it for good: remove the container and its Traefik router from the
+dotfiles role, drop the `meters.conformist.name` DNS record, and keep
+`~/server_data/home-meters/meters.db` as the archive — it is the only copy of
+the old app's `notification_settings` and `category` data, neither of which
+came across.

@@ -94,6 +94,43 @@ amount, so spend reports are exact even when the unit price changed
 mid-month. Price changes are reflected by editing
 `enrollment.current_price`; historical rows stay as they were.
 
+### The utilities half
+
+Household bills, merged in from a separate app (`home-meters`) — see the
+cutover section in `DEPLOY.md` for how the data arrived and what deliberately
+did not.
+
+- **`addresses`** — a property bills are paid for ("Дім", "Тьоща"). Nothing to
+  do with `appointments.location`, which is where you go to see a dentist.
+  `area` exists for tariffs charged per square metre, and `currency` is a code
+  shown through `model.CurrencySymbol` — the one place in the app where a
+  currency is stored rather than assumed.
+- **`tariffs`** — a price list, global rather than per-service, because the same
+  gas tariff serves both properties. Carries *how* it is calculated, not just
+  the price: `kind` is `meter` | `meter_zoned` | `flat`, and that decides which
+  of `rate1`/`rate2`/`unit` mean anything.
+- **`utilities`** — one billed service at one property, "Електрика в Домі".
+  Not called a service: in an app that also has trainers and courses, the bare
+  word names nothing. `current_tariff_id` is what the *next* reading will use.
+  `icon` is the emoji every list shows; `color` is seen only on
+  `/meters/report`.
+- **`readings`** — one month of one utility. `tariff_id` is the tariff that
+  applied **then** and is never re-read: change the price today and every past
+  month keeps the number it was actually billed at, the same reason
+  `reminder_rules` is a list of versions rather than one mutable row. Which is
+  also why a tariff's arithmetic (`kind`, `unit`, the rates) locks as soon as a
+  reading has been priced by it, while its name, comment and `active` flag stay
+  editable — archiving a superseded price is the normal thing to do, and
+  production is full of archived tariffs that still carry history.
+- `UNIQUE (utility_id, period, tariff_id)` is three columns deliberately. The
+  month a meter is replaced carries two readings — the final one on the old
+  meter and tariff, the first on the new — and a two-column key would have made
+  that month unrecordable. The data carried over contains three such months, so
+  every total SUMs a month's readings rather than taking one.
+- `model.ComputeAmount` prices a reading against a tariff and clears every
+  field the kind does not use, so a reading moved from a zoned tariff to a flat
+  one does not keep half of its old arithmetic.
+
 ## Repository layout
 
 ```
@@ -116,6 +153,33 @@ internal/
   schooltoday/ # mirrors the school portal timetable; feeds /school.ics
 data/          # local SQLite (gitignored)
 ```
+
+## Worlds
+
+The app is a hub and three worlds, not one flat site. A single row of eight
+links already mixed the daily (Баланс, Заняття) with the reference (Курси,
+Тренери), and the four utilities screens could not be added to it at all.
+
+- `/` is the hub: what is happening today, across everything — open chores and
+  the next appointments. **No utilities status here.** The hub answers "what
+  now", and a month's bills are not a now.
+- `/appointments` and `/reminders` sit in the header beside it rather than
+  inside a world. They are not a domain you administer; they are what is
+  happening.
+- `/lessons/*`, `/meters/*` and `/stats/*` are the three worlds. The header
+  picks one, the second row picks a page inside it. `pageData.Space` is derived
+  from `Active` through `spaceOf` (`render.go`) rather than passed, because a
+  page's world is a property of the page, not of the request that reached it —
+  passing it would have meant editing two dozen `render` calls to restate
+  something every one of them already implies.
+- The Mini App has the same two tiers: a `space` above the `tab`, with the hub
+  as a space like any other, so there is one kind of navigation rather than a
+  top-level list plus a separate notion of a world. Only spaces with screens
+  appear; the utilities world has none there yet, and no flag stands in for it.
+- The pre-worlds URLs (`/visits*`, `/payments*`, `/enrollments*`, `/trainers*`)
+  redirect by prefix, keeping tail and query: `301` for a GET bookmark, `308`
+  for anything else, because a `301` lets a browser retry a POST as GET and
+  turn a form submitted from a stale-but-open page into a silent no-op.
 
 ## Web
 
@@ -270,6 +334,32 @@ data/          # local SQLite (gitignored)
   US-configured Mac — and the page cannot change that, so `10/08` is a reading
   ambiguity a written-out month simply does not have. It submits ISO either
   way; this is display only.
+
+## Utilities: no domain service, and no events
+
+`internal/appointments` and `internal/payments` exist because a write rule and
+a group message have to be identical across two surfaces. The utilities world
+has no equivalent package, and that is a decision rather than an omission: with
+the automatic messages gone there is no domain logic left to hold. The
+arithmetic is `model.ComputeAmount`, the month's rollup is a store query, and
+composing the chat text is a dozen lines beside the handler. A package with one
+function in it is a layer, not a boundary.
+
+The old app posted two automatic messages per property per month. Neither
+survived:
+
+- *everything is entered* said what a closed chore already says. Chore #5
+  carries its own reminders, the evening nag, and the record of whether it was
+  actually done — which is why the old scheduler did not move with the data.
+- *everything is paid* had to be re-checked from two places, writing a reading
+  and toggling paid, and a forgotten second call meant it would never fire at
+  all.
+
+Both are one button on the month view, which sends any month rather than only
+the one that happened to complete itself while the app was watching. Nothing is
+recorded about what was sent: pressing the button is the decision, and pressing
+it twice is a decision too. `utility_deliveries` was dropped in migration 0009
+for exactly that reason.
 
 ## Bot
 

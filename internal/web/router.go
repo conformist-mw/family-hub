@@ -135,6 +135,7 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 
 	mux.HandleFunc("GET /stats", a.handleStatsOverview)
 	mux.HandleFunc("GET /stats/lessons", a.handleStats)
+	mux.HandleFunc("GET /stats/meters", a.handleStatsMeters)
 
 	mux.HandleFunc("GET /lessons/trainers", a.handleTrainers)
 	mux.HandleFunc("POST /lessons/trainers/{id}/absences", a.handleAbsenceCreate)

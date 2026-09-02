@@ -1,0 +1,55 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Комуналка</h1>
+</div>
+
+<section class="stat-block">
+  <h2>По місяцях <span class="muted">за адресами</span></h2>
+  <div class="bars">
+    {{range $p := $d.Periods}}
+    <div class="bar-row">
+      <span class="bar-label">{{periodLabel $p}}</span>
+      <span class="bar-track split">
+        {{range $i, $a := $d.Addresses}}
+        <span class="bar-fill seg-{{$i}}" style="width:{{barPct (index $d.ByAddress $p $a.ID) $d.Max}}%"></span>
+        {{end}}
+      </span>
+      <span class="bar-value">{{amount (index $d.Totals $p) $d.Currency}}</span>
+    </div>
+    {{else}}
+    <p class="empty">Показань немає.</p>
+    {{end}}
+  </div>
+  <p class="report-note">
+    {{range $i, $a := $d.Addresses}}<span class="legend seg-{{$i}}"></span> {{$a.Name}} {{end}}
+  </p>
+</section>
+
+{{/* Matched on the service name, because the same utility at two properties is
+     two rows with two ids and nothing else ties them together. */}}
+{{if $d.Names}}
+<section class="stat-block">
+  <h2>Споживання <span class="muted">одне й те саме в двох домах</span></h2>
+  <form class="filters" method="get" action="/stats/meters">
+    <select name="utility" onchange="this.form.submit()">
+      {{range $d.Names}}
+      <option value="{{.}}" {{if eq . $d.Name}}selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+    {{if $d.Unit}}<span class="muted">{{$d.Unit}}</span>{{end}}
+  </form>
+  <div class="bars">
+    {{range $d.Consumption}}
+    <div class="bar-row">
+      <span class="bar-label">{{periodLabel .Period}} · {{.AddressName}}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Consumed $d.MaxUsed}}%"></span></span>
+      <span class="bar-value">{{.Consumed}} <span class="muted">{{$d.Unit}}</span></span>
+    </div>
+    {{else}}
+    <p class="empty">Немає даних для порівняння.</p>
+    {{end}}
+  </div>
+</section>
+{{end}}
+{{end}}

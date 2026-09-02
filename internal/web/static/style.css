@@ -502,3 +502,20 @@ body.bare main { max-width: 460px; margin: 0 auto; padding: 20px 16px; }
 .report-unpaid { display: block; font-size: 12px; font-weight: 400; color: var(--danger); text-align: right; }
 .report-total { display: flex; justify-content: space-between; font-size: 18px; margin: 16px 0 0; }
 .report-note { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+
+/* A split bar: one month, one length, divided by where the money went. Two
+   separate charts would have to be compared by eye, which is the work the
+   chart is supposed to do. */
+.bar-track.split { display: flex; }
+.bar-track.split .bar-fill { position: static; height: 100%; }
+.seg-lessons, .seg-0 { background: var(--accent); }
+.seg-meters,  .seg-1 { background: var(--warn); }
+.seg-2 { background: var(--ok); }
+.legend {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin: 0 4px 0 10px;
+  vertical-align: baseline;
+}

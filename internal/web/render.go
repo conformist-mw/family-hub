@@ -30,6 +30,7 @@ var funcs = template.FuncMap{
 	// num renders an optional meter figure for an input's value. A nil pointer
 	// is an unread meter, and the template's own formatting prints that as the
 	// literal "<nil>" — which lands in the form field and is then submitted.
+	"add": func(a, b float64) float64 { return a + b },
 	"num": func(p *float64) string {
 		if p == nil {
 			return ""
@@ -290,6 +291,7 @@ func parseTemplates() map[string]*template.Template {
 		"enrollment_form.html",
 		"stats.html",
 		"stats_overview.html",
+		"stats_meters.html",
 		"meters_readings.html",
 		"meters_report.html",
 		"reading_form.html",

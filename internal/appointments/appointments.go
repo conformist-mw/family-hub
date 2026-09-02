@@ -59,14 +59,14 @@ func (f Form) Parse(loc *time.Location) (model.Appointment, error) {
 		Status:   strings.TrimSpace(f.Status),
 	}
 	if a.Title == "" {
-		return a, InvalidField{"title", "вкажи назву"}
+		return a, InvalidField{Field: "title", Message: "вкажи назву"}
 	}
 
 	date := strings.TrimSpace(f.Date)
 	hhmm := strings.TrimSpace(f.Time)
 	start, err := time.ParseInLocation(model.LocalDatetime, date+"T"+hhmm, loc)
 	if err != nil {
-		return a, InvalidField{"date", "вкажи коректну дату й час"}
+		return a, InvalidField{Field: "date", Message: "вкажи коректну дату й час"}
 	}
 	a.StartsAt = date + "T" + hhmm
 
@@ -76,22 +76,22 @@ func (f Form) Parse(loc *time.Location) (model.Appointment, error) {
 	switch end := strings.TrimSpace(f.EndTime); {
 	case end != "":
 		if _, err := time.ParseInLocation(model.LocalDatetime, date+"T"+end, loc); err != nil {
-			return a, InvalidField{"endTime", "вкажи коректний час завершення"}
+			return a, InvalidField{Field: "endTime", Message: "вкажи коректний час завершення"}
 		}
 		// Same-day only on this path, and the string compare is safe because
 		// both are zero-padded HH:MM.
 		if end <= hhmm {
-			return a, InvalidField{"endTime", "час завершення має бути пізніше початку"}
+			return a, InvalidField{Field: "endTime", Message: "час завершення має бути пізніше початку"}
 		}
 		a.EndsAt = date + "T" + end
 
 	case strings.TrimSpace(f.Duration) != "":
 		minutes, err := strconv.Atoi(strings.TrimSpace(f.Duration))
 		if err != nil || minutes <= 0 {
-			return a, InvalidField{"duration", "тривалість має бути числом хвилин"}
+			return a, InvalidField{Field: "duration", Message: "тривалість має бути числом хвилин"}
 		}
 		if minutes > maxDurationMin {
-			return a, InvalidField{"duration", "надто довго — вкажи менше доби"}
+			return a, InvalidField{Field: "duration", Message: "надто довго — вкажи менше доби"}
 		}
 		// Adding to the parsed start rather than to the string means a late
 		// evening appointment can legitimately end after midnight.
@@ -99,7 +99,7 @@ func (f Form) Parse(loc *time.Location) (model.Appointment, error) {
 	}
 
 	if _, ok := model.ApptStatusLabels[a.Status]; !ok {
-		return a, InvalidField{"status", "вибери статус"}
+		return a, InvalidField{Field: "status", Message: "вибери статус"}
 	}
 
 	// An empty amount means "not recorded" (NULL), which is not the same as 0 —
@@ -107,7 +107,7 @@ func (f Form) Parse(loc *time.Location) (model.Appointment, error) {
 	if raw := strings.TrimSpace(f.Cost); raw != "" {
 		cost, ok := ParseCost(raw)
 		if !ok {
-			return a, InvalidField{"cost", "сума має бути числом, напр. 800 (або 0)"}
+			return a, InvalidField{Field: "cost", Message: "сума має бути числом, напр. 800 (або 0)"}
 		}
 		a.Cost = &cost
 	}

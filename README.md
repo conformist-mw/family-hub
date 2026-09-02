@@ -1,7 +1,8 @@
 ![Family Hub](docs/brand/banner.png)
 
 A small self-hosted app for a family's schedule and money, replacing a fragile
-spreadsheet, a second bot and a phone's reminders list. Three domains live in it:
+spreadsheet, two separate bots and a phone's reminders list. Four domains live
+in it:
 
 - **Lessons** — recurring extracurricular courses: attendance journal,
   payments, and how many prepaid lessons are left or when a monthly pass runs
@@ -14,10 +15,19 @@ spreadsheet, a second bot and a phone's reminders list. Three domains live in it
   the 1st, log the car mileage, water the cactus every other week. A full RFC
   5545 rule decides when each comes due; the app records what actually did,
   and says in the evening what nobody closed.
+- **Utilities** — the household bills for two properties: electricity, gas,
+  water, security, internet. Meter readings entered once a month, priced by the
+  tariff that applied then, with a running record of what was paid. A month can
+  be sent to the family chat as a summary, or opened as a page made to be
+  screenshotted into one.
+
+Navigation is a hub and three worlds — Заняття, Дім, Статистика — with today's
+appointments and open chores above all of them, because "what is happening now"
+belongs over the domains rather than inside one.
 
 Three ways in, one SQLite file behind them: a web UI for the desk, a Telegram
-bot in the family group, and a Telegram Mini App for the phone. One ICS feed
-carries both kinds of events to Home Assistant.
+bot in the family group, and a Telegram Mini App for the phone. Two ICS feeds
+carry the family's events and the school timetable to Home Assistant.
 
 ## Why
 

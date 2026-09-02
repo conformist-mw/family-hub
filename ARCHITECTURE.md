@@ -9,7 +9,6 @@ to look when picking it back up after a break.
 - SQLite via `modernc.org/sqlite` (pure Go, no CGO) — the binary stays
   statically linkable into `distroless/static`
 - `pressly/goose` migrations, embedded into the binary
-- `xuri/excelize/v2` for the one-shot Excel import
 - `gopkg.in/telebot.v3` for the Telegram bot
 - `google.golang.org/genai` (Gemini) to parse appointments out of free text
 - `joho/godotenv` to load `.env` in local development
@@ -100,7 +99,6 @@ mid-month. Price changes are reflected by editing
 ```
 cmd/
   server/      # web + bot process
-  import/      # one-shot Excel importer
 internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
@@ -116,9 +114,7 @@ internal/
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
   ics/         # the VCALENDAR feeds HA polls (family + school)
   schooltoday/ # mirrors the school portal timetable; feeds /school.ics
-  importer/    # Excel reader used by cmd/import
 data/          # local SQLite (gitignored)
-Доп. занятия.xlsx  # the original source; gitignored+dockerignored (personal data), local only
 ```
 
 ## Web
@@ -274,17 +270,6 @@ data/          # local SQLite (gitignored)
   US-configured Mac — and the page cannot change that, so `10/08` is a reading
   ambiguity a written-out month simply does not have. It submits ISO either
   way; this is display only.
-
-## Importer
-
-- `cmd/import` is a separate binary. Reads the local Excel (`-src`),
-  fixes a known typo status (`отмненео` → `cancelled`) and a mis-keyed
-  date, and writes into the same SQLite file.
-- Local re-import: `go run ./cmd/import` — wipes `visits` + `payments`,
-  upserts `enrollments` based on the `current` sheet.
-- Production seed: none — the image carries no spreadsheet (personal
-  data). The prod database is the source of truth; a fresh install
-  starts empty or is seeded once by hand (see DEPLOY.md).
 
 ## Bot
 
@@ -596,7 +581,7 @@ a person can pick that the app refuses.
   ```
 
 - `go run ./cmd/server` — boots web on `:8080` plus a polling bot.
-- Reset to a clean Excel-derived DB: `rm data/family-hub.db && go run ./cmd/import`.
+- Reset to an empty DB: `rm data/family-hub.db` — migrations rebuild the schema on the next boot.
 - The dev bot is a different Telegram bot than prod, so messaging it
   doesn't touch the production app.
 
@@ -611,10 +596,6 @@ a person can pick that the app refuses.
   from the dashboard but stays on the courses list and keeps history.
 - **Manage schedule**: same screen — add weekday/time slots; the bot
   scheduler reads from there.
-- **Re-seed prod from Excel** (destructive, rarely): copy the local
-  Excel to the VPS and run the bundled importer against the data volume
-  by hand (command in DEPLOY.md); the image and the role no longer ship
-  or run the seed.
 - **Rotate a secret**: `sops --set` (or `sops edit`), then
   `just deploy-hetzner-tag family-hub`. The bot re-registers the webhook
   on startup, so a path rotation propagates to Telegram automatically.

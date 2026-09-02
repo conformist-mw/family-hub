@@ -90,14 +90,12 @@ per-lesson courses, and "is today covered by a paid period" for monthly passes.
 - `pressly/goose` migrations, embedded
 - `gopkg.in/telebot.v3` for the Telegram bot
 - `google.golang.org/genai` for free-text parsing (Gemini)
-- `xuri/excelize` for the one-shot spreadsheet import
 - Preact and htm, vendored, for the Mini App — no build step
 
 ## Running locally
 
 ```sh
 go run ./cmd/server          # serves on :8080, db at data/family-hub.db
-go run ./cmd/import          # (re)seed the db from a local spreadsheet
 ```
 
 Flags: `-addr` (listen address), `-db` (SQLite path). Configuration is env

@@ -33,13 +33,11 @@ just deploy-hetzner-tag family-hub
 
 ## Notes
 
-- The image carries **no seed spreadsheet** — `Доп. занятия.xlsx` holds
-  personal data and is gitignored + dockerignored. Prod was seeded long ago;
-  the DB is the source of truth and redeploys never touch it. To seed a
-  fresh install, copy the local Excel to the host and run the bundled
-  importer against it once:
-  `docker run --rm -v <dir>:/data -v "$PWD/Доп. занятия.xlsx":/seed.xlsx \
-   --entrypoint /app/import olegsmedyuk/family-hub:latest -src /seed.xlsx -db /data/family-hub.db`
+- The database is the source of truth and redeploys never touch it. The
+  spreadsheet the app was originally seeded from is gone, and so is the
+  importer that read it: it ran once, years of data have been entered through
+  the UI since, and a tool that can only rebuild the beginning is a tool that
+  can only lose the rest.
 - Migrations (`goose`) run automatically on container start.
 - The prod bot is **@family_core_hub_bot**; its token and everything else the
   container reads are `family_hub_*` keys in

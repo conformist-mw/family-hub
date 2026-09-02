@@ -207,3 +207,13 @@ func TestTheArchivingCounters(t *testing.T) {
 		t.Fatalf("UtilityLastPeriod(4) = %q, %v; want empty", p, err)
 	}
 }
+
+// mustExecDB seeds a row directly. The utilities write methods exist now, but
+// a statistics fixture wants exact ids and exact amounts, which a form-shaped
+// API is the wrong tool for.
+func mustExecDB(t *testing.T, database *sql.DB, q string, args ...any) {
+	t.Helper()
+	if _, err := database.Exec(q, args...); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+}

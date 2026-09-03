@@ -2,11 +2,14 @@ package schooltoday
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -20,6 +23,20 @@ const validEmail, validPassword = "parent@example.com", "s3cret"
 // the timetable endpoint, serving whatever dataset the test currently sets.
 type fakePortal struct {
 	dataset string
+
+	// lessonBody is what /Timetable/LessonView answers with; empty means the
+	// real fixture in testdata. lessonStatus overrides the HTTP status for one
+	// event id, which is how a test stages a 404 (not a lesson) or a 500.
+	lessonBody   []byte
+	lessonStatus map[int64]int
+	// lessonCalls records every (lessonID, lessonType) asked for, so a test can
+	// assert the collector skipped what it should have skipped.
+	lessonCalls []lessonCall
+}
+
+type lessonCall struct {
+	id   int64
+	kind int
 }
 
 func (f *fakePortal) handler() http.Handler {
@@ -45,7 +62,44 @@ func (f *fakePortal) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, f.dataset)
 	})
+	mux.HandleFunc("/Timetable/LessonView", func(w http.ResponseWriter, r *http.Request) {
+		// The real portal refuses GET here with 405; pin that so a client that
+		// switches verb is caught by the tests rather than in production.
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		id, _ := strconv.ParseInt(r.URL.Query().Get("lessonID"), 10, 64)
+		kind, _ := strconv.Atoi(r.URL.Query().Get("lessonType"))
+		f.lessonCalls = append(f.lessonCalls, lessonCall{id: id, kind: kind})
+
+		if status, ok := f.lessonStatus[id]; ok && status != http.StatusOK {
+			w.WriteHeader(status)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if f.lessonBody != nil {
+			w.Write(f.lessonBody)
+			return
+		}
+		w.Write(lessonFixture(nil))
+	})
 	return mux
+}
+
+// lessonFixture is the real LessonView response, with the child's and
+// teacher's names replaced. Read from disk rather than inlined: the parser
+// exists to survive this exact markup, and a hand-trimmed copy would drift
+// from it silently.
+func lessonFixture(t *testing.T) []byte {
+	body, err := os.ReadFile(filepath.Join("testdata", "lessonview.html"))
+	if err != nil {
+		if t != nil {
+			t.Fatalf("read fixture: %v", err)
+		}
+		panic(err)
+	}
+	return body
 }
 
 func migratedStore(t *testing.T) *store.Store {
@@ -178,5 +232,239 @@ func TestAPaddedTopicIsTrimmed(t *testing.T) {
 	}
 	if got.Topic != "Вступ. Розвиток української мови." {
 		t.Fatalf("topic = %q, want it trimmed", got.Topic)
+	}
+}
+
+// A week as the portal actually serves one: academic lessons (type 1), meals
+// and after-school care (types 0 and 3), a cancelled slot and an all-day
+// banner. Only the three real lessons should be read in detail.
+const collectWeekDataset = `{"events":[
+	{"eventID":101,"subject":"Алгебра [9]","type":1,"start":"2026-09-01T09:00:00","end":"2026-09-01T09:40:00","hasMarks":false},
+	{"eventID":102,"subject":"Українська мова [9]","type":1,"start":"2026-09-01T09:50:00","end":"2026-09-01T10:30:00","hasMarks":true},
+	{"eventID":103,"subject":"Біологія [9]","type":1,"start":"2026-09-02T09:00:00","end":"2026-09-02T09:40:00"},
+	{"eventID":201,"subject":"Обід [Food Hub]","type":0,"start":"2026-09-01T13:40:00","end":"2026-09-01T14:00:00"},
+	{"eventID":202,"subject":"Група продовженого дня [9]","type":3,"start":"2026-09-01T14:10:00","end":"2026-09-01T15:40:00"},
+	{"eventID":203,"subject":"Класна година [9]","type":1,"start":"2026-09-02T08:00:00","end":"2026-09-02T08:40:00"},
+	{"eventID":301,"subject":"Скасований урок [9]","type":1,"start":"2026-09-02T11:00:00","end":"2026-09-02T11:40:00","isCanceled":true},
+	{"eventID":302,"subject":"День знань","type":1,"start":"2026-09-01T00:00:00","end":"2026-09-02T00:00:00","isFullDay":true}
+]}`
+
+// Meals, after-school care, cancelled slots and all-day banners must not even
+// be asked for: each would 404, and thirty phantom failures a week would make
+// the "skipped" count useless as a signal.
+func TestCollectWeekOnlyReadsAcademicLessons(t *testing.T) {
+	portal := &fakePortal{dataset: collectWeekDataset}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	details, skipped, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0", skipped)
+	}
+	// Four asks, not three: "Класна година" is type 1 and Classify calls
+	// anything it does not recognise a lesson, so it is asked for and weeded
+	// out by the portal's own 404 (see the next test). What must never be
+	// asked for is the meal, the after-school block, the cancelled slot and
+	// the all-day banner — those are the thirty-odd phantom failures a week
+	// that would make the skipped count meaningless.
+	asked := map[int64]bool{}
+	for _, c := range portal.lessonCalls {
+		asked[c.id] = true
+		if c.kind != lessonEventType {
+			t.Errorf("asked for lessonType %d on event %d", c.kind, c.id)
+		}
+	}
+	for _, id := range []int64{201, 202, 301, 302} {
+		if asked[id] {
+			t.Errorf("event %d is not a lesson and should never have been asked for", id)
+		}
+	}
+	for _, id := range []int64{101, 102, 103} {
+		if !asked[id] {
+			t.Errorf("lesson %d was not read", id)
+		}
+	}
+	if len(details) != 4 {
+		t.Fatalf("collected %d lessons, want 4 (three subjects + the homeroom slot)", len(details))
+	}
+}
+
+// The detail belongs to the event that produced it: subject and start come
+// from the timetable (group tag and all, the spelling the rest of the school
+// code expects), the rest from the page.
+func TestCollectWeekJoinsTheEventWithItsDetail(t *testing.T) {
+	portal := &fakePortal{dataset: collectWeekDataset}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	details, _, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	first := details[0]
+	if first.Subject != "Алгебра [9]" {
+		t.Errorf("subject = %q, want the timetable spelling", first.Subject)
+	}
+	if first.StartsAt != "2026-09-01T09:00" {
+		t.Errorf("starts_at = %q, want model.LocalDatetime", first.StartsAt)
+	}
+	if first.PupilID != 79311 {
+		t.Errorf("pupil = %d", first.PupilID)
+	}
+	// From the fixture the fake portal serves for every lesson.
+	if first.Teacher != "Петренко Оксана" || first.Topic == "" || len(first.Marks) != 1 {
+		t.Errorf("detail fields did not come through: %+v", first)
+	}
+}
+
+// What was collected has to survive the sync that runs hours later — the whole
+// reason these rows are not columns on school_lessons.
+func TestCollectWeekPersistsWhatItRead(t *testing.T) {
+	portal := &fakePortal{dataset: collectWeekDataset}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	if _, _, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	stored, err := st.LessonDetails("2026-08-31T00:00", "2026-09-07T00:00")
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(stored) != 4 {
+		t.Fatalf("stored %d lessons, want 4", len(stored))
+	}
+}
+
+// A 404 means "not a lesson after all" — the homeroom slot Classify let
+// through. It is skipped silently, because counting it would put a permanent
+// "пропущено 1" on every otherwise perfect week, indistinguishable from a real
+// portal failure.
+func TestCollectWeekDoesNotCountA404AsMissed(t *testing.T) {
+	portal := &fakePortal{
+		dataset:      collectWeekDataset,
+		lessonStatus: map[int64]int{203: http.StatusNotFound},
+	}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	details, skipped, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0 — a 404 is not a failure", skipped)
+	}
+	if len(details) != 3 {
+		t.Errorf("collected %d, want the three real subjects", len(details))
+	}
+}
+
+// A real failure is counted and the rest of the week still goes out: 28 out of
+// 29 lessons is worth sending, and the count is what makes the gap visible.
+func TestCollectWeekCountsAServerErrorAndKeepsGoing(t *testing.T) {
+	portal := &fakePortal{
+		dataset:      collectWeekDataset,
+		lessonStatus: map[int64]int{102: http.StatusInternalServerError},
+	}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	details, skipped, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1", skipped)
+	}
+	if len(details) != 3 {
+		t.Errorf("collected %d, want the other 3", len(details))
+	}
+}
+
+// An expired session fails every remaining lesson identically. Stopping at the
+// first one keeps one dead cookie from being reported as a portal-wide outage,
+// and surfaces the real cause.
+func TestCollectWeekStopsOnAnExpiredSession(t *testing.T) {
+	portal := &fakePortal{
+		dataset: collectWeekDataset,
+		lessonBody: []byte(
+			`<form><input name="__RequestVerificationToken" type="hidden" value="TOK" /></form>`),
+	}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	_, _, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ErrSessionExpired) {
+		t.Fatalf("err = %v, want ErrSessionExpired", err)
+	}
+	if len(portal.lessonCalls) != 1 {
+		t.Errorf("kept going after the session died: %d calls", len(portal.lessonCalls))
+	}
+}
+
+// Nothing was read, so nothing may be written: a failed login must not leave
+// an empty week behind that /schoolweek would then report as "no lessons".
+func TestCollectWeekWritesNothingWhenLoginFails(t *testing.T) {
+	portal := &fakePortal{dataset: collectWeekDataset}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, "wrong-password")
+
+	if _, _, err := svc.CollectWeek(context.Background(),
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("a bad password came back as success")
+	}
+	if len(portal.lessonCalls) != 0 {
+		t.Errorf("asked for lessons without a session: %d calls", len(portal.lessonCalls))
+	}
+}
+
+// The Friday collect is ~29 sequential requests; shutdown must not wait for
+// all of them.
+func TestCollectWeekStopsOnACancelledContext(t *testing.T) {
+	portal := &fakePortal{dataset: collectWeekDataset}
+	srv := httptest.NewServer(portal.handler())
+	defer srv.Close()
+
+	st := migratedStore(t)
+	svc := newSyncService(t, st, srv.URL, validPassword)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := svc.CollectWeek(ctx,
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("a cancelled context came back as success")
 	}
 }

@@ -11,7 +11,8 @@ import (
 
 // RunDigests ticks once a minute and fires the wall-clock messages (in
 // cfg.Loc): the daily and weekly appointment digests, the evening list of
-// recurring chores nobody closed, and tomorrow's school timetable. It blocks
+// recurring chores nobody closed, tomorrow's school timetable, and the Friday
+// review of the school week just gone. It blocks
 // until ctx is done; meant to run in its own goroutine alongside
 // polling/webhook.
 //
@@ -31,7 +32,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	nagOn := b.cfg.reminderNagEnabled()
 	pushOn := b.cfg.reminderPushEnabled()
 	schoolOn := b.cfg.schoolDigestEnabled()
-	if !digestsOn && !nagOn && !pushOn && !schoolOn {
+	reviewOn := b.cfg.schoolWeekReviewEnabled()
+	if !digestsOn && !nagOn && !pushOn && !schoolOn && !reviewOn {
 		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminders)")
 		return
 	}
@@ -43,7 +45,9 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		"weekly_time", b.cfg.WeeklyDigestTime,
 		"reminder_nag", b.cfg.ReminderNagTime,
 		"reminder_push", pushOn,
-		"school_digest", b.cfg.SchoolDigestTime)
+		"school_digest", b.cfg.SchoolDigestTime,
+		"school_week_review_dow", b.cfg.SchoolWeekReviewDOW,
+		"school_week_review_time", b.cfg.SchoolWeekReviewTime)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -51,7 +55,7 @@ func (b *Bot) RunDigests(ctx context.Context) {
 	// Dates on which each digest already fired, so a minute-resolution match
 	// sends exactly once. In-memory: a restart may re-send today's digest,
 	// which is preferable to silently skipping it.
-	var lastDaily, lastWeekly, lastNag, lastSchool string
+	var lastDaily, lastWeekly, lastNag, lastSchool, lastReview string
 	// The due-time push has no wall-clock time of its own — it fires whenever
 	// something comes due — so it carries an instant rather than a date. Set
 	// to boot time: a restart announces nothing from before it, which is what
@@ -64,8 +68,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		case <-ticker.C:
 			now := b.now()
 			today := now.Format("2006-01-02")
-			daily, weekly, nag, school := b.cfg.dueThisMinute(
-				now, lastDaily, lastWeekly, lastNag, lastSchool)
+			daily, weekly, nag, school, review := b.cfg.dueThisMinute(
+				now, lastDaily, lastWeekly, lastNag, lastSchool, lastReview)
 
 			if daily {
 				b.sendDailyDigest(now)
@@ -82,6 +86,10 @@ func (b *Bot) RunDigests(ctx context.Context) {
 			if school {
 				b.sendSchoolDigest(now)
 				lastSchool = today
+			}
+			if review {
+				b.sendSchoolWeekReview(ctx, now)
+				lastReview = today
 			}
 			if pushOn {
 				lastPush = b.sendDueChores(now, lastPush)
@@ -120,7 +128,7 @@ func (c Config) reminderPushEnabled() bool {
 // — that the chore nag does not answer to NOTIFICATIONS_ENABLED — lived inside
 // RunDigests, where a test could not reach it: a review found the old early
 // return could be restored and the whole suite would still pass.
-func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag, lastSchool string) (daily, weekly, nag, school bool) {
+func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag, lastSchool, lastReview string) (daily, weekly, nag, school, review bool) {
 	hm := now.Format("15:04")
 	today := now.Format("2006-01-02")
 	digestsOn := c.appointmentDigestsEnabled()
@@ -132,7 +140,10 @@ func (c Config) dueThisMinute(now time.Time, lastDaily, lastWeekly, lastNag, las
 		hm == c.WeeklyDigestTime && lastWeekly != today
 	nag = c.reminderNagEnabled() && hm == c.ReminderNagTime && lastNag != today
 	school = c.schoolDigestEnabled() && hm == c.SchoolDigestTime && lastSchool != today
-	return daily, weekly, nag, school
+	review = c.schoolWeekReviewEnabled() && c.SchoolWeekReviewDOW >= 0 &&
+		int(now.Weekday()) == c.SchoolWeekReviewDOW &&
+		hm == c.SchoolWeekReviewTime && lastReview != today
+	return daily, weekly, nag, school, review
 }
 
 func (b *Bot) sendDailyDigest(now time.Time) {

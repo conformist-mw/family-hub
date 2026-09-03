@@ -293,3 +293,87 @@ func seedUtility(t *testing.T, database *sql.DB) {
 	mustExec(t, database,
 		`INSERT INTO utilities (id, address_id, name, current_tariff_id) VALUES (1, 1, 'Газ', 2)`)
 }
+
+// Same reason as the reminder and utility tables: a migration goose does not
+// pick up fails silently as "table missing" much later, in the Friday review.
+func TestSchoolDetailTablesExistAfterMigration(t *testing.T) {
+	database := migrated(t)
+	for _, table := range []string{
+		"school_lesson_details", "school_lesson_marks", "school_lesson_files"} {
+		var name string
+		err := database.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %q missing after migrate: %v", table, err)
+		}
+	}
+}
+
+// A detail row with no subject or no start is unrenderable and unselectable —
+// it would sit in the table forever, invisible to the week query that keys on
+// starts_at. Cheaper to refuse it at the schema than to filter it at read.
+func TestSchoolDetailRejectsEmptyIdentityFields(t *testing.T) {
+	database := migrated(t)
+
+	if _, err := database.Exec(`
+		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
+		VALUES (1, 79311, '', 'Алгебра [9]')`); err == nil {
+		t.Fatal("an empty starts_at was accepted")
+	}
+	if _, err := database.Exec(`
+		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
+		VALUES (2, 79311, '2026-09-03T09:50', '')`); err == nil {
+		t.Fatal("an empty subject was accepted")
+	}
+}
+
+// An empty mark is not "no mark" — it renders as a subject that was graded
+// with nothing. Absence is expressed by having no row at all.
+func TestSchoolMarkRejectsEmptyKindOrValue(t *testing.T) {
+	database := migrated(t)
+
+	if _, err := database.Exec(
+		`INSERT INTO school_lesson_marks (event_id, kind, value) VALUES (1, '', '9,00')`); err == nil {
+		t.Fatal("an empty mark kind was accepted")
+	}
+	if _, err := database.Exec(
+		`INSERT INTO school_lesson_marks (event_id, kind, value) VALUES (1, 'Поточна', '')`); err == nil {
+		t.Fatal("an empty mark value was accepted")
+	}
+}
+
+// kind says which tab the file hung on, and the renderer will branch on it.
+// A third value would silently render as neither.
+func TestSchoolFileRejectsAnUnknownKind(t *testing.T) {
+	database := migrated(t)
+
+	if _, err := database.Exec(`
+		INSERT INTO school_lesson_files (event_id, kind, url)
+		VALUES (1, 'video', 'https://example.com/a.png')`); err == nil {
+		t.Fatal("an unknown file kind passed the CHECK constraint")
+	}
+	if _, err := database.Exec(`
+		INSERT INTO school_lesson_files (event_id, kind, url)
+		VALUES (1, 'homework', '')`); err == nil {
+		t.Fatal("an empty url was accepted")
+	}
+}
+
+// fetched_at answers "how stale is this record" and nothing sets it explicitly
+// — the collector inserts without it, so the default has to be there.
+func TestSchoolDetailStampsFetchedAtByDefault(t *testing.T) {
+	database := migrated(t)
+
+	mustExec(t, database, `
+		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
+		VALUES (1, 79311, '2026-09-03T09:50', 'Українська мова [9]')`)
+
+	var fetchedAt string
+	if err := database.QueryRow(
+		`SELECT fetched_at FROM school_lesson_details WHERE event_id = 1`).Scan(&fetchedAt); err != nil {
+		t.Fatalf("read fetched_at: %v", err)
+	}
+	if len(fetchedAt) != len("2006-01-02T15:04:05") {
+		t.Fatalf("fetched_at = %q, want a local datetime stamp", fetchedAt)
+	}
+}

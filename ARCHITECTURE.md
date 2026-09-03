@@ -242,6 +242,19 @@ links already mixed the daily (Баланс, Заняття) with the reference 
     calendar, not the evening digest's source: it deliberately shows only the
     academic day, and the digest needs the rest of it, so the digest reads
     `school_lessons` directly (below).
+
+    The Friday week review is the one school message that reads neither the
+    feed nor the mirror. What happened at a lesson — the topic, the teacher's
+    notes, the homework, the marks — is published only on the portal's own
+    lesson detail page (`POST /Timetable/LessonView`, HTML), never in the
+    timetable JSON, which carries a bare `hasMarks` boolean. So the review
+    logs in, re-fetches the week live, walks ~29 lesson pages and records what
+    it read in `school_lesson_details` / `_marks` / `_files` — tables kept
+    deliberately apart from `school_lessons`, because that mirror is a rolling
+    window `ReplaceSchoolLessons` wipes every sync and these are a record that
+    must outlive it. No FK for the same reason: the lesson row is expected to
+    vanish. `/schoolweek N` replays any recorded week from those tables and
+    never touches the portal.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.
@@ -449,11 +462,13 @@ for exactly that reason.
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`),
   `RunCostPrompts` for the above, and `RunBillingReminders` (below). All four
   need a configured notify chat.
-- `RunDigests` hosts four wall-clock messages with **separate** gates: the
+- `RunDigests` hosts five wall-clock messages with **separate** gates: the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
   prod — HA owns those summaries), the evening chore nag, gated by
-  `REMINDER_NAG_TIME` alone, and tomorrow's school timetable
-  (`internal/bot/school.go`), gated by `SCHOOL_DIGEST_TIME` alone. They are
+  `REMINDER_NAG_TIME` alone, tomorrow's school timetable
+  (`internal/bot/school.go`), gated by `SCHOOL_DIGEST_TIME` alone, and the
+  Friday review of the school week just gone, gated by
+  `SCHOOL_WEEK_REVIEW_DOW`/`_TIME` **and** a configured portal (below). They are
   split because HA can send the first and cannot send the others. It reads a
   calendar, so it knows nothing about what was closed; and its calendar API
   hands a template only summary/start/end/description, dropping the category
@@ -648,6 +663,8 @@ a person can pick that the app refuses.
   - `family_hub_school_today_email`, `family_hub_school_today_password`,
     `family_hub_school_today_pupil_id` — parent portal login + pupil id
   - `family_hub_school_ics_token` — shared secret for `/school.ics`
+  - `family_hub_school_week_review_dow`, `family_hub_school_week_review_time` —
+    when the Friday week review goes out (0=Sun..6=Sat; unset disables)
 - Host-scoped secrets live in `dotfiles/host_vars/hetzner/secrets.sops.yaml`
   instead, auto-decrypted by the `community.sops.sops` vars plugin with no
   explicit load task. `lessons_mini_users` — the Telegram **user** ids allowed

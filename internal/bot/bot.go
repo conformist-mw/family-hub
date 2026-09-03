@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
@@ -16,6 +17,7 @@ import (
 	"familyhub/internal/audit"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
+	"familyhub/internal/schooltoday"
 	"familyhub/internal/store"
 )
 
@@ -61,9 +63,25 @@ type Config struct {
 	// after-school block and cannot say when the child is actually free.
 	SchoolDigestTime string
 
+	// SchoolWeekReviewDOW/Time is when the bot posts the review of the school
+	// week just gone: the topics, the teacher's notes, the homework and the
+	// marks, per subject. DOW is 0=Sun..6=Sat and <0 disables, matching
+	// WeeklyDigestDOW; "" for the time disables it too.
+	//
+	// Exempt from NotificationsEnabled for the same reason as SchoolDigestTime,
+	// and set fifteen minutes after it so the two school messages do not land
+	// in the group at the same moment.
+	SchoolWeekReviewDOW  int
+	SchoolWeekReviewTime string
+
 	// Reminders answers what came due and was left open. nil disables the nag
 	// regardless of ReminderNagTime.
 	Reminders *reminders.Service
+
+	// School collects the week from the portal for the review above. nil —
+	// which is what a deploy without portal credentials gets — disables the
+	// review regardless of the times, because there would be nothing to read.
+	School *schooltoday.Service
 }
 
 type Bot struct {
@@ -79,6 +97,12 @@ type Bot struct {
 	parser   *parse.Parser
 	pending  *pendingStore
 	awaiting *awaitingStore
+
+	// reviewRunning guards the Friday school review, which is the only message
+	// that leaves the ticker's goroutine. Without it a portal crawling badly
+	// enough to outlast a minute would have a second collect started on top of
+	// the first, and the group would get the week twice.
+	reviewRunning atomic.Bool
 }
 
 // ParseChatIDs parses a comma-separated list of int64 chat ids.
@@ -164,6 +188,9 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	// the parser gates.
 	tb.Handle("/week", bot.cmdWeek)
 	tb.Handle("/list", bot.cmdList)
+	// Reads stored rows like the two above, so it needs neither a parser nor a
+	// configured portal — the records outlive the credentials that collected them.
+	tb.Handle("/schoolweek", bot.cmdSchoolWeek)
 	tb.Handle(&tele.Btn{Unique: "lst_nav"}, bot.onNav)
 	tb.Handle(&tele.Btn{Unique: "lst_arm"}, bot.onArm)
 	tb.Handle(&tele.Btn{Unique: "lst_del"}, bot.onDel)
@@ -186,6 +213,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		{Text: "add", Description: "Відмітити заняття"},
 		{Text: "balance", Description: "Баланс по курсах"},
 		{Text: "stats", Description: "Скільки витрачено"},
+		{Text: "schoolweek", Description: "Огляд шкільного тижня: /schoolweek 1"},
 	}
 	if parser != nil {
 		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записати візит: /visit завтра 15:00 педикюр"})

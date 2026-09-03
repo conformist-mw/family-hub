@@ -8,8 +8,10 @@
 package schooltoday
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -137,8 +139,12 @@ func (c *Client) authenticated() bool {
 // Event is one timetable slot as the portal's TimetableApi returns it. Only the
 // fields this package uses are decoded; the portal sends many more.
 type Event struct {
-	EventID    int64   `json:"eventID"`
-	Subject    string  `json:"subject"`
+	EventID int64  `json:"eventID"`
+	Subject string `json:"subject"`
+	// Type is what kind of slot this is, and the lesson detail endpoint wants
+	// it back as lessonType. Academic lessons are 1; meals and after-school
+	// care are 0 and 3, and asking for their detail is a 404.
+	Type       int     `json:"type"`
 	Start      string  `json:"start"` // 2006-01-02T15:04:05, naive local
 	End        string  `json:"end"`
 	Topic      *string `json:"topic"` // null until a teacher fills it in
@@ -186,4 +192,66 @@ func (c *Client) Timetable(ctx context.Context, pupilID int64, weekStart time.Ti
 		return nil, fmt.Errorf("school-today: decode timetable: %w", err)
 	}
 	return tt.Events, nil
+}
+
+// ErrNotALesson is what LessonView returns for a slot the portal has no detail
+// page for. The timetable carries meals, recess and after-school care as
+// ordinary events, and asking for their detail is a 404 — an expected answer,
+// not a failure, so the collector can skip them quietly instead of reporting a
+// week full of errors.
+var ErrNotALesson = errors.New("school-today: event has no lesson detail")
+
+// ErrSessionExpired means the portal answered with its login form instead of
+// the page asked for. It is worth its own error because the portal never says
+// 401: the auth filter redirects, the client follows the redirect, and the
+// login page comes back as a perfectly ordinary 200. Without this check an
+// expired session reads as "the lesson had no topic" and the week's review
+// quietly comes back empty.
+var ErrSessionExpired = errors.New("school-today: session expired (portal served the login form)")
+
+// LessonView returns the raw HTML of one lesson's detail page — the topic, the
+// teacher's notes, the homework and the marks, none of which appear in the
+// timetable JSON. lessonType is the event's own Type field.
+//
+// POST, with no body: the portal's own UI loads this into a modal that way,
+// and a GET is refused with 405.
+func (c *Client) LessonView(ctx context.Context, eventID int64, lessonType int) ([]byte, error) {
+	q := url.Values{
+		"lessonID":   {fmt.Sprint(eventID)},
+		"lessonType": {fmt.Sprint(lessonType)},
+	}
+	endpoint := c.baseURL + "/Timetable/LessonView?" + q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("school-today: lesson %d detail: %w", eventID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrNotALesson
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("school-today: lesson %d detail: HTTP %d", eventID, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("school-today: read lesson %d detail: %w", eventID, err)
+	}
+	if isLoginPage(body) {
+		return nil, ErrSessionExpired
+	}
+	return body, nil
+}
+
+// isLoginPage reports whether a response body is the portal's login form
+// rather than the page requested. The antiforgery token is the marker: it is
+// rendered into the login form and appears nowhere in the authenticated pages
+// this package reads.
+func isLoginPage(body []byte) bool {
+	return bytes.Contains(body, []byte("__RequestVerificationToken"))
 }

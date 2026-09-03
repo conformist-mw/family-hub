@@ -6,6 +6,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/teambition/rrule-go v1.8.2
+	golang.org/x/net v0.55.0
 	google.golang.org/genai v1.62.0
 	gopkg.in/telebot.v3 v3.3.8
 	modernc.org/sqlite v1.53.0
@@ -30,7 +31,6 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect

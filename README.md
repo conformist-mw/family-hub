@@ -29,6 +29,11 @@ Three ways in, one SQLite file behind them: a web UI for the desk, a Telegram
 bot in the family group, and a Telegram Mini App for the phone. Two ICS feeds
 carry the family's events and the school timetable to Home Assistant.
 
+On Friday evening the bot also posts a review of the school week — per subject,
+the topics covered, the teacher's notes, the homework and the marks, collected
+from the school portal's lesson pages. It is kept, so `/schoolweek 2` replays a
+week from a fortnight ago after the message has scrolled away.
+
 ## Why
 
 The original spreadsheet had a few sharp edges this app removes:

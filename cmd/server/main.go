@@ -66,6 +66,10 @@ func main() {
 	// store for the /school.ics feed. Independent of the bot and of
 	// notifications — it only writes the cache HA reads — and off unless a
 	// portal account and a pupil id are configured.
+	// Held beyond the block below because the bot's Friday week review collects
+	// through it too, not just the syncer. nil — no portal configured — is what
+	// disables the review.
+	var schoolSvc *schooltoday.Service
 	if email := os.Getenv("SCHOOL_TODAY_EMAIL"); email != "" {
 		pupilID, _ := strconv.ParseInt(os.Getenv("SCHOOL_TODAY_PUPIL_ID"), 10, 64)
 		password := os.Getenv("SCHOOL_TODAY_PASSWORD")
@@ -76,7 +80,7 @@ func main() {
 			if baseURL == "" {
 				baseURL = "https://school-today.com"
 			}
-			schoolSvc := schooltoday.NewService(
+			schoolSvc = schooltoday.NewService(
 				st, schooltoday.NewClient(baseURL),
 				schooltoday.Config{
 					Email:      email,
@@ -148,7 +152,13 @@ func main() {
 			// Same exemption, sharper reason: HA's calendar API drops the
 			// category, so it cannot tell a lesson from after-school care.
 			SchoolDigestTime: os.Getenv("SCHOOL_DIGEST_TIME"),
-			Reminders:        remindersSvc,
+			// The week review is exempt from NOTIFICATIONS_ENABLED for the same
+			// reason, and needs the portal service as well as a time: it reads
+			// the portal directly rather than the mirror the syncer fills.
+			SchoolWeekReviewDOW:  parseDOW(os.Getenv("SCHOOL_WEEK_REVIEW_DOW")),
+			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
+			Reminders:            remindersSvc,
+			School:               schoolSvc,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already

@@ -2,8 +2,10 @@ package schooltoday
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"familyhub/internal/model"
@@ -53,6 +55,14 @@ type Service struct {
 	loc    *time.Location
 	log    *slog.Logger
 	now    func() time.Time
+
+	// portal serialises everything that touches the client. Client is
+	// documented as single-goroutine, and it is no longer driven by only the
+	// sync loop: the bot's Friday review calls CollectWeek from the digest
+	// goroutine, which can tick while a sync is mid-flight. Without this the
+	// two would interleave logins around each other's requests, and "one login
+	// for the whole batch" would stop being true.
+	portal sync.Mutex
 }
 
 func NewService(st *store.Store, client *Client, cfg Config, loc *time.Location,
@@ -109,11 +119,14 @@ func (s *Service) RunSyncer(ctx context.Context) {
 // a session that failed to establish leaves the last good cache in place rather
 // than replacing a populated week with an empty one.
 func (s *Service) Sync(ctx context.Context) error {
+	s.portal.Lock()
+	defer s.portal.Unlock()
+
 	if err := s.client.Login(ctx, s.cfg.Email, s.cfg.Password); err != nil {
 		return err
 	}
 
-	from := startOfWeek(s.now())
+	from := StartOfWeek(s.now())
 	weeks := s.cfg.weeksAhead()
 	to := from.AddDate(0, 0, 7*weeks)
 
@@ -182,12 +195,135 @@ func (s *Service) toLesson(e Event) (model.SchoolLesson, bool) {
 	}, true
 }
 
-// startOfWeek returns Monday 00:00 of t's week, in t's location. The portal
+// StartOfWeek returns Monday 00:00 of t's week, in t's location. The portal
 // weeks run Monday–Sunday, so the replace window aligns to that boundary and a
 // week is never half-fetched.
-func startOfWeek(t time.Time) time.Time {
+//
+// Exported because the bot needs the same boundary to select a stored week for
+// /schoolweek, and two implementations of "which Monday" would eventually
+// disagree by a day at a DST edge.
+func StartOfWeek(t time.Time) time.Time {
 	// Go's Weekday has Sunday=0; shift so Monday=0.
 	offset := (int(t.Weekday()) + 6) % 7
 	d := t.AddDate(0, 0, -offset)
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, t.Location())
+}
+
+// CollectWeek reads what actually happened during the week containing
+// weekStart — topic, teacher's notes, homework and marks for every academic
+// lesson — and records it. It returns what it collected and how many lessons
+// it could not read.
+//
+// Unlike Sync, this does not go through the school_lessons mirror at all. It
+// re-fetches the week's timetable live, because it logs in anyway and because
+// a review that quoted a twelve-hour-old cache would be answering a different
+// question than the one it is asked ("what happened this week", not "what was
+// scheduled this morning").
+//
+// A failure to read one lesson is not a failure of the week: the review is
+// worth sending with 28 lessons out of 29, and the count of what was missed
+// goes into the message so a bad week is visible rather than silently short.
+// A login failure is different — nothing was read, so nothing is written.
+func (s *Service) CollectWeek(ctx context.Context, weekStart time.Time) ([]model.SchoolLessonDetail, int, error) {
+	s.portal.Lock()
+	defer s.portal.Unlock()
+
+	if err := s.client.Login(ctx, s.cfg.Email, s.cfg.Password); err != nil {
+		return nil, 0, err
+	}
+
+	from := StartOfWeek(weekStart)
+	events, err := s.client.Timetable(ctx, s.cfg.PupilID, from)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var details []model.SchoolLessonDetail
+	var skipped int
+	for _, e := range events {
+		if !isAcademicLesson(e) {
+			continue
+		}
+		body, err := s.client.LessonView(ctx, e.EventID, e.Type)
+		if err != nil {
+			// The portal has no detail page for this slot after all — some
+			// oddity Classify let through. Not a failure, and not worth
+			// reporting to the family as a missed lesson.
+			if errors.Is(err, ErrNotALesson) {
+				continue
+			}
+			// A dead session will fail every remaining lesson the same way;
+			// stopping keeps one expired cookie from reading as 29 outages.
+			if errors.Is(err, ErrSessionExpired) || ctx.Err() != nil {
+				return nil, skipped, err
+			}
+			s.log.Warn("schooltoday: lesson detail", "event", e.EventID, "err", err)
+			skipped++
+			continue
+		}
+		parsed, err := ParseLessonDetail(body)
+		if err != nil {
+			s.log.Warn("schooltoday: parse lesson detail", "event", e.EventID, "err", err)
+			skipped++
+			continue
+		}
+		details = append(details, s.toDetail(e, parsed))
+	}
+
+	if err := s.store.SaveLessonDetails(details); err != nil {
+		return nil, skipped, err
+	}
+
+	s.log.Info("schooltoday: week collected", "pupil", s.cfg.PupilID,
+		"week", from.Format("2006-01-02"), "lessons", len(details), "skipped", skipped)
+	return details, skipped, nil
+}
+
+// isAcademicLesson reports whether an event is a school subject worth reading
+// a detail page for.
+//
+// Both tests are needed. Classify answers on the subject text and is
+// documented to call anything it does not recognise a lesson, so on its own it
+// lets the odd assembly or homeroom slot through — each of which 404s on the
+// detail endpoint. Type is the portal's own answer (1 for a lesson, 0 and 3
+// for meals and after-school care) and is the cheaper, sharper filter; Classify
+// still earns its place by removing the meals that share type 1's shape.
+func isAcademicLesson(e Event) bool {
+	if e.IsDeleted || e.IsCanceled || e.IsFullDay {
+		return false
+	}
+	return e.Type == lessonEventType && Classify(e.Subject) == CategoryLesson
+}
+
+// lessonEventType is the portal's `type` for an academic lesson, and the value
+// its detail endpoint expects back as lessonType.
+const lessonEventType = 1
+
+// toDetail joins the timetable event with its parsed detail page. Subject and
+// start come from the event, not the page: that is the spelling the rest of
+// the school code strips and classifies, and the page renders the subject
+// without its group tag.
+func (s *Service) toDetail(e Event, d LessonDetail) model.SchoolLessonDetail {
+	startsAt := e.Start
+	if t, err := time.ParseInLocation(portalTimeFormat, e.Start, s.loc); err == nil {
+		startsAt = t.Format(model.LocalDatetime)
+	}
+
+	out := model.SchoolLessonDetail{
+		EventID:  e.EventID,
+		PupilID:  s.cfg.PupilID,
+		StartsAt: startsAt,
+		Subject:  e.Subject,
+		Teacher:  d.Teacher,
+		Topic:    d.Topic,
+		Notes:    d.Notes,
+		Homework: d.Homework,
+	}
+	for _, m := range d.Marks {
+		out.Marks = append(out.Marks, model.SchoolMark{Kind: m.Kind, Value: m.Value})
+	}
+	for _, f := range d.Files {
+		out.Files = append(out.Files, model.SchoolFile{Kind: f.Kind, URL: f.URL, Title: f.Title})
+	}
+	return out
 }

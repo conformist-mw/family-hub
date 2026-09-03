@@ -91,7 +91,7 @@ func TestTheChoreNagFiresWithTheAppointmentDigestsSwitchedOff(t *testing.T) {
 	}
 	at := func(hh, mm int) time.Time { return time.Date(2026, 9, 6, hh, mm, 0, 0, time.UTC) }
 
-	daily, weekly, nag, _ := prod.dueThisMinute(at(20, 0), "", "", "", "")
+	daily, weekly, nag, _, _ := prod.dueThisMinute(at(20, 0), "", "", "", "", "")
 	if !nag {
 		t.Fatal("the chore nag did not fire in the production shape")
 	}
@@ -101,10 +101,10 @@ func TestTheChoreNagFiresWithTheAppointmentDigestsSwitchedOff(t *testing.T) {
 
 	// 6 Sep 2026 is a Sunday, so the weekly digest's day matches — it must
 	// still stay silent on the flag alone.
-	if _, weekly, _, _ = prod.dueThisMinute(at(18, 0), "", "", "", ""); weekly {
+	if _, weekly, _, _, _ = prod.dueThisMinute(at(18, 0), "", "", "", "", ""); weekly {
 		t.Fatal("the weekly digest fired with notifications off")
 	}
-	if daily, _, _, _ = prod.dueThisMinute(at(8, 0), "", "", "", ""); daily {
+	if daily, _, _, _, _ = prod.dueThisMinute(at(8, 0), "", "", "", "", ""); daily {
 		t.Fatal("the daily digest fired with notifications off")
 	}
 }
@@ -120,15 +120,15 @@ func TestEachMessageLatchesSeparatelyPerDay(t *testing.T) {
 	now := time.Date(2026, 9, 6, 8, 0, 0, 0, time.UTC) // a Sunday
 	today := "2026-09-06"
 
-	daily, weekly, nag, _ := cfg.dueThisMinute(now, "", "", "", "")
+	daily, weekly, nag, _, _ := cfg.dueThisMinute(now, "", "", "", "", "")
 	if !daily || !weekly || !nag {
 		t.Fatalf("first tick: daily=%v weekly=%v nag=%v, want all", daily, weekly, nag)
 	}
-	if daily, weekly, nag, _ = cfg.dueThisMinute(now, today, today, today, today); daily || weekly || nag {
+	if daily, weekly, nag, _, _ = cfg.dueThisMinute(now, today, today, today, today, ""); daily || weekly || nag {
 		t.Fatalf("re-fired within the same day: daily=%v weekly=%v nag=%v", daily, weekly, nag)
 	}
 	// Only the nag has gone out: the digests must still be due.
-	if daily, weekly, nag, _ = cfg.dueThisMinute(now, "", "", today, ""); !daily || !weekly || nag {
+	if daily, weekly, nag, _, _ = cfg.dueThisMinute(now, "", "", today, "", ""); !daily || !weekly || nag {
 		t.Fatalf("latches are not independent: daily=%v weekly=%v nag=%v", daily, weekly, nag)
 	}
 }
@@ -144,13 +144,13 @@ func TestNothingFiresAtTheWrongMinute(t *testing.T) {
 		time.Date(2026, 9, 6, 20, 1, 0, 0, time.UTC),
 		time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC),
 	} {
-		if d, w, n, _ := cfg.dueThisMinute(at, "", "", "", ""); d || w || n {
+		if d, w, n, _, _ := cfg.dueThisMinute(at, "", "", "", "", ""); d || w || n {
 			t.Fatalf("%s fired something: daily=%v weekly=%v nag=%v", at.Format("15:04"), d, w, n)
 		}
 	}
 	// The weekly one also has to respect the day, not just the time.
 	monday := time.Date(2026, 9, 7, 18, 0, 0, 0, time.UTC)
-	if _, w, _, _ := cfg.dueThisMinute(monday, "", "", "", ""); w {
+	if _, w, _, _, _ := cfg.dueThisMinute(monday, "", "", "", "", ""); w {
 		t.Fatal("the weekly digest fired on the wrong weekday")
 	}
 }

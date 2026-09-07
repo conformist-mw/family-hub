@@ -304,11 +304,17 @@ func TestTheHubShowsWhatIsStillOpenToday(t *testing.T) {
 	if due.Day() != time.Now().Day() {
 		t.Skip("run crosses midnight; today's window would not hold the occurrence")
 	}
-	seedExistingChore(t, st, svc, "Кешбек", "FREQ=DAILY", due)
+	id := seedExistingChore(t, st, svc, "Кешбек", "FREQ=DAILY", due)
 
+	// The chore now sits in the day itself rather than under a heading of its
+	// own, so what is asserted is that the hub names it and still offers to
+	// close it — the complaint was never about where the row lived.
 	body := get(t, h, "/").Body.String()
-	if !strings.Contains(body, "Не закрито") || !strings.Contains(body, "Кешбек") {
+	if !strings.Contains(body, "Кешбек") {
 		t.Fatalf("the hub is silent about the open chore:\n%s", body)
+	}
+	if !strings.Contains(body, "/reminders/"+itoa(id)+"/mark") {
+		t.Fatalf("the open chore cannot be closed from the hub:\n%s", body)
 	}
 }
 
@@ -325,8 +331,9 @@ func TestWithoutTheChoresServiceThePagesAre404(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("hub = %d", rec.Code)
 	}
-	if strings.Contains(rec.Body.String(), "Не закрито") {
-		t.Fatal("the hub shows a chores section with no chores service")
+	// The day still renders; it simply has no chore in it.
+	if !strings.Contains(rec.Body.String(), "Сьогодні") {
+		t.Fatal("the hub lost its day section with the chores service off")
 	}
 }
 

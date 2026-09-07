@@ -89,8 +89,20 @@ func TestHome(t *testing.T) {
 		t.Fatalf("decode: %v (%s)", err, rec.Body)
 	}
 
-	if len(body.Upcoming) != 1 || body.Upcoming[0].Title != "Ортодонт" {
-		t.Errorf("upcoming = %+v", body.Upcoming)
+	// Today is Thursday: the appointment is on it, and the course's Tuesday
+	// lesson is what comes next. Both used to be missing — the lesson because
+	// the screen never asked for the schedule at all.
+	if len(body.Today) != 1 {
+		t.Fatalf("today = %+v", body.Today)
+	}
+	if it := body.Today[0]; it.Kind != "appointment" || it.Title != "Ортодонт" || it.When != "14:30" {
+		t.Errorf("today[0] = %+v", it)
+	}
+	if len(body.Upcoming) != 1 {
+		t.Fatalf("upcoming = %+v", body.Upcoming)
+	}
+	if it := body.Upcoming[0]; it.Kind != "lesson" || it.Title != "Логопед" || it.When != "Вт 13:35" {
+		t.Errorf("upcoming[0] = %+v", it)
 	}
 	if len(body.Courses) != 1 {
 		t.Fatalf("courses = %+v", body.Courses)
@@ -109,8 +121,8 @@ func TestHome(t *testing.T) {
 		t.Errorf("payment = %+v", p)
 	}
 	// The heading is the one date on the screen that is not about a row.
-	if body.Today != "Четвер, 6 серпня" {
-		t.Errorf("today = %q", body.Today)
+	if body.Date != "Четвер, 6 серпня" {
+		t.Errorf("date = %q", body.Date)
 	}
 }
 

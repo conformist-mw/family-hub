@@ -173,7 +173,7 @@ func toSlots(lessons []model.SchoolLesson, loc *time.Location) []slot {
 			start:   start,
 			end:     end,
 			subject: stripGroupTag(l.Subject),
-			topic:   strings.TrimSpace(l.Topic),
+			topic:   model.PortalText(l.Topic),
 			// Classified on the raw subject: Classify reads the subject text
 			// and is documented to ignore the tag, so it does not need it
 			// removed first.
@@ -279,9 +279,13 @@ func schoolWeekReviewText(weekStart time.Time, details []model.SchoolLessonDetai
 
 	var b strings.Builder
 	end := weekStart.AddDate(0, 0, 4) // Monday–Friday; the school week has no weekend
-	fmt.Fprintf(&b, "📚 <b>Тиждень %d %s – %d %s</b>\n",
+	// The week's own total next to the range: with the per-lesson lines gone
+	// wherever the teacher wrote nothing, the counts are all that says how big
+	// the week was, and the subject headings only ever give it a subject at a
+	// time.
+	fmt.Fprintf(&b, "📚 <b>Тиждень %d %s – %d %s</b>%s\n",
 		weekStart.Day(), schoolMonths[weekStart.Month()-1],
-		end.Day(), schoolMonths[end.Month()-1])
+		end.Day(), schoolMonths[end.Month()-1], lessonCount(countLessons(runs)))
 
 	for _, run := range runs {
 		b.WriteString("\n")
@@ -290,15 +294,15 @@ func schoolWeekReviewText(weekStart time.Time, details []model.SchoolLessonDetai
 
 		var wrote bool
 		for _, l := range run.lessons {
-			if topic := strings.TrimSpace(l.Topic); topic != "" {
+			if topic := model.PortalText(l.Topic); topic != "" {
 				fmt.Fprintf(&b, "• %s\n", html.EscapeString(topic))
 				wrote = true
 			}
-			if notes := strings.TrimSpace(l.Notes); notes != "" {
+			if notes := model.PortalText(l.Notes); notes != "" {
 				fmt.Fprintf(&b, "  <i>%s</i>\n", html.EscapeString(notes))
 				wrote = true
 			}
-			if hw := strings.TrimSpace(l.Homework); hw != "" {
+			if hw := model.PortalText(l.Homework); hw != "" {
 				fmt.Fprintf(&b, "  📕 %s\n", html.EscapeString(hw))
 				wrote = true
 			}
@@ -366,6 +370,15 @@ func groupBySubject(details []model.SchoolLessonDetail, loc *time.Location) []su
 	return out
 }
 
+// countLessons totals the week across subjects, for the heading.
+func countLessons(runs []subjectRun) int {
+	var n int
+	for _, run := range runs {
+		n += len(run.lessons)
+	}
+	return n
+}
+
 // lessonCount renders "· 3 уроки" with the Ukrainian plural the count needs.
 func lessonCount(n int) string {
 	return fmt.Sprintf(" · %d %s", n, pluralLessons(n))
@@ -390,6 +403,13 @@ func pluralLessons(n int) string {
 // marksSummary lists the week's marks for one subject next to its heading —
 // the line a parent scans for first. Values are the portal's own ("9,00"),
 // trimmed of a trailing ",00" because a whole grade reads as a grade.
+//
+// Labelled, because the heading already carries one number: "Українська мова ·
+// 3 уроки · 9" left the reader to work out that the nine is a mark and not a
+// second count. The label is singular or plural by the number of marks, not by
+// the Ukrainian numeral rule pluralLessons implements — no numeral is printed
+// here, so the genitive "оцінок" that a count would take has nothing to
+// govern it.
 func marksSummary(run subjectRun) string {
 	var values []string
 	for _, l := range run.lessons {
@@ -400,7 +420,11 @@ func marksSummary(run subjectRun) string {
 	if len(values) == 0 {
 		return ""
 	}
-	return " · " + strings.Join(values, ", ")
+	label := "оцінки"
+	if len(values) == 1 {
+		label = "оцінка"
+	}
+	return fmt.Sprintf(" · %s: %s", label, strings.Join(values, ", "))
 }
 
 // tidyMark drops the portal's decimal padding: "9,00" is a nine. A mark with a

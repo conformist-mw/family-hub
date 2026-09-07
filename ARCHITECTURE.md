@@ -255,6 +255,15 @@ links already mixed the daily (Баланс, Заняття) with the reference 
     must outlive it. No FK for the same reason: the lesson row is expected to
     vanish. `/schoolweek N` replays any recorded week from those tables and
     never touches the portal.
+
+    A field the teacher left blank arrives from the portal as a dash run
+    ("---"), not as nothing. `model.PortalText` is the one place that knows
+    this: the mirror applies it on the way in so no consumer stores a
+    placeholder, and the week review applies it again on the way out, because
+    rows synced earlier are still in the database. The review's heading carries
+    the week's own lesson total for that reason — with the blank lines gone,
+    the counts are what says how big the week was — and a subject's marks are
+    labelled, since the heading already ends in a number.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.

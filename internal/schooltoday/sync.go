@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -177,11 +176,13 @@ func (s *Service) toLesson(e Event) (model.SchoolLesson, bool) {
 	if err != nil {
 		return model.SchoolLesson{}, false
 	}
-	// Trimmed: the portal pads a filled-in topic with trailing whitespace,
-	// which shows up as a gap before the closing tag in every consumer.
+	// Cleaned on the way in: the portal pads a filled-in topic with trailing
+	// whitespace, and writes a dash run where the teacher left it blank. Both
+	// used to reach every consumer — a gap before a closing tag, and a
+	// calendar event described as "---" — so the mirror stores neither.
 	topic := ""
 	if e.Topic != nil {
-		topic = strings.TrimSpace(*e.Topic)
+		topic = model.PortalText(*e.Topic)
 	}
 	return model.SchoolLesson{
 		EventID:    e.EventID,
@@ -315,9 +316,11 @@ func (s *Service) toDetail(e Event, d LessonDetail) model.SchoolLessonDetail {
 		StartsAt: startsAt,
 		Subject:  e.Subject,
 		Teacher:  d.Teacher,
-		Topic:    d.Topic,
-		Notes:    d.Notes,
-		Homework: d.Homework,
+		// Placeholders are dropped here rather than by each screen: a field
+		// the teacher left blank is blank, whatever dash the portal put in it.
+		Topic:    model.PortalText(d.Topic),
+		Notes:    model.PortalText(d.Notes),
+		Homework: model.PortalText(d.Homework),
 	}
 	for _, m := range d.Marks {
 		out.Marks = append(out.Marks, model.SchoolMark{Kind: m.Kind, Value: m.Value})

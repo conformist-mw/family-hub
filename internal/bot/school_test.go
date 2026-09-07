@@ -368,14 +368,14 @@ func TestTheWeekReviewLeadsWithSubjectCountAndMarks(t *testing.T) {
 	if !ok {
 		t.Fatal("a week with lessons rendered nothing")
 	}
-	if !strings.Contains(got, "<b>Алгебра</b> · 2 уроки · 11") {
+	if !strings.Contains(got, "<b>Алгебра</b> · 2 уроки · оцінка: 11") {
 		t.Errorf("algebra heading missing:\n%s", got)
 	}
-	if !strings.Contains(got, "<b>Українська мова</b> · 1 урок · 9") {
+	if !strings.Contains(got, "<b>Українська мова</b> · 1 урок · оцінка: 9") {
 		t.Errorf("ukrainian heading missing:\n%s", got)
 	}
-	if !strings.Contains(got, "Тиждень 31 серпня – 4 вересня") {
-		t.Errorf("heading range missing:\n%s", got)
+	if !strings.Contains(got, "Тиждень 31 серпня – 4 вересня</b> · 3 уроки") {
+		t.Errorf("heading range and week total missing:\n%s", got)
 	}
 }
 
@@ -473,8 +473,54 @@ func TestWholeMarksLoseTheirDecimalPadding(t *testing.T) {
 			reviewLesson("2026-08-31T09:00", "Алгебра [9]", "Тема", "", "", "9,00", "9,50")},
 		0, time.UTC)
 
-	if !strings.Contains(got, "· 9, 9,50") {
+	if !strings.Contains(got, "· оцінки: 9, 9,50") {
 		t.Errorf("marks = wrong shape:\n%s", got)
+	}
+}
+
+// The portal writes a dash run where a teacher left a field blank, and a week
+// of those rendered as page after page of "📕 ---". A subject whose lessons
+// are all placeholders is an empty subject.
+func TestPortalPlaceholdersAreNotContent(t *testing.T) {
+	got, _ := schoolWeekReviewText(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		[]model.SchoolLessonDetail{
+			reviewLesson("2026-08-31T09:00", "Алгебра [9]", "---", "—", "-"),
+			reviewLesson("2026-08-31T09:50", "Алгебра [9]", "Дискримінант", "", "---")},
+		0, time.UTC)
+
+	if strings.Contains(got, "---") || strings.Contains(got, "📕") {
+		t.Errorf("a placeholder was rendered as content:\n%s", got)
+	}
+	if !strings.Contains(got, "Дискримінант") {
+		t.Errorf("real content was dropped with the placeholders:\n%s", got)
+	}
+	if !strings.Contains(got, "· 2 уроки") {
+		t.Errorf("the lessons stopped being counted:\n%s", got)
+	}
+}
+
+// The same placeholders reach the evening digest through the timetable mirror.
+func TestTheEveningDigestDropsPlaceholderTopics(t *testing.T) {
+	got, ok := schoolDigestText(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		[]model.SchoolLesson{{
+			StartsAt: "2026-09-01T09:00", EndsAt: "2026-09-01T09:45",
+			Subject: "Алгебра [9]", Topic: "---"}},
+		time.UTC)
+	if !ok {
+		t.Fatal("a day with a lesson rendered nothing")
+	}
+	if strings.Contains(got, "---") {
+		t.Errorf("a placeholder topic was rendered:\n%s", got)
+	}
+}
+
+// The heading counts the whole week: with the empty lines gone, the counts are
+// what says how big the week was.
+func TestTheWeekReviewHeadingCountsTheWholeWeek(t *testing.T) {
+	got, _ := schoolWeekReviewText(
+		time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), reviewWeek(), 0, time.UTC)
+	if !strings.Contains(got, "· 3 уроки\n") {
+		t.Errorf("the week total is missing from the heading:\n%s", got)
 	}
 }
 

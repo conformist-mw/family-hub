@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	"familyhub/internal/agenda"
 	"familyhub/internal/appointments"
 	"familyhub/internal/audit"
 	"familyhub/internal/model"
@@ -224,8 +225,9 @@ func sameOriginPost(r *http.Request) bool {
 }
 
 const (
-	dashboardPayments     = 8
-	dashboardAppointments = 5
+	dashboardPayments = 8
+	// hubUpcoming caps what the hub shows after today.
+	hubUpcoming = 8
 )
 
 type dashboardData struct {
@@ -235,15 +237,14 @@ type dashboardData struct {
 	Payments []model.Payment                 // most recent, for the table under the cards
 }
 
-// hubData is what the shell shows: the two things that are happening now,
-// across every world. Appointments and open chores used to sit at the bottom
-// of the lessons dashboard, which meant the answer to "what is today" was
-// filed under one of the app's domains rather than above all of them.
+// hubData is what the shell shows: the day, across every world. It used to
+// hold appointments and open chores as two separate lists, which meant the
+// screen called "Сьогодні" could not name a single lesson — the one thing the
+// family plans its week around. Both lists now come from internal/agenda,
+// shared with the Mini App home so the two surfaces cannot answer "what is
+// today" differently.
 type hubData struct {
-	Appointments []model.Appointment
-	// OpenChores came due today and nobody answered. Opening the app at midday
-	// used to say nothing about the cashback forgotten at 08:00.
-	OpenChores []reminders.Occurrence
+	Day agenda.Day
 }
 
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -290,32 +291,17 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 // handleHub answers "what is today", above every world rather than inside one.
 func (a *App) handleHub(w http.ResponseWriter, r *http.Request) {
-	appointments, err := a.Store.UpcomingAppointments(
-		time.Now().Format(model.LocalDatetime), dashboardAppointments)
+	day, err := agenda.Load(a.Store, a.Reminders, time.Now(), time.Local)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	// Today only, and only what came due: yesterday's unanswered chore is the
-	// chores page's business, and tonight's is not yet anybody's.
-	var openChores []reminders.Occurrence
-	if a.Reminders != nil {
-		now := time.Now()
-		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-		due, err := a.Reminders.Upcoming(start, now)
-		if err != nil {
-			a.serverError(w, err)
-			return
-		}
-		for _, o := range due {
-			if o.Status == model.OccPending {
-				openChores = append(openChores, o)
-			}
-		}
+	// The Сьогодні block is the whole day and is not trimmed; what comes after
+	// it is, or a week of a daily chore would bury the screen.
+	if len(day.Upcoming) > hubUpcoming {
+		day.Upcoming = day.Upcoming[:hubUpcoming]
 	}
-	a.render(w, "hub.html", "Сьогодні", "hub", hubData{
-		Appointments: appointments, OpenChores: openChores,
-	})
+	a.render(w, "hub.html", "Сьогодні", "hub", hubData{Day: day})
 }
 
 func (a *App) serverError(w http.ResponseWriter, err error) {

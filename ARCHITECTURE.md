@@ -140,6 +140,7 @@ internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
   store/       # repository layer (one file per concern)
+  agenda/      # what is happening today: lessons + appointments + chores, one day for every surface
   audit/       # reconciliation: ledger, forecast, text, and the page both surfaces show
   web/         # http handlers, templates, static
   mini/        # Telegram Mini App: JSON API + Preact/htm frontend under /mini
@@ -160,9 +161,14 @@ The app is a hub and three worlds, not one flat site. A single row of eight
 links already mixed the daily (Баланс, Заняття) with the reference (Курси,
 Тренери), and the four utilities screens could not be added to it at all.
 
-- `/` is the hub: what is happening today, across everything — open chores and
-  the next appointments. **No utilities status here.** The hub answers "what
-  now", and a month's bills are not a now.
+- `/` is the hub: what is happening today, across everything — today's lessons,
+  appointments and chores in one time-ordered list, then what comes after it.
+  The day is built by `internal/agenda` and the Mini App's home screen shows
+  the same one, so the two surfaces cannot answer "what is today" differently.
+  Chores stop at today: a daily one projected over a week would crowd the
+  lessons out of "what is coming", and the Справи screen is the forward view of
+  the rules. **No utilities status here.** The hub answers "what now", and a
+  month's bills are not a now.
 - `/appointments` and `/reminders` sit in the header beside it rather than
   inside a world. They are not a domain you administer; they are what is
   happening.
@@ -296,10 +302,17 @@ links already mixed the daily (Баланс, Заняття) with the reference 
   two surfaces cannot drift on what a valid appointment, slot or payment is.
   `store.UpdateSlot` moves a slot rather than delete-and-recreate: the ICS uid
   is `slot-<id>`, and calendars key on it.
-- Screens: Головна (balances, recent payments, next visits), Записи (upcoming
-  list, read card, edit form), Заняття (courses, their editable schedule,
+- Screens: Головна (today, what comes next, balances, recent payments), Записи
+  (upcoming list, read card, edit form), Заняття (courses, their editable schedule,
   recording a payment against one, and its reconciliation), Справи (recurring
   chores: what is still open, what is coming, and the rule behind each).
+- Головна opens on the day from `internal/agenda` — the same day the web hub
+  shows, with every string rendered server-side. Nothing in the frontend
+  formats a time or names a weekday: two implementations of "Ср 16:00" is how
+  the phone and the browser would start telling different stories about one
+  day. Rows already answered keep their place with their label rather than
+  disappearing, because a row that vanishes once marked cannot be told from one
+  nobody has answered yet.
 - The Справи screen answers the daily question first — what is still open —
   and lists the chores themselves below it. Managing a rule is rare; closing
   this morning's item is what happens every day. Whether an occurrence can be

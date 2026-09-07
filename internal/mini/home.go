@@ -6,19 +6,28 @@ import (
 	"strconv"
 	"time"
 
+	"familyhub/internal/agenda"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
 )
 
-// The home screen answers "what is going on right now": what is coming up,
-// which courses are running out of paid lessons, and what was paid recently.
-// It is the phone-shaped version of the web dashboard — the same three things,
-// but a balance is one sentence instead of a table row, because that is what
-// fits in a glance.
+// The home screen answers "what is going on right now": what is happening
+// today, what is coming up, which courses are running out of paid lessons, and
+// what was paid recently. It is the phone-shaped version of the web hub — the
+// same day, but a balance is one sentence instead of a table row, because that
+// is what fits in a glance.
+//
+// The day itself comes from internal/agenda, shared with the web hub. This
+// screen used to list only appointments, so the two things a schedule is for —
+// "Карате at 16:00" and "the bins go out tonight" — were the ones it would not
+// tell you.
 
 const (
-	homeAppointments = 5
-	homePayments     = 6
+	// homeUpcoming caps the "Найближче" list. The Сьогодні block above it is
+	// never capped: a day is as long as it is, and hiding the end of it would
+	// be the bug this screen was opened to avoid.
+	homeUpcoming = 6
+	homePayments = 6
 )
 
 type homeCourseDTO struct {
@@ -50,19 +59,24 @@ type homePaymentDTO struct {
 	Comment string `json:"comment"`
 }
 
-type homeVisitDTO struct {
+// agendaItemDTO is one row of the day, whatever kind of thing it is. Every
+// string arrives rendered: the web hub shows the same day from the same
+// builder, and a second formatting of "Ср 16:00" in JavaScript is how the two
+// surfaces would start to disagree.
+type agendaItemDTO struct {
+	Kind   string `json:"kind"` // lesson | appointment | chore
 	ID     int64  `json:"id"`
-	When   string `json:"when"` // "Сьогодні, 14:30"
+	When   string `json:"when"` // "16:00" today, "Ср 16:00" further out
 	Title  string `json:"title"`
 	Person string `json:"person"`
-	// Location is only shown on the card for the next visit, where there is
-	// room for it; the rows below it stay one line each.
-	Location string `json:"location"`
+	Status string `json:"status"` // "проведено", "зроблено", "" while open
+	Place  string `json:"place"`
 }
 
 type homeDTO struct {
-	Today    string           `json:"today"` // "Понеділок, 10 серпня"
-	Upcoming []homeVisitDTO   `json:"upcoming"`
+	Date     string           `json:"date"` // "Понеділок, 10 серпня"
+	Today    []agendaItemDTO  `json:"today"`
+	Upcoming []agendaItemDTO  `json:"upcoming"`
 	Courses  []homeCourseDTO  `json:"courses"`
 	Payments []homePaymentDTO `json:"payments"`
 }
@@ -98,20 +112,20 @@ func (rt *Router) handleHome(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errInternal)
 		return
 	}
-	// From this minute, not from the start of the day: this section is "what
-	// is next", so a visit that already happened this morning does not belong
-	// at the top of it. The Записи tab deliberately starts earlier — it groups
-	// by day, and a "Сьогодні" heading that hides the morning reads as broken.
-	upcoming, err := rt.store.UpcomingAppointments(now.Format(model.LocalDatetime), homeAppointments)
+	// The whole day, from its start rather than from this minute: this block
+	// is the picture of today, so a lesson that already happened this morning
+	// is still part of it — with its status, if it has one.
+	day, err := agenda.Load(rt.store, rt.reminders, now, rt.loc)
 	if err != nil {
-		rt.log.Error("mini: upcoming", "err", err)
+		rt.log.Error("mini: agenda", "err", err)
 		rt.fail(w, errInternal)
 		return
 	}
 
 	rt.writeJSON(w, http.StatusOK, homeDTO{
-		Today:    model.WeekdayFull[int(now.Weekday())] + ", " + dayAndMonth(now),
-		Upcoming: homeVisits(upcoming, now, rt.loc),
+		Date:     model.WeekdayFull[int(now.Weekday())] + ", " + dayAndMonth(now),
+		Today:    agendaRows(day.Today),
+		Upcoming: agendaRows(head(day.Upcoming, homeUpcoming)),
 		Courses:  homeCourses(balances, absences, scheduleLines(slots)),
 		Payments: homePaymentRows(payments),
 	})
@@ -218,22 +232,27 @@ func homePaymentRows(payments []model.Payment) []homePaymentDTO {
 	return out
 }
 
-func homeVisits(items []model.Appointment, now time.Time, loc *time.Location) []homeVisitDTO {
-	out := make([]homeVisitDTO, 0, len(items))
-	for _, a := range items {
-		start, err := a.Start(loc)
-		if err != nil {
-			continue
-		}
-		out = append(out, homeVisitDTO{
-			ID:       a.ID,
-			When:     dayLabel(start, now) + ", " + start.Format("15:04"),
-			Title:    a.Title,
-			Person:   a.Person,
-			Location: a.Location,
+func agendaRows(items []agenda.Item) []agendaItemDTO {
+	out := make([]agendaItemDTO, 0, len(items))
+	for _, it := range items {
+		out = append(out, agendaItemDTO{
+			Kind:   it.Kind,
+			ID:     it.ID,
+			When:   it.When,
+			Title:  it.Title,
+			Person: it.Person,
+			Status: it.Status,
+			Place:  it.Place,
 		})
 	}
 	return out
+}
+
+func head(items []agenda.Item, n int) []agenda.Item {
+	if len(items) > n {
+		return items[:n]
+	}
+	return items
 }
 
 // shortDate turns a stored YYYY-MM-DD into "31 сер". The numeric 31.08 read as

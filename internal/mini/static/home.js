@@ -1,6 +1,6 @@
 import { html } from '/mini/assets/vendor/preact-htm.module.js'
 import { Bar } from '/mini/assets/ui.js'
-import { IconClock, IconInfo } from '/mini/assets/icons.js'
+import { IconBook, IconCalendar, IconInfo, IconPin, IconRepeat } from '/mini/assets/icons.js'
 
 // "What is going on right now" in one scroll. Almost nothing here is editable
 // — it is the screen you open to find out whether anything needs doing, and
@@ -8,10 +8,14 @@ import { IconClock, IconInfo } from '/mini/assets/icons.js'
 // wrong amount is noticed while reading this list, and sending the reader off
 // to hunt the same row down under another tab would be the long way round.
 //
-// The order changed: the next visit is a card rather than the first line of a
-// list, and the courses that are running out are lifted above the ones that
-// are fine. Reading the old screen meant scanning three lists to find the one
-// coloured word in them.
+// The screen opens on the day: lessons from the weekly schedule, one-off
+// appointments and chores that came due, in one list in time order. It used to
+// show appointments alone, so the two questions it exists to answer — is there
+// karate today, and did anybody take the bins out — were the two it could not.
+//
+// Every string in a row arrives rendered by internal/agenda, which the web hub
+// reads too. Nothing here formats a time or names a weekday: that is how the
+// phone and the browser would start telling different stories about one day.
 
 function Section({ title, aside, empty, children, onMore, moreLabel }) {
   return html`
@@ -25,18 +29,24 @@ function Section({ title, aside, empty, children, onMore, moreLabel }) {
     </section>`
 }
 
-function Next({ visit }) {
+const KIND_ICONS = { lesson: IconBook, appointment: IconCalendar, chore: IconRepeat }
+
+function AgendaRow({ item }) {
+  const Icon = KIND_ICONS[item.kind] ?? IconCalendar
   return html`
-    <div class="hero">
-      <div class="hero-kicker"><${IconClock} /> ${visit.when}</div>
-      <div class="hero-body">
-        <div class="hero-main">
-          <div class="hero-title">${visit.title}</div>
-          ${visit.person && html`<div class="hero-sub">${visit.person}</div>`}
-        </div>
+    <div class="row">
+      <div class="row-kind"><${Icon} size=${15} /></div>
+      <div class="row-when">${item.when}</div>
+      <div class="row-main">
+        <span>${item.title}${item.person && html`<span class="muted"> · ${item.person}</span>`}</span>
+        ${item.place && html`<span class="meta"><${IconPin} /> ${item.place}</span>`}
       </div>
-      ${visit.location && html`<div class="hero-foot">${visit.location}</div>`}
+      ${item.status && html`<div class="row-amount muted">${item.status}</div>`}
     </div>`
+}
+
+function AgendaList({ items }) {
+  return html`<div class="card card-rows">${items.map((it, i) => html`<${AgendaRow} key=${it.kind + it.id + i} item=${it} />`)}</div>`
 }
 
 function CourseCard({ course }) {
@@ -56,20 +66,18 @@ function CourseCard({ course }) {
 }
 
 export function Home({ data, onOpenVisits, onOpenCourses, onOpenPayment }) {
-  const { today = '', upcoming = [], courses = [], payments = [] } = data
+  const { date = '', today = [], upcoming = [], courses = [], payments = [] } = data
 
-  // The first upcoming visit is the card; the rest stay a list. Splitting it
-  // this way means the screen answers "what is next" before it answers
-  // "what else is there".
-  const [next, ...later] = upcoming
   const attention = courses.filter((c) => c.state !== 'ok')
   const calm = courses.filter((c) => c.state === 'ok')
 
   return html`
     <main class="screen">
-      ${today && html`<h1 class="screen-title">${today}</h1>`}
+      ${date && html`<h1 class="screen-title">${date}</h1>`}
 
-      ${next ? html`<${Next} visit=${next} />` : html`<p class="sec-empty">Попереду візитів немає</p>`}
+      <${Section} title="Сьогодні" empty=${today.length === 0 ? 'На сьогодні нічого не заплановано' : null}>
+        <${AgendaList} items=${today} />
+      <//>
 
       ${attention.length > 0 &&
       html`
@@ -79,18 +87,10 @@ export function Home({ data, onOpenVisits, onOpenCourses, onOpenPayment }) {
           </div>
         <//>`}
 
-      ${later.length > 0 &&
+      ${upcoming.length > 0 &&
       html`
         <${Section} title="Найближче" moreLabel="усі записи" onMore=${onOpenVisits}>
-          <div class="card card-rows">
-            ${later.map(
-              (v) => html`
-                <div class="row" key=${v.id}>
-                  <div class="row-when">${v.when}</div>
-                  <div class="row-main"><span>${v.title}${v.person && html`<span class="muted"> · ${v.person}</span>`}</span></div>
-                </div>`,
-            )}
-          </div>
+          <${AgendaList} items=${upcoming} />
         <//>`}
 
       <${Section} title="Курси" moreLabel="розклад" onMore=${onOpenCourses}

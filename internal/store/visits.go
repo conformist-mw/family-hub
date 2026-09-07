@@ -16,8 +16,13 @@ var ErrVisitExists = errors.New("на цю дату вже є запис по ц
 type VisitFilter struct {
 	PersonID int64
 	Status   string
-	Limit    int
-	Offset   int
+	// From and To bound v.date inclusively, as stored YYYY-MM-DD. Empty means
+	// unbounded on that side — the lists ask for everything, the agenda for
+	// one window.
+	From   string
+	To     string
+	Limit  int
+	Offset int
 }
 
 func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
@@ -30,6 +35,14 @@ func (s *Store) ListVisits(f VisitFilter) ([]model.Visit, error) {
 	if f.Status != "" {
 		where = append(where, "v.status = ?")
 		args = append(args, f.Status)
+	}
+	if f.From != "" {
+		where = append(where, "v.date >= ?")
+		args = append(args, f.From)
+	}
+	if f.To != "" {
+		where = append(where, "v.date <= ?")
+		args = append(args, f.To)
 	}
 	q := `
 		SELECT v.id, v.enrollment_id, p.name, e.name, e.description, v.date, v.status, v.comment, v.created_at

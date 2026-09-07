@@ -17,3 +17,25 @@ func TestPlural(t *testing.T) {
 		}
 	}
 }
+
+// The portal writes a dash run where a teacher left a field blank, and every
+// screen that rendered it verbatim said nothing in a whole line.
+func TestPortalTextTreatsDashRunsAsBlank(t *testing.T) {
+	for _, blank := range []string{"", " ", "-", "---", "—", "–", " — ", "...", "·", "_"} {
+		if got := PortalText(blank); got != "" {
+			t.Errorf("PortalText(%q) = %q, want blank", blank, got)
+		}
+	}
+	// Anything with a letter or a digit is content, punctuation included.
+	for in, want := range map[string]string{
+		"Дискримінант ":    "Дискримінант",
+		"§12, впр. 3-5":    "§12, впр. 3-5",
+		"с. 4 — 7":         "с. 4 — 7",
+		"9":                "9",
+		" Тема - підтема ": "Тема - підтема",
+	} {
+		if got := PortalText(in); got != want {
+			t.Errorf("PortalText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

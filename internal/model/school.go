@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // SchoolLesson is one occurrence of the child's academic timetable, mirrored
 // from the school-today.com portal. It is the source of truth for nothing — the
 // portal is — and is stored only so the ICS feed and the evening digest read a
@@ -57,4 +59,24 @@ type SchoolFile struct {
 	Kind  string
 	URL   string
 	Title string
+}
+
+// PortalText reads one free-text portal field, returning "" for a field the
+// teacher left blank. The portal writes a dash run ("---", "—", "-") there
+// rather than nothing, and a consumer that renders it verbatim fills the
+// screen with lines that say the same as no line at all. Anything carrying a
+// letter or a digit survives untouched.
+//
+// It lives on the model because the placeholder is a property of the portal's
+// data, not of one screen: the mirror applies it on the way in so nothing
+// downstream has to know, and the week review applies it on the way out
+// because rows synced before it existed are still in the database.
+func PortalText(s string) string {
+	s = strings.TrimSpace(s)
+	// Dashes of every width the portal has been seen to use, plus the
+	// punctuation that turns up alongside them.
+	if strings.Trim(s, "-–—_.·•  \t") == "" {
+		return ""
+	}
+	return s
 }

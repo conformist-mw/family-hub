@@ -235,6 +235,44 @@ func TestAPaddedTopicIsTrimmed(t *testing.T) {
 	}
 }
 
+// The portal writes a dash run where the teacher left the topic blank. Stored
+// verbatim it reached every consumer — a calendar event described as "---",
+// a digest line saying nothing — so the mirror treats it as the blank it is.
+func TestAPlaceholderTopicIsNotMirrored(t *testing.T) {
+	svc := &Service{cfg: Config{PupilID: 7}, loc: time.UTC}
+	for _, placeholder := range []string{"---", "—", " - ", "  "} {
+		p := placeholder
+		got, ok := svc.toLesson(Event{
+			EventID: 1, Subject: "Алгебра [9]",
+			Start: "2026-09-01T09:00:00", End: "2026-09-01T09:40:00",
+			Topic: &p,
+		})
+		if !ok {
+			t.Fatalf("%q: lesson dropped", placeholder)
+		}
+		if got.Topic != "" {
+			t.Errorf("%q: topic = %q, want it blank", placeholder, got.Topic)
+		}
+	}
+}
+
+// The detail page has three such fields, and the teacher can leave any of them
+// as a dash.
+func TestPlaceholderDetailFieldsAreNotMirrored(t *testing.T) {
+	svc := &Service{cfg: Config{PupilID: 7}, loc: time.UTC}
+	got := svc.toDetail(
+		Event{EventID: 1, Subject: "Алгебра [9]", Start: "2026-09-01T09:00:00"},
+		LessonDetail{Teacher: "Петренко Оксана", Topic: "---", Notes: "—", Homework: "-"})
+	if got.Topic != "" || got.Notes != "" || got.Homework != "" {
+		t.Errorf("placeholders were mirrored: %+v", got)
+	}
+	// The lesson itself is still mirrored: a blank field is not a missing
+	// lesson, and its marks are what the week review leads with.
+	if got.Teacher != "Петренко Оксана" {
+		t.Errorf("the detail was dropped with its placeholders: %+v", got)
+	}
+}
+
 // A week as the portal actually serves one: academic lessons (type 1), meals
 // and after-school care (types 0 and 3), a cancelled slot and an all-day
 // banner. Only the three real lessons should be read in detail.

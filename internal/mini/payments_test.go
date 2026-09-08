@@ -324,3 +324,87 @@ func TestHomePaymentRowsCarryTheFormValues(t *testing.T) {
 		t.Errorf("value = %q, comment = %q", p.Value, p.Comment)
 	}
 }
+
+// Recording the kimono from the phone, off the course card. The client always
+// sends every field, so the server has to ignore the lessons and the month it
+// gets alongside kind=extra rather than validate against them.
+func TestCreateAnExtraFromThePhone(t *testing.T) {
+	st := testStore(t)
+	courseID := seedCourse(t, st)
+	h := testRouter(t, st, []int64{42}, 42)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jsonRequest(http.MethodPost, "/mini/api/courses/"+itoa(courseID)+"/payments",
+		`{"kind":"extra","date":"2026-09-05","label":"Кімоно","amount":"1500","lessons":"8","month":"2026-09","comment":"розмір 140"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	// PaymentsForEnrollment is the lesson-pack query and filters extras out,
+	// so the row is read through the list the phone's home screen uses.
+	rows, err := st.ListPayments(store.PaymentFilter{})
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("stored %d payments, want 1", len(rows))
+	}
+	p := rows[0]
+	if !p.IsExtra() || p.Label != "Кімоно" || p.Amount != 1500 || p.Comment != "розмір 140" {
+		t.Errorf("payment = %+v", p)
+	}
+	if p.LessonsPaid != nil || p.CoversFrom != nil {
+		t.Errorf("payment = %+v, want no lessons and no coverage", p)
+	}
+}
+
+func TestCreateAnExtraWithoutALabelIsRejected(t *testing.T) {
+	st := testStore(t)
+	courseID := seedCourse(t, st)
+	h := testRouter(t, st, []int64{42}, 42)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jsonRequest(http.MethodPost, "/mini/api/courses/"+itoa(courseID)+"/payments",
+		`{"kind":"extra","date":"2026-09-05","label":"   ","amount":"1500"}`))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body = %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `"field":"label"`) {
+		t.Errorf("body = %s, want the label named as the bad field", rec.Body)
+	}
+
+	rows, _ := st.ListPayments(store.PaymentFilter{})
+	if len(rows) != 0 {
+		t.Errorf("rows = %+v, want nothing stored", rows)
+	}
+}
+
+// Editing an extra on the phone must not turn it into a course payment — the
+// kind rides along on the PUT the same as on the POST.
+func TestUpdatingAnExtraKeepsItAnExtra(t *testing.T) {
+	st := testStore(t)
+	courseID := seedCourse(t, st)
+	payID, err := st.CreatePayment(model.Payment{
+		EnrollmentID: courseID, Kind: model.PaymentKindExtra,
+		Date: "2026-09-05", Amount: 1500, Label: "Кімоно",
+	})
+	if err != nil {
+		t.Fatalf("seed extra: %v", err)
+	}
+	h := testRouter(t, st, []int64{42}, 42)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jsonRequest(http.MethodPut, "/mini/api/payments/"+itoa(payID),
+		`{"kind":"extra","date":"2026-09-05","label":"Кімоно та пояс","amount":"1800"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	after, err := st.GetPayment(payID)
+	if err != nil {
+		t.Fatalf("get payment: %v", err)
+	}
+	if !after.IsExtra() || after.Label != "Кімоно та пояс" || after.Amount != 1800 {
+		t.Errorf("payment = %+v", after)
+	}
+}

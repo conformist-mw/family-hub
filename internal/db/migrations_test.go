@@ -377,3 +377,70 @@ func TestSchoolDetailStampsFetchedAtByDefault(t *testing.T) {
 		t.Fatalf("fetched_at = %q, want a local datetime stamp", fetchedAt)
 	}
 }
+
+// A payment written without naming the new columns must come out as a course
+// payment. That is what carries the pre-0011 rows over, and it is the reason
+// the columns have defaults at all — every existing INSERT in the codebase
+// predates them.
+//
+// It does not, however, protect the code: once a query names `kind` — and
+// store.CreatePayment does — the default stops applying and an empty Kind is
+// written verbatim. Paired with the `kind = 'course'` filters on
+// PaymentsForEnrollment and LastPaymentDate, that would drop every new
+// payment out of the bot's /packs and out of the default audit period. The
+// guard for that lives in payments.Form.Parse and is tested there.
+func TestABarePaymentInsertIsACoursePayment(t *testing.T) {
+	database := migrated(t)
+	seedPaymentCourse(t, database)
+
+	mustExec(t, database, `
+		INSERT INTO payments (enrollment_id, date, amount, lessons_paid)
+		VALUES (1, '2026-09-01', 3200, 8)`)
+
+	var kind, label string
+	if err := database.QueryRow(
+		`SELECT kind, label FROM payments WHERE enrollment_id = 1`).Scan(&kind, &label); err != nil {
+		t.Fatalf("read kind/label: %v", err)
+	}
+	if kind != "course" {
+		t.Fatalf("kind = %q, want %q", kind, "course")
+	}
+	if label != "" {
+		t.Fatalf("label = %q, want empty", label)
+	}
+}
+
+// An extra carries neither a lesson count nor a coverage range. The schema has
+// to accept that shape, because it is the whole point of the row — the
+// invariant that a label comes with it is enforced in payments.Form.Parse.
+func TestAPaymentWithNeitherLessonsNorCoverageIsStorable(t *testing.T) {
+	database := migrated(t)
+	seedPaymentCourse(t, database)
+
+	mustExec(t, database, `
+		INSERT INTO payments (enrollment_id, date, amount, kind, label)
+		VALUES (1, '2026-09-05', 1500, 'extra', 'Кімоно')`)
+
+	var lessons, coversFrom, coversUntil sql.NullString
+	var label string
+	err := database.QueryRow(`
+		SELECT lessons_paid, covers_from, covers_until, label
+		FROM payments WHERE kind = 'extra'`).Scan(&lessons, &coversFrom, &coversUntil, &label)
+	if err != nil {
+		t.Fatalf("read the extra back: %v", err)
+	}
+	if lessons.Valid || coversFrom.Valid || coversUntil.Valid {
+		t.Fatalf("an extra carries lessons/coverage: %v %v %v", lessons, coversFrom, coversUntil)
+	}
+	if label != "Кімоно" {
+		t.Fatalf("label = %q", label)
+	}
+}
+
+func seedPaymentCourse(t *testing.T, database *sql.DB) {
+	t.Helper()
+	mustExec(t, database, `INSERT INTO persons (id, name) VALUES (1, 'Демид')`)
+	mustExec(t, database, `
+		INSERT INTO enrollments (id, person_id, name, billing_type, current_price)
+		VALUES (1, 1, 'Карате', 'per_lesson', 400)`)
+}

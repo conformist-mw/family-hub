@@ -46,7 +46,11 @@ type homePaymentDTO struct {
 	Amount string `json:"amount"`
 	Course string `json:"course"`
 	Person string `json:"person"`
-	Detail string `json:"detail"` // "10 занять" or "до 31.08"
+	Detail string `json:"detail"` // "10 занять", "до 31.08" or an extra's label
+	// Kind is course | extra. The client marks an extra rather than letting
+	// "Кімоно" sit in the same slot as "10 занять" unlabelled.
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
 	// Below is what the editor binds to, so tapping a row opens a filled form
 	// with no second request — the same trade the appointments list makes.
 	// Display and form values are separate fields on purpose: "5000 ₴" is not
@@ -215,12 +219,16 @@ func homePaymentRows(payments []model.Payment) []homePaymentDTO {
 			Course:  p.Class,
 			Person:  p.Person,
 			Billing: p.Billing,
+			Kind:    p.Kind,
+			Label:   p.Label,
 			DateISO: p.Date,
 			Value:   strconv.FormatFloat(p.Amount, 'f', -1, 64),
 			Month:   p.CoversMonth(),
 			Comment: p.Comment,
 		}
 		switch {
+		case p.IsExtra():
+			row.Detail = p.Label
 		case p.LessonsPaid != nil && *p.LessonsPaid > 0:
 			row.Detail = model.Plural(int(*p.LessonsPaid), "заняття", "заняття", "занять")
 			row.Lessons = strconv.FormatInt(*p.LessonsPaid, 10)

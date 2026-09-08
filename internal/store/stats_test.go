@@ -151,3 +151,106 @@ func TestSpendByPeriodFallsBackToPaymentDate(t *testing.T) {
 		t.Errorf("per-lesson payment should count in its own month, got %v", got)
 	}
 }
+
+// The point of recording an extra at all: the course's total stops being
+// understated. Amount is the whole sum, and Extras says how much of it was not
+// lessons — the question a kimono against a karate course raises.
+func TestCourseSpendBreaksOutExtras(t *testing.T) {
+	st := testStore(t)
+	id := seedCourse(t, st, model.Enrollment{
+		Person: "Демид", Name: "Карате",
+		BillingType: model.BillingPerLesson, CurrentPrice: 400,
+	})
+	lessons := int64(8)
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Date: "2026-09-01", Amount: 3200, LessonsPaid: &lessons,
+	}); err != nil {
+		t.Fatalf("create payment: %v", err)
+	}
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Kind: model.PaymentKindExtra,
+		Date: "2026-09-05", Amount: 1500, Label: "Кімоно",
+	}); err != nil {
+		t.Fatalf("create extra: %v", err)
+	}
+
+	stats, err := st.Stats()
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if len(stats.ByCourse) != 1 {
+		t.Fatalf("by course = %+v, want one row", stats.ByCourse)
+	}
+	row := stats.ByCourse[0]
+	if row.Amount != 4700 {
+		t.Errorf("amount = %v, want the whole 4700", row.Amount)
+	}
+	if row.Extras != 1500 {
+		t.Errorf("extras = %v, want 1500", row.Extras)
+	}
+}
+
+func TestCourseSpendWithoutExtrasReportsZero(t *testing.T) {
+	st := testStore(t)
+	id := seedCourse(t, st, model.Enrollment{BillingType: model.BillingPerLesson, CurrentPrice: 400})
+	lessons := int64(8)
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Date: "2026-09-01", Amount: 3200, LessonsPaid: &lessons,
+	}); err != nil {
+		t.Fatalf("create payment: %v", err)
+	}
+
+	stats, err := st.Stats()
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.ByCourse[0].Extras != 0 {
+		t.Errorf("extras = %v, want 0", stats.ByCourse[0].Extras)
+	}
+}
+
+// "Visible in the statistics" is the whole requirement, and every one of these
+// totals sums payments.amount with no filter. If a future change ever adds a
+// `kind = 'course'` filter here for symmetry with the lesson queries, an extra
+// would silently vanish from the spend reports — this is what catches it.
+func TestExtrasCountInEverySpendTotal(t *testing.T) {
+	st := testStore(t)
+	id := seedCourse(t, st, model.Enrollment{
+		Person: "Демид", Name: "Карате",
+		BillingType: model.BillingPerLesson, CurrentPrice: 400,
+	})
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Kind: model.PaymentKindExtra,
+		Date: "2026-09-05", Amount: 1500, Label: "Кімоно",
+	}); err != nil {
+		t.Fatalf("create extra: %v", err)
+	}
+
+	stats, err := st.Stats()
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.TotalAll != 1500 {
+		t.Errorf("total all = %v, want 1500", stats.TotalAll)
+	}
+	if got := amountFor(t, stats.ByMonth, "2026-09"); got != 1500 {
+		t.Errorf("by month 2026-09 = %v, want 1500", got)
+	}
+	// An extra has no coverage, so the by-period chart files it under the
+	// month the money moved (the COALESCE in spendByMonth).
+	if got := amountFor(t, stats.ByPeriod, "2026-09"); got != 1500 {
+		t.Errorf("by period 2026-09 = %v, want 1500", got)
+	}
+	if len(stats.ByPerson) != 1 || stats.ByPerson[0].Amount != 1500 {
+		t.Errorf("by person = %+v, want Демид with 1500", stats.ByPerson)
+	}
+
+	// The "Усього" figure on /lessons/payments comes from a different query.
+	total, err := st.TotalPaid(0)
+	if err != nil {
+		t.Fatalf("total paid: %v", err)
+	}
+	if total != 1500 {
+		t.Errorf("total paid = %v, want 1500", total)
+	}
+}

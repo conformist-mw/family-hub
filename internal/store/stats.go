@@ -15,7 +15,16 @@ type CourseSpend struct {
 	Class     string
 	ClassDesc string
 	Amount    float64
-	Attended  int
+	// Extras is the part of Amount that bought neither lessons nor a month —
+	// kit, gear, a trip. Amount stays the whole sum, so the bar keeps meaning
+	// "what this course cost"; Extras only says how much of it was not
+	// lessons, which is the question a kimono raises.
+	//
+	// Only broken out per course, deliberately. A course is the one dimension
+	// where an extra attaches to a specific thing; "how much went on extras in
+	// March" is a different question and nobody has asked it.
+	Extras   float64
+	Attended int
 }
 
 type Stats struct {
@@ -123,6 +132,7 @@ func (s *Store) Stats() (Stats, error) {
 
 	courseRows, err := s.db.Query(`
 		SELECT p.name, e.name, e.description, SUM(pm.amount) AS amt,
+		       SUM(CASE WHEN pm.kind = 'extra' THEN pm.amount ELSE 0 END) AS extras,
 		       (SELECT COUNT(*) FROM visits v WHERE v.enrollment_id = e.id AND v.status='done') AS done
 		FROM payments pm
 		JOIN enrollments e ON e.id = pm.enrollment_id
@@ -135,7 +145,7 @@ func (s *Store) Stats() (Stats, error) {
 	defer courseRows.Close()
 	for courseRows.Next() {
 		var c CourseSpend
-		if err := courseRows.Scan(&c.Person, &c.Class, &c.ClassDesc, &c.Amount, &c.Attended); err != nil {
+		if err := courseRows.Scan(&c.Person, &c.Class, &c.ClassDesc, &c.Amount, &c.Extras, &c.Attended); err != nil {
 			return st, err
 		}
 		if c.Amount > st.MaxCourse {

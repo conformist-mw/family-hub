@@ -19,6 +19,18 @@
     </select>
   </label>
 
+  <fieldset class="kind-switch">
+    <legend>Що це</legend>
+    <label class="radio">
+      <input type="radio" name="kind" value="course" {{if ne $p.Kind "extra"}}checked{{end}}>
+      За заняття
+    </label>
+    <label class="radio">
+      <input type="radio" name="kind" value="extra" {{if eq $p.Kind "extra"}}checked{{end}}>
+      Додатково
+    </label>
+  </fieldset>
+
   <label>
     Дата оплати
     <input type="date" name="date" value="{{$p.Date}}" required>
@@ -33,6 +45,13 @@
     <label>
       Оплачено занять
       <input type="number" name="lessons_paid" step="1" min="1" value="{{if $p.LessonsPaid}}{{$p.LessonsPaid}}{{end}}">
+    </label>
+  </div>
+
+  <div id="block-extra" class="billing-block" hidden>
+    <label>
+      За що
+      <input type="text" name="label" value="{{$p.Label}}" placeholder="Кімоно, форма, поїздка…">
     </label>
   </div>
 
@@ -65,14 +84,31 @@
     var sel = document.getElementById('enrollment');
     var lesson = document.getElementById('block-lesson');
     var monthly = document.getElementById('block-monthly');
+    var extra = document.getElementById('block-extra');
+    var kinds = document.querySelectorAll('input[name="kind"]');
+    function selectedKind() {
+      for (var i = 0; i < kinds.length; i++) {
+        if (kinds[i].checked) return kinds[i].value;
+      }
+      return 'course';
+    }
+    // The kind decides first: an extra buys neither lessons nor a month, so
+    // the course's billing type says nothing about which field to ask for.
     function toggle() {
+      var isExtra = selectedKind() === 'extra';
+      extra.hidden = !isExtra;
+      if (isExtra) {
+        lesson.hidden = true;
+        monthly.hidden = true;
+        return;
+      }
       var opt = sel.options[sel.selectedIndex];
-      var billing = opt ? opt.dataset.billing : '';
-      var isMonthly = billing === 'monthly';
+      var isMonthly = (opt ? opt.dataset.billing : '') === 'monthly';
       monthly.hidden = !isMonthly;
       lesson.hidden = isMonthly;
     }
     sel.addEventListener('change', toggle);
+    for (var i = 0; i < kinds.length; i++) kinds[i].addEventListener('change', toggle);
     toggle();
   })();
 </script>

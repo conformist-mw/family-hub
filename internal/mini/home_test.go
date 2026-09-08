@@ -134,3 +134,44 @@ func TestHomeRequiresAuthentication(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// The home screen's payment rows are what a tap opens for editing, so an extra
+// has to arrive named. Without the third case the switch in homePaymentRows
+// leaves Detail empty and the row reads as a bare sum.
+func TestHomePaymentRowNamesAnExtra(t *testing.T) {
+	st := testStore(t)
+	id := seedCourse(t, st)
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Kind: model.PaymentKindExtra,
+		Date: "2026-09-05", Amount: 1500, Label: "Кімоно",
+	}); err != nil {
+		t.Fatalf("seed extra: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	testRouter(t, st, []int64{42}, 42).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/mini/api/home", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var body homeDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body)
+	}
+
+	var row homePaymentDTO
+	for _, p := range body.Payments {
+		if p.Kind == model.PaymentKindExtra {
+			row = p
+		}
+	}
+	if row.Detail != "Кімоно" {
+		t.Errorf("detail = %q, want Кімоно", row.Detail)
+	}
+	if row.Label != "Кімоно" {
+		t.Errorf("label = %q — the editor binds to this", row.Label)
+	}
+	// The form values an edit binds to must not offer lessons or a month.
+	if row.Lessons != "" || row.Month != "" {
+		t.Errorf("row = %+v, want no lessons and no month", row)
+	}
+}

@@ -38,15 +38,40 @@ to look when picking it back up after a break.
 - **`visits`** — one attendance event: `date`, `status`
   (`done` / `rescheduled` / `cancelled` / `skipped`), `comment`. One visit
   per enrollment per date, enforced by a UNIQUE index.
-- **`payments`** — money in. Either prepaid lessons (`lessons_paid`) or a
-  monthly pass (`covers_from` + `covers_until`). The transfer date and the
-  period bought are separate facts and both are reported: September's school
-  fee paid on 28 August counts in August on the "по місяцях" chart and in
-  September on "за оплачені періоди". The payment form takes a month, not two
-  dates, so a coverage range is always exactly one calendar month — otherwise
-  a September-to-December payment would land wholly in September. A course
-  paid ahead of the period it buys is not an empty balance
-  (`Balance.PrepaidFrom`); the badge reads "з 01.09" rather than red.
+- **`payments`** — money in, of one of three `kind`s. A `course` payment is
+  either prepaid lessons (`lessons_paid`) or a monthly pass (`covers_from` +
+  `covers_until`). The transfer date and the period bought are separate facts
+  and both are reported: September's school fee paid on 28 August counts in
+  August on the "по місяцях" chart and in September on "за оплачені періоди".
+  The payment form takes a month, not two dates, so a coverage range is always
+  exactly one calendar month — otherwise a September-to-December payment would
+  land wholly in September. A course paid ahead of the period it buys is not an
+  empty balance (`Balance.PrepaidFrom`); the badge reads "з 01.09" rather than
+  red.
+
+  An `extra` is the third kind: money the course asked for that buys neither —
+  a kimono, a kit, a grading fee, a trip — named by a free-text `label`. It is
+  visible everywhere money is reported (the payment list, the dashboard, every
+  `Stats` total, the audit ledger) and **deliberately invisible to the
+  balance**. Nothing special enforces that: an extra carries neither
+  `lessons_paid` nor a coverage range, and every query that feeds a balance
+  already filters on those being present — `store.go` (lessons sum,
+  `coveragePeriods`), `audit.go` (opening balance), `audit.RemainingPacks`,
+  `audit.BuildLedger`. Two queries whose subject really is packs of lessons
+  filter on the kind instead: `PaymentsForEnrollment` and `LastPaymentDate`,
+  the latter so buying a kimono does not move where the audit ledger opens.
+  In the ledger an extra is its own row kind and its total is reported apart
+  from `Summary.PaidAmount`, which pairs with a lesson count.
+
+  The shape of an extra (no lessons, no coverage, a non-empty label) is
+  enforced in `payments.Form.Parse` — the single door both surfaces write
+  through — and not by a `CHECK`. That is a deliberate departure from
+  `0010_school_lesson_details.sql`, which does use `CHECK (kind IN (...))`:
+  the invariant here is more than a list of allowed values, and SQLite cannot
+  drop a `CHECK` without rebuilding the table. `Form.Parse` also sets `kind`
+  on the course path rather than leaning on the column default, and the store
+  normalises an empty one — a default stops applying the moment a query names
+  the column, which both writes do.
 - **`billing_reminders`** — which coverage endings the bot has already warned
   about, keyed `(enrollment_id, covers_until)`. See Bot.
 - **`trainers`** + **`trainer_absences`** — who teaches a course
@@ -457,8 +482,11 @@ for exactly that reason.
 - **And about every payment**, on the same terms: `payments.Service` announces
   an add, an edit and a delete, so "я вже заплатила за футбол" and "треба
   заплатити за футбол" stop being true in the same evening. The message names
-  the course, the child, the amount and what it bought — a pack of lessons or
-  a named month (`internal/payments/notify.go`).
+  the course, the child, the amount and what it bought — a pack of lessons, a
+  named month, or, for an extra, its label (`internal/payments/notify.go`).
+  The label is escaped where it is returned, because `Format` appends that
+  result raw: an unescaped "&" makes Telegram reject the message after the row
+  is already saved, so the group would hear nothing at all.
 - `/list` is one self-editing message: a calendar week at a time, tap a number
   for the card → edit / cancel, all state encoded in the callback data. Text
   edits (reschedule, rename, change who) are private-chat only, because in a

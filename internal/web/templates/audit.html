@@ -31,6 +31,9 @@
     {{if or $d.Summary.PaidLessons $d.Summary.PaidAmount}}
       <span>оплачено: {{if $d.PerLesson}}<b>{{$d.Summary.PaidLessons}}</b> зан. · {{end}}<b>{{money $d.Summary.PaidAmount}}</b></span>
     {{end}}
+    {{if $d.Summary.ExtrasAmount}}
+      <span>додатково: <b>{{money $d.Summary.ExtrasAmount}}</b></span>
+    {{end}}
     {{if $d.PerLesson}}
       <span>залишок: {{$d.Summary.Opening}} → <b>{{$d.Summary.Closing}}</b></span>
     {{end}}
@@ -50,11 +53,13 @@
   <table class="ledger">
     <tbody>
       {{range $d.Rows}}
-      <tr class="{{if eq .Kind "payment"}}ledger-payment{{end}}">
+      <tr class="{{if eq .Kind "payment"}}ledger-payment{{else if eq .Kind "extra"}}ledger-extra{{end}}">
         <td class="ledger-date">{{dateShort .Date}}</td>
         <td>
           {{if eq .Kind "payment"}}
             {{if .Lessons}}оплата <b>+{{.Lessons}}</b> ({{money .Amount}}){{else if .Covers}}абонемент до {{dateShort .Covers}} ({{money .Amount}}){{else}}оплата ({{money .Amount}}){{end}}
+          {{else if eq .Kind "extra"}}
+            додатково: <b>{{.What}}</b> ({{money .Amount}})
           {{else}}
             <span class="status-pill status-{{.Status}}">{{statusLabel .Status}}</span>
           {{end}}

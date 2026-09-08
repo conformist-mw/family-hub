@@ -240,3 +240,54 @@ func TestAuditSendRequiresAuthentication(t *testing.T) {
 		t.Fatalf("unauthenticated request posted %d messages", len(fam.sent))
 	}
 }
+
+// The phone shows the same ledger as the web and the text version, so an extra
+// has to name itself here too — and must not disturb the running balance the
+// screen exists to explain.
+func TestAuditLedgerShowsAnExtraWithoutMovingTheBalance(t *testing.T) {
+	st := testStore(t)
+	id := seedLedger(t, st)
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Kind: model.PaymentKindExtra,
+		Date: "2026-08-05", Amount: 1500, Label: "Кімоно",
+	}); err != nil {
+		t.Fatalf("seed extra: %v", err)
+	}
+	h := testRouter(t, st, []int64{42}, 42)
+
+	body := fetchAudit(t, h, "/mini/api/courses/"+itoa(id)+"/audit")
+
+	var found auditRowDTO
+	var balances []string
+	for _, r := range body.Rows {
+		if r.Kind == "extra" {
+			found = r
+		}
+		balances = append(balances, r.Balance)
+	}
+	if found.Label != "Кімоно" || found.Amount != "1500 ₴" {
+		t.Errorf("extra row = %+v, want Кімоно / 1500 ₴", found)
+	}
+
+	// 10 bought, one done before the extra and one after: 10 → 9 → (9) → 8.
+	// A balance that moved on the kimono would show up as a 7 at the end.
+	if got := balances[len(balances)-1]; got != "8" {
+		t.Errorf("closing balance = %q, want 8; balances = %v", got, balances)
+	}
+
+	if !containsLine(body.Summary, "додатково: 1500 ₴") {
+		t.Errorf("summary = %v, want a separate extras line", body.Summary)
+	}
+	if !containsLine(body.Summary, "оплачено: 10 занять · 5000 ₴") {
+		t.Errorf("summary = %v, want the paid line unchanged", body.Summary)
+	}
+}
+
+func containsLine(lines []string, want string) bool {
+	for _, l := range lines {
+		if l == want {
+			return true
+		}
+	}
+	return false
+}

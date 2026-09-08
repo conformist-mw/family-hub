@@ -22,6 +22,13 @@ const (
 	StatusCancelled   = "cancelled"
 	StatusSkipped     = "skipped"
 
+	// PaymentKindCourse buys lessons or a month — the row the balance is made
+	// of. PaymentKindExtra is money the course asked for that buys neither: a
+	// kimono, a kit, a trip. It is named by Payment.Label and is deliberately
+	// invisible to the balance, the coverage and the forecast.
+	PaymentKindCourse = "course"
+	PaymentKindExtra  = "extra"
+
 	KindChild = "child"
 	KindAdult = "adult"
 
@@ -210,10 +217,21 @@ type Payment struct {
 	Person       string
 	Class        string
 	ClassDesc    string
-	// Billing is the course's billing type, joined in on read. It says which
-	// half of this row is meaningful — LessonsPaid or the coverage range — and
-	// therefore which field an edit form has to offer.
-	Billing     string
+	// Kind is what this row is: PaymentKindCourse or PaymentKindExtra. It is
+	// read before Billing, because it decides whether Billing means anything
+	// at all — an extra has neither a lesson count nor a coverage range, only
+	// a date, an amount and a Label.
+	Kind string
+	// Billing is the course's billing type, joined in on read. For a course
+	// payment it says which half of this row is meaningful — LessonsPaid or
+	// the coverage range — and therefore which field an edit form has to
+	// offer. For an extra neither half is, and Billing says nothing.
+	Billing string
+	// Label names what an extra was for ("Кімоно", "Поїздка в Черкаси"). It is
+	// what every list shows in the "за що" column, and it is empty on a course
+	// payment. Not to be confused with Comment, which is a note beside the
+	// payment that no list renders.
+	Label       string
 	Date        string
 	Amount      float64
 	LessonsPaid *int64
@@ -221,6 +239,11 @@ type Payment struct {
 	CoversUntil *string
 	Comment     string
 }
+
+// IsExtra reports whether this row is money the course asked for that bought
+// no lessons and no coverage. Kind is empty on rows read by code paths that
+// predate it, and an empty Kind means a course payment.
+func (p Payment) IsExtra() bool { return p.Kind == PaymentKindExtra }
 
 // CoversMonth renders the coverage range as the "YYYY-MM" an <input type=month>
 // wants, or "" when there is no coverage. The payment form only ever writes

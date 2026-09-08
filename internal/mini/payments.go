@@ -22,7 +22,11 @@ import (
 // follows from how the course is billed, and the server decides that from the
 // enrollment rather than trusting what arrived.
 type paymentForm struct {
+	// Kind is course | extra; empty means a course payment, so a client that
+	// predates extras keeps working.
+	Kind    string `json:"kind"`
 	Date    string `json:"date"`
+	Label   string `json:"label"`
 	Amount  string `json:"amount"`
 	Lessons string `json:"lessons"`
 	Month   string `json:"month"`
@@ -31,7 +35,8 @@ type paymentForm struct {
 
 func (f paymentForm) form() payments.Form {
 	return payments.Form{
-		Date: f.Date, Amount: f.Amount, Lessons: f.Lessons,
+		Kind: f.Kind, Date: f.Date, Label: f.Label,
+		Amount: f.Amount, Lessons: f.Lessons,
 		CoversMonth: f.Month, Comment: f.Comment,
 	}
 }

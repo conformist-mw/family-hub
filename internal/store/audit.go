@@ -20,7 +20,7 @@ func (s *Store) AuditData(enrollmentID int64, from, to string) (AuditData, error
 		SELECT id, date, status, comment FROM visits
 		WHERE enrollment_id = ?`
 	payQ := `
-		SELECT id, date, amount, lessons_paid, covers_from, covers_until, comment FROM payments
+		SELECT id, date, amount, lessons_paid, covers_from, covers_until, comment, kind, label FROM payments
 		WHERE enrollment_id = ?`
 	var visitArgs, payArgs []any
 	visitArgs = append(visitArgs, enrollmentID)
@@ -65,7 +65,8 @@ func (s *Store) AuditData(enrollmentID int64, from, to string) (AuditData, error
 	for prows.Next() {
 		var p model.Payment
 		p.EnrollmentID = enrollmentID
-		if err := prows.Scan(&p.ID, &p.Date, &p.Amount, &p.LessonsPaid, &p.CoversFrom, &p.CoversUntil, &p.Comment); err != nil {
+		if err := prows.Scan(&p.ID, &p.Date, &p.Amount, &p.LessonsPaid, &p.CoversFrom, &p.CoversUntil,
+			&p.Comment, &p.Kind, &p.Label); err != nil {
 			return d, err
 		}
 		d.Payments = append(d.Payments, p)
@@ -110,12 +111,17 @@ func (s *Store) AuditData(enrollmentID int64, from, to string) (AuditData, error
 	return d, err
 }
 
-// LastPaymentDate returns the date of the enrollment's most recent payment,
-// or "" if it has none — the default audit period starts here.
+// LastPaymentDate returns the date of the enrollment's most recent course
+// payment, or "" if it has none — the default audit period starts here.
+//
+// Extras do not count. Buying a kimono is not a settling-up with the trainer,
+// so letting it move this date would open the ledger somewhere no lesson was
+// ever paid for, and hide the period the reader actually came to check.
 func (s *Store) LastPaymentDate(enrollmentID int64) (string, error) {
 	var date string
 	err := s.db.QueryRow(`
-		SELECT COALESCE(MAX(date), '') FROM payments WHERE enrollment_id = ?`,
+		SELECT COALESCE(MAX(date), '') FROM payments
+		WHERE enrollment_id = ? AND kind = 'course'`,
 		enrollmentID).Scan(&date)
 	return date, err
 }

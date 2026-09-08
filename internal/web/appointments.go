@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -166,11 +167,10 @@ func (a *App) appointmentWriteError(w http.ResponseWriter, err error, appt model
 }
 
 // actorName names whoever is signed in, for the byline on the group message.
-// oauth2-proxy is the only thing that knows who that is, and only if it is
-// configured to forward the identity it verified; the value is cosmetic, so an
-// absent header falls back to naming the surface instead of a person.
+// The headers come from the forward-auth proxy in front of the web surface,
+// tried in the order identityHeaders returns them.
 func actorName(r *http.Request) string {
-	for _, h := range []string{"X-Forwarded-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email"} {
+	for _, h := range identityHeaders() {
 		v := strings.TrimSpace(r.Header.Get(h))
 		if v == "" {
 			continue
@@ -185,6 +185,40 @@ func actorName(r *http.Request) string {
 	// Authenticated, but the proxy forwarded nothing to name them by. Good
 	// enough for a byline, and actor.Resolve knows not to write it to a row.
 	return actor.Unknown
+}
+
+// tinyauthIdentityHeaders is what runs in front of this app today, in the
+// order a byline wants: the display name (tinyauth derives it from the user's
+// configured attributes, falling back to the capitalised username) before the
+// login, and the email address last, cut to its local part.
+var tinyauthIdentityHeaders = []string{"Remote-Name", "Remote-User", "Remote-Email"}
+
+// identityHeaders returns the request headers that name the signed-in user.
+//
+// Configurable because the names belong to whatever proxy sets them, not to
+// this app — swapping tinyauth for authelia or oauth2-proxy renames all three,
+// and that is a deployment change, not a reason to rebuild the binary. Unset
+// or blank means tinyauth's names.
+//
+// Every name listed must be one the proxy *overwrites* on the upstream
+// request. Traefik's forward-auth deletes and re-sets exactly the names in its
+// authResponseHeaders and passes every other client header through untouched,
+// so a name here that is missing from that list is one the browser gets to
+// choose — and this value decides whose name goes on a row. The two lists are
+// a pair, which is why the dotfiles family-hub role sets this one explicitly
+// rather than leaning on the default: the env var is where the pairing is
+// visible.
+func identityHeaders() []string {
+	var out []string
+	for _, h := range strings.Split(os.Getenv("WEB_IDENTITY_HEADERS"), ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			out = append(out, h)
+		}
+	}
+	if len(out) == 0 {
+		return tinyauthIdentityHeaders
+	}
+	return out
 }
 
 // appointmentPersons feeds the "хто" datalist. Appointment.Person is free text

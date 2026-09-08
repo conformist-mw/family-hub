@@ -121,7 +121,11 @@ export function Home({ data, onOpenVisits, onOpenCourses, onOpenPayment }) {
                 <div class="row-when row-date">${p.date}</div>
                 <div class="row-main">
                   <span>${p.course}<span class="muted"> · ${p.person}</span></span>
-                  ${p.detail && html`<span class="meta">${p.detail}</span>`}
+                  ${p.detail &&
+                  html`<span class="meta">
+                    ${p.kind === 'extra' && html`<span class="pill-extra">доп.</span>`}
+                    ${p.detail}
+                  </span>`}
                 </div>
                 <div class="row-amount">${p.amount}</div>
               </button>`,

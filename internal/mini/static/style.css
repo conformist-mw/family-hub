@@ -197,6 +197,9 @@ button.row {
 .title { font-size: 16px; font-weight: 600; }
 .person { color: var(--muted); font-size: 14px; }
 .meta { display: flex; align-items: center; gap: 5px; color: var(--hint); font-size: 13px; }
+/* An extra's label sits in the same slot as "10 занять" and "до 31.08", so it
+   needs a marker or "Кімоно" reads as a kind of lesson. */
+.pill-extra { font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--accent-weak); color: var(--muted); }
 .note { color: var(--hint); font-size: 13px; font-style: italic; }
 .muted { color: var(--hint); }
 .dim { opacity: 0.62; }

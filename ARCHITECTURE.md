@@ -275,8 +275,13 @@ links already mixed the daily (Баланс, Заняття) with the reference 
   (`//go:embed`), so the image carries everything except the SQLite file.
 - Mobile-friendly: native HTML5 `<input type="date">`, quick-pick chips
   for frequent courses and recent comments, status pills, responsive CSS.
-- Auth in production is provided by `oauth2-proxy` via the Traefik
-  middleware `auth-chain@file`; the app itself has no login.
+- Auth in production is provided by `tinyauth` via the Traefik forward-auth
+  middleware `auth-chain@file`; the app itself has no login. It learns who
+  signed in from the headers the middleware sets — `WEB_IDENTITY_HEADERS`,
+  defaulting to tinyauth's `Remote-Name,Remote-User,Remote-Email`. Every name
+  in that list must also appear in the middleware's `authResponseHeaders`,
+  which is what makes Traefik overwrite it instead of passing the browser's
+  own value through.
 
 ## Mini App
 
@@ -447,8 +452,8 @@ for exactly that reason.
   read alike; it is Telegram HTML with everything a person typed escaped.
   Sending is best-effort — the row is already saved, and reporting a Telegram
   outage as a failed save invites a duplicate. The byline is the Telegram
-  `first_name` for the bot and the Mini App; on the web it is whatever
-  oauth2-proxy forwards, falling back to "веб".
+  `first_name` for the bot and the Mini App; on the web it is whatever the
+  forward-auth proxy forwards, falling back to "веб".
 - **And about every payment**, on the same terms: `payments.Service` announces
   an add, an edit and a delete, so "я вже заплатила за футбол" and "треба
   заплатити за футбол" stop being true in the same evening. The message names
@@ -648,7 +653,7 @@ a person can pick that the app refuses.
 - Container runs as `1000:1000`, mounts `~/server_data/family-hub` for the
   SQLite file, `family-hub.db`.
 - Four Traefik routers on the same host, `family.conformist.name`:
-  - the app router → `auth-chain@file` middleware (oauth2-proxy in front).
+  - the app router → `auth-chain@file` middleware (tinyauth in front).
   - the bot router — host plus `PathPrefix(<webhook path>)` →
     `no-auth-chain@file`, so Telegram can POST without going through
     oauth. The path is loaded from SOPS, so the repo never reveals it.

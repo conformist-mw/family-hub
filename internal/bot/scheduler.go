@@ -146,13 +146,24 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 		return
 	}
 
-	e := sl.Enrollment
-	text := fmt.Sprintf("🔴 %s · %s сьогодні у %s: %s", e.Person, e.Name, sl.Slot.Time, emptyBalanceText(bal))
-	if _, err := b.sendToGroup(text); err != nil {
+	if _, err := b.sendToGroup(balanceWarningText(bal, sl.Slot.Time)); err != nil {
 		b.logger.Error("bot: send balance warning", "err", err, "eid", eid)
 		return
 	}
 	warned[eid] = true
+}
+
+// balanceWarningText renders the pre-lesson warning that nothing is paid for.
+// Person and course come off the balance rather than the slot's enrollment
+// copy, so the line has one source.
+//
+// The payment details ride along: this is the moment the money is actually
+// needed, and looking the payee up in the web UI is the step that gets
+// skipped. The monthly reminder has carried them since it was written; this
+// half was the one that forgot.
+func balanceWarningText(bal model.Balance, slotTime string) string {
+	return fmt.Sprintf("🔴 %s · %s сьогодні у %s: %s",
+		bal.Person, bal.Name, slotTime, emptyBalanceText(bal)) + paymentDetailsLine(bal)
 }
 
 func emptyBalanceText(bal model.Balance) string {

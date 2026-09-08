@@ -329,21 +329,28 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/store/audit.go`
 - Create: `internal/store/payments_test.go`
 
-- [ ] додати `kind`/`label` у `SELECT`/`INSERT`/`UPDATE`: `GetPayment`,
+- [x] додати `kind`/`label` у `SELECT`/`INSERT`/`UPDATE`: `GetPayment`,
       `ListPayments`, `CreatePayment` (рядок 109), `UpdatePayment` (120)
-- [ ] додати `AND kind='course'` у `PaymentsForEnrollment` (рядок 59) — функція за
+- [x] додати `AND kind='course'` у `PaymentsForEnrollment` (рядок 59) — функція за
       сенсом про пакети занять; дописати чому в doc-коментар
-- [ ] додати `AND kind='course'` у `LastPaymentDate` (рядок 115) — інакше покупка
+- [x] додати `AND kind='course'` у `LastPaymentDate` (рядок 115) — інакше покупка
       кімоно зсуне початок періоду аудиту
-- [ ] тягнути `kind`/`label` у `AuditData.payQ` (рядок 22)
-- [ ] написати тест round-trip `kind`/`label` через `testStore(t)`
-- [ ] **написати регресійний тест №1: курсова оплата, записана `CreatePayment`,
+- [x] тягнути `kind`/`label` у `AuditData.payQ` (рядок 22)
+- [x] написати тест round-trip `kind`/`label` через `testStore(t)`
+- [x] **написати регресійний тест №1: курсова оплата, записана `CreatePayment`,
       знаходиться `PaymentsForEnrollment` і `LastPaymentDate`** (ловить пастку №4)
-- [ ] **написати регресійний тест №2: доп. оплата не рухає баланс** — `Balance.Paid`,
+- [x] **написати регресійний тест №2: доп. оплата не рухає баланс** — `Balance.Paid`,
       `Balance.Remaining`, а для monthly-курсу `Balance.CoveredNow` /
       `Balance.CoversUntil` / `Balance.DaysLeft`
-- [ ] написати тест: `LastPaymentDate` ігнорує `extra`
-- [ ] запустити тести — мусять пройти до задачі 4
+- [x] написати тест: `LastPaymentDate` ігнорує `extra`
+- [x] ➕ `courseByDefault` у `store`: пустий `Kind` при записі означає `course`.
+      Знайдено на тестах — усі наявні сіди збирають `model.Payment{}` напряму,
+      без `Kind`, і після задачі 3 випадали з `kind='course'`-фільтрів
+      (3 падіння в `internal/mini` і `internal/web`). Правити двадцять сідів
+      означало б лишити міну для будь-якого майбутнього прямого виклику;
+      натомість store став тотальним. + тест
+      `TestAPaymentWrittenWithoutAKindIsACoursePayment`
+- [x] запустити тести — мусять пройти до задачі 4
 
 ### Task 4: Повідомлення в групу
 

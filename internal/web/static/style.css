@@ -419,6 +419,9 @@ table.ledger tbody tr:hover td { background: none; }
 .ledger-date { white-space: nowrap; color: var(--hint); width: 1%; font-variant-numeric: tabular-nums; }
 .ledger-bal { text-align: right; color: var(--muted); width: 1%; font-variant-numeric: tabular-nums; }
 tr.ledger-payment { background: var(--accent-weak); }
+/* Money, like a payment, but not the money the balance is made of — so it is
+   tinted rather than sharing the payment row's accent. */
+tr.ledger-extra { background: var(--accent-weak); opacity: .8; font-style: italic; }
 tr.ledger-future { opacity: .55; }
 tr.ledger-future.uncovered { opacity: .85; background: var(--danger-weak); color: var(--danger); }
 

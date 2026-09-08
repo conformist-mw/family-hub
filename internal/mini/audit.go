@@ -162,6 +162,10 @@ func auditSummary(page audit.Page) []string {
 		}
 		out = append(out, line+money(page.Summary.PaidAmount))
 	}
+	// Separate from "оплачено", which pairs its sum with a lesson count.
+	if page.Summary.ExtrasAmount > 0 {
+		out = append(out, "додатково: "+money(page.Summary.ExtrasAmount))
+	}
 	if page.PerLesson {
 		out = append(out, "залишок: "+strconv.Itoa(page.Summary.Opening)+" → "+strconv.Itoa(page.Summary.Closing))
 	}
@@ -219,6 +223,9 @@ func auditRow(r audit.Row, perLesson bool) auditRowDTO {
 		default:
 			row.Label = "оплата"
 		}
+	case audit.KindExtra:
+		row.Amount = money(r.Amount)
+		row.Label = r.What
 	case audit.KindFuture:
 		row.Label = "за розкладом"
 		if !r.Covered {

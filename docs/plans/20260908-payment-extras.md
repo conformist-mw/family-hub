@@ -374,17 +374,17 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/audit/ledger.go`
 - Create: `internal/audit/ledger_test.go` (у `internal/audit/` тестів ще немає — це перший)
 
-- [ ] додати константу `KindExtra` поруч з `KindVisit`/`KindPayment`/`KindFuture`
-- [ ] додати `What string` у `audit.Row` (не `Label` — конфлікт сенсу з
+- [x] додати константу `KindExtra` поруч з `KindVisit`/`KindPayment`/`KindFuture`
+- [x] додати `What string` у `audit.Row` (не `Label` — конфлікт сенсу з
       `auditRowDTO.Label`; не перевикористовувати `Covers`)
-- [ ] додати `ExtrasAmount float64` у `Summary` з коментарем, чому не в `PaidAmount`
-- [ ] у `BuildLedger` віддавати `extra` як `KindExtra` у таймлайні по даті, **не
+- [x] додати `ExtrasAmount float64` у `Summary` з коментарем, чому не в `PaidAmount`
+- [x] у `BuildLedger` віддавати `extra` як `KindExtra` у таймлайні по даті, **не
       торкаючись running balance**, і сумувати в `ExtrasAmount`
-- [ ] написати тест: `extra` стоїть у таймлайні по даті, `Balance` після неї не
+- [x] написати тест: `extra` стоїть у таймлайні по даті, `Balance` після неї не
       змінюється
-- [ ] написати тест: `PaidAmount` не містить доп. оплату, `ExtrasAmount` містить
-- [ ] написати тест на порядок при однаковій даті (оплата перед візитом — наявне правило)
-- [ ] запустити тести — мусять пройти до задачі 6
+- [x] написати тест: `PaidAmount` не містить доп. оплату, `ExtrasAmount` містить
+- [x] написати тест на порядок при однаковій даті (оплата перед візитом — наявне правило)
+- [x] запустити тести — мусять пройти до задачі 6
 
 ### Task 6: Три рендерери ленти
 
@@ -396,16 +396,16 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Create: `internal/audit/text_test.go`
 - Modify: `internal/mini/audit_test.go`
 
-- [ ] `text.go:88` — додати `case KindExtra` з рендером «за що» і сумою
-- [ ] `text.go:54` — додати рядок підсумку про доп. оплати, окремо від
+- [x] `text.go:88` — додати `case KindExtra` з рендером «за що» і сумою
+- [x] `text.go:54` — додати рядок підсумку про доп. оплати, окремо від
       «Оплачено за період»
-- [ ] `audit.html:53-57` — додати гілку `{{if eq .Kind "extra"}}` і власний клас рядка
-- [ ] `style.css:421` — додати правило для нового класу поруч з `tr.ledger-payment`
-- [ ] `audit.html:31-32` — вивести `ExtrasAmount` окремим `<span>`
-- [ ] `mini/audit.go:212` — додати `case audit.KindExtra`, заповнити `Label` з `What`
-- [ ] `mini/audit.go:158` — додати доп. оплати в підсумковий рядок
-- [ ] написати тести на текстовий рендер і на mini-DTO для рядка `extra`
-- [ ] запустити тести — мусять пройти до задачі 7
+- [x] `audit.html:53-57` — додати гілку `{{if eq .Kind "extra"}}` і власний клас рядка
+- [x] `style.css:421` — додати правило для нового класу поруч з `tr.ledger-payment`
+- [x] `audit.html:31-32` — вивести `ExtrasAmount` окремим `<span>`
+- [x] `mini/audit.go:212` — додати `case audit.KindExtra`, заповнити `Label` з `What`
+- [x] `mini/audit.go:158` — додати доп. оплати в підсумковий рядок
+- [x] написати тести на текстовий рендер і на mini-DTO для рядка `extra`
+- [x] запустити тести — мусять пройти до задачі 7
 
 ### Task 7: Статистика по курсах
 

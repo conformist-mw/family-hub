@@ -58,6 +58,11 @@ func RenderText(v View) string {
 			b.WriteString(fmt.Sprintf("Оплачено за період: %s\n", money(v.Summary.PaidAmount)))
 		}
 	}
+	// Its own line, not folded into the one above: that one pairs a sum with
+	// a lesson count, and an extra bought no lessons.
+	if v.Summary.ExtrasAmount > 0 {
+		b.WriteString(fmt.Sprintf("Додатково за період: %s\n", money(v.Summary.ExtrasAmount)))
+	}
 	if perLesson {
 		b.WriteString(fmt.Sprintf("Залишок: %d (на початок періоду: %d)\n", v.Summary.Closing, v.Summary.Opening))
 	}
@@ -95,6 +100,12 @@ func rowText(r Row, perLesson bool) string {
 		default:
 			s = fmt.Sprintf("оплата (%s)", money(r.Amount))
 		}
+		if r.Comment != "" {
+			s += " — " + r.Comment
+		}
+		return s
+	case KindExtra:
+		s := fmt.Sprintf("додатково: %s (%s)", r.What, money(r.Amount))
 		if r.Comment != "" {
 			s += " — " + r.Comment
 		}

@@ -287,16 +287,16 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/model/model.go`
 - Modify: `internal/db/migrations_test.go`
 
-- [ ] створити міграцію з двома `ALTER TABLE payments ADD COLUMN` (`kind`, `label`)
+- [x] створити міграцію з двома `ALTER TABLE payments ADD COLUMN` (`kind`, `label`)
       і `-- +goose Down`, що знімає обидві колонки
-- [ ] додати константи `PaymentKindCourse` / `PaymentKindExtra` в `internal/model/model.go`
-- [ ] додати `Kind` і `Label` у `model.Payment`
-- [ ] переписати коментар `model.go:213-215`: спершу `Kind`, і тільки в `course` далі
+- [x] додати константи `PaymentKindCourse` / `PaymentKindExtra` в `internal/model/model.go`
+- [x] додати `Kind` і `Label` у `model.Payment`
+- [x] переписати коментар `model.go:213-215`: спершу `Kind`, і тільки в `course` далі
       вирішує `Billing`; у `extra` не значима жодна з половин
-- [ ] написати тест міграції: після `migrated(t)` голий
+- [x] написати тест міграції: після `migrated(t)` голий
       `INSERT INTO payments (enrollment_id, date, amount, lessons_paid)` дає
       `kind='course'` і `label=''`
-- [ ] запустити тести — мусять пройти до задачі 2
+- [x] запустити тести — мусять пройти до задачі 2
 
 ### Task 2: Гілка extra у Form.Parse
 
@@ -304,19 +304,23 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/payments/payments.go`
 - Modify: `internal/payments/payments_test.go`
 
-- [ ] додати `Kind` і `Label` у `payments.Form` з коментарем, що порожній `Kind`
+- [x] додати `Kind` і `Label` у `payments.Form` з коментарем, що порожній `Kind`
       означає `course`
-- [ ] додати гілку `Kind == PaymentKindExtra` у `Form.Parse` перед гілкою біллінгу:
+- [x] додати гілку `Kind == PaymentKindExtra` у `Form.Parse` перед гілкою біллінгу:
       вимагає непорожній `Label`, повертає без уроків і місяця
-- [ ] **виставити `p.Kind = model.PaymentKindCourse` на курсовому шляху** з
+- [x] **виставити `p.Kind = model.PaymentKindCourse` на курсовому шляху** з
       коментарем чому (явний `INSERT` у задачі 3 обходить `DEFAULT`)
-- [ ] написати тести: `extra` з `label` парситься на обох типах біллінгу; уроки й
+- [x] ➕ `Kind`/`Label` виставляються **до** валідації дати й суми: форма з
+      помилкою перерендерюється з того, що повернув `Parse`, тож інакше доп.
+      оплата з опискою в сумі перемалювалася б як курсова і без label
+      (+ тест `TestParseKeepsTheExtraKindThroughAValidationError`)
+- [x] написати тести: `extra` з `label` парситься на обох типах біллінгу; уроки й
       місяць не вимагаються
-- [ ] написати тест помилки: `extra` з порожнім/пробільним `label` →
+- [x] написати тест помилки: `extra` з порожнім/пробільним `label` →
       `valid.FieldError{Field: "label"}`
-- [ ] **написати регресійний тест: порожній `Kind` дає `Kind == "course"`** у
+- [x] **написати регресійний тест: порожній `Kind` дає `Kind == "course"`** у
       результаті `Parse`, на `per_lesson` і на `monthly`
-- [ ] запустити тести — мусять пройти до задачі 3
+- [x] запустити тести — мусять пройти до задачі 3
 
 ### Task 3: Store — CRUD, фільтри, регрес балансу
 

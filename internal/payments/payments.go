@@ -2,10 +2,15 @@
 // what a payment buys and how a form describing it is validated — above the
 // store and below any HTTP surface.
 //
-// A payment means one of two things, and which one is not the person's to
-// choose: a per-lesson course is paid for in lessons, a monthly one in whole
-// calendar months. The enrollment decides, so the branch lives here rather
-// than once in the web form and again in the Mini App.
+// A course payment means one of two things, and which one is not the person's
+// to choose: a per-lesson course is paid for in lessons, a monthly one in
+// whole calendar months. The enrollment decides, so the branch lives here
+// rather than once in the web form and again in the Mini App.
+//
+// An extra is the third kind and the one thing the person does choose: money
+// the course asked for that buys neither — a kimono, a kit, a trip. It carries
+// a label instead of a lesson count or a month, and nothing about it reaches
+// the balance.
 package payments
 
 import (
@@ -23,7 +28,13 @@ import (
 // reason the appointment and slot forms use them: that is what an input
 // produces, and a rejected value has to survive a re-render.
 type Form struct {
-	Date        string // YYYY-MM-DD — the day the money moved
+	// Kind is model.PaymentKindCourse or model.PaymentKindExtra. Empty means
+	// a course payment, so every surface and test that predates extras keeps
+	// working untouched.
+	Kind string
+	Date string // YYYY-MM-DD — the day the money moved
+	// Label is what an extra was for. Required for an extra, ignored otherwise.
+	Label       string
 	Amount      string
 	Lessons     string // per-lesson billing: how many lessons this buys
 	CoversMonth string // monthly billing: "2026-09"
@@ -34,9 +45,25 @@ type Form struct {
 // store. The payment comes back filled as far as parsing got, so a surface
 // that re-renders the form still has what the person typed.
 func (f Form) Parse(billingType string) (model.Payment, error) {
+	// Kind and Label are set before anything can fail, because a form that
+	// comes back with a validation error is re-rendered from this value: had
+	// they waited until after the date and amount parsed, an extra rejected
+	// for a bad amount would redraw as a course payment with its label gone.
+	//
+	// Kind is set explicitly on both paths rather than leaning on the column
+	// default, which is exactly what a query naming `kind` — as the store's
+	// INSERT and UPDATE do — stops applying. Left empty, a course payment
+	// would be written as kind='' and then dropped by the `kind = 'course'`
+	// filters on PaymentsForEnrollment and LastPaymentDate: no error
+	// anywhere, just an empty /packs and an audit period starting at the
+	// beginning of time.
 	p := model.Payment{
+		Kind:    model.PaymentKindCourse,
 		Date:    strings.TrimSpace(f.Date),
 		Comment: strings.TrimSpace(f.Comment),
+	}
+	if f.Kind == model.PaymentKindExtra {
+		p.Kind, p.Label = model.PaymentKindExtra, strings.TrimSpace(f.Label)
 	}
 	if _, err := model.ParseDate(p.Date); err != nil {
 		return p, valid.FieldError{Field: "date", Message: "вкажи коректну дату оплати"}
@@ -48,6 +75,15 @@ func (f Form) Parse(billingType string) (model.Payment, error) {
 		return p, valid.FieldError{Field: "amount", Message: "вкажи коректну суму"}
 	}
 	p.Amount = amount
+
+	// An extra buys neither lessons nor a month, so the billing type says
+	// nothing about it and the branch below must not run.
+	if p.IsExtra() {
+		if p.Label == "" {
+			return p, valid.FieldError{Field: "label", Message: "вкажи, за що оплата"}
+		}
+		return p, nil
+	}
 
 	if billingType == model.BillingMonthly {
 		from, until, err := monthRange(strings.TrimSpace(f.CoversMonth))

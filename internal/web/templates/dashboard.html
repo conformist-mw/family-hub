@@ -54,7 +54,7 @@
           <td class="dash-date">{{dateShort .Date}}</td>
           <td>{{.Person}} · {{classLabel .Class .ClassDesc}}</td>
           <td class="dash-what">
-            {{if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateShort (deref .CoversUntil)}}{{end}}
+            {{if eq .Kind "extra"}}<span class="badge-extra">доп.</span> {{.Label}}{{else if .LessonsPaid}}+{{deref64 .LessonsPaid}} зан.{{else if .CoversUntil}}до {{dateShort (deref .CoversUntil)}}{{end}}
           </td>
           <td class="dash-amount">{{money .Amount}}</td>
         </tr>

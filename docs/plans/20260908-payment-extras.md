@@ -414,15 +414,15 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/web/templates/stats.html`
 - Modify: `internal/store/stats_test.go`
 
-- [ ] додати `Extras float64` у `CourseSpend`
-- [ ] додати `SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END)` у
+- [x] додати `Extras float64` у `CourseSpend`
+- [x] додати `SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END)` у
       ByCourse-запит (рядок 124) і в `Scan`
-- [ ] `stats.html:70-74` — показати «з них N доп.» у рядку курсу, коли `Extras > 0`
-- [ ] написати тест: `ByCourse` віддає повну суму в `Amount` і доп. частину в `Extras`;
+- [x] `stats.html:70-74` — показати «з них N доп.» у рядку курсу, коли `Extras > 0`
+- [x] написати тест: `ByCourse` віддає повну суму в `Amount` і доп. частину в `Extras`;
       курс без доп. оплат має `Extras == 0`
-- [ ] **написати тест, що доп. оплата включена в `TotalAll`, `ByMonth`, `ByPerson` і
+- [x] **написати тест, що доп. оплата включена в `TotalAll`, `ByMonth`, `ByPerson` і
       `TotalPaid`** — це закріплює задум «видно в статистиці» у всіх розрізах
-- [ ] запустити тести — мусять пройти до задачі 8
+- [x] запустити тести — мусять пройти до задачі 8
 
 ### Task 8: Веб — форма, список, дашборд
 
@@ -434,26 +434,26 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/web/static/style.css`
 - Modify: `internal/web/routes_test.go`
 
-- [ ] `web/payments.go` — читати `r.FormValue("kind")` і `r.FormValue("label")`
+- [x] `web/payments.go` — читати `r.FormValue("kind")` і `r.FormValue("label")`
       у `payments.Form`
-- [ ] `payment_form.html` — перемикач виду згори («За заняття» / «Додатково») і блок
+- [x] `payment_form.html` — перемикач виду згори («За заняття» / «Додатково») і блок
       `#block-extra` з полем «За що»
-- [ ] **`payment_form.html` — префіл при редагуванні**: `value="{{$p.Label}}"` і
+- [x] **`payment_form.html` — префіл при редагуванні**: `value="{{$p.Label}}"` і
       перемикач за `$p.Kind`; інакше наявна доп. оплата відкриється як курсова і
       збережеться зі втратою або з помилкою «вкажи кількість оплачених занять».
       Те саме для шляху повторного рендеру з помилкою (`renderPaymentFormError`,
       `web/payments.go:177`)
-- [ ] `payment_form.html:68-74` — розширити `toggle()`: спершу вибраний вид, при
+- [x] `payment_form.html:68-74` — розширити `toggle()`: спершу вибраний вид, при
       `extra` ховати обидва блоки біллінгу; при `course` — наявна логіка по `data-billing`
-- [ ] `payments.html:29` — додати гілку `{{if eq .Kind "extra"}}{{.Label}}` **першою**,
+- [x] `payments.html:29` — додати гілку `{{if eq .Kind "extra"}}{{.Label}}` **першою**,
       плюс бейдж (правило в `style.css`), щоб «Кімоно» не читалося як оплата занять
-- [ ] `dashboard.html:57` — додати ту саму гілку в блок «Останні оплати»
+- [x] `dashboard.html:57` — додати ту саму гілку в блок «Останні оплати»
       (там немає навіть `{{else}}`, тож зараз клітинка була б порожня)
-- [ ] написати тест: POST форми з `kind=extra` створює рядок з `label`
-- [ ] написати тест: POST з `kind=extra` без `label` повертає форму з помилкою поля
-- [ ] **написати тест edit round-trip**: GET форми наявної доп. оплати містить `label`
+- [x] написати тест: POST форми з `kind=extra` створює рядок з `label`
+- [x] написати тест: POST з `kind=extra` без `label` повертає форму з помилкою поля
+- [x] **написати тест edit round-trip**: GET форми наявної доп. оплати містить `label`
       і вид `extra`; PUT без змін не перетворює її на курсову
-- [ ] запустити тести — мусять пройти до задачі 9
+- [x] запустити тести — мусять пройти до задачі 9
 
 ### Task 9: Mini App
 
@@ -464,19 +464,19 @@ SUM(CASE WHEN pm.kind='extra' THEN pm.amount ELSE 0 END) AS extras
 - Modify: `internal/mini/home_test.go`
 - Modify: `internal/mini/payments_test.go`
 
-- [ ] `home.go` — додати `Kind` і `Label` у `homePaymentDTO`
-- [ ] `home.go:223` — третій `case` у `switch`: `Detail = p.Label`
-- [ ] `payments.go` — додати `kind` і `label` у `paymentForm` і в `form()`
-- [ ] `payments.js` — сегмент виду згори форми **на наявних `.chips`/`.chip`/`.chip-on`**
+- [x] `home.go` — додати `Kind` і `Label` у `homePaymentDTO`
+- [x] `home.go:223` — третій `case` у `switch`: `Detail = p.Label`
+- [x] `payments.go` — додати `kind` і `label` у `paymentForm` і в `form()`
+- [x] `payments.js` — сегмент виду згори форми **на наявних `.chips`/`.chip`/`.chip-on`**
       (`mini/static/style.css:228-239`, той самий ідіом, що чипси місяця на
       `payments.js:144-151`) — CSS не чіпаємо
-- [ ] `payments.js` — при `extra` не рендерити ні «Оплачено занять», ні чипи місяців,
+- [x] `payments.js` — при `extra` не рендерити ні «Оплачено занять», ні чипи місяців,
       замість них поле «За що»
-- [ ] `payments.js` — додати `kind`/`label` у тіло запиту і в початковий `useState`
+- [x] `payments.js` — додати `kind`/`label` у тіло запиту і в початковий `useState`
       для режиму редагування
-- [ ] написати тест: `homePaymentRows` дає `Detail = label` для `extra`
-- [ ] написати тест: POST/PUT `mini` API з `kind=extra` (успіх + помилка поля `label`)
-- [ ] запустити тести — мусять пройти до задачі 10
+- [x] написати тест: `homePaymentRows` дає `Detail = label` для `extra`
+- [x] написати тест: POST/PUT `mini` API з `kind=extra` (успіх + помилка поля `label`)
+- [x] запустити тести — мусять пройти до задачі 10
 
 ### Task 10: Verify acceptance criteria
 

@@ -418,6 +418,13 @@ table.ledger td { padding: 8px; border-top: 1px solid var(--line); border-bottom
 table.ledger tbody tr:hover td { background: none; }
 .ledger-date { white-space: nowrap; color: var(--hint); width: 1%; font-variant-numeric: tabular-nums; }
 .ledger-bal { text-align: right; color: var(--muted); width: 1%; font-variant-numeric: tabular-nums; }
+/* An extra sits in the same "за що" column as "8 зан." and "абон. 01.09—30.09",
+   so it needs a marker: without one "Кімоно" reads as a kind of lesson. */
+.badge-extra { font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--accent-weak); color: var(--muted); vertical-align: middle; }
+.kind-switch { display: flex; gap: 16px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.kind-switch legend { padding: 0 6px; color: var(--hint); font-size: 13px; }
+.kind-switch .radio { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: 400; }
+.kind-switch .radio input { width: auto; margin: 0; }
 tr.ledger-payment { background: var(--accent-weak); }
 /* Money, like a payment, but not the money the balance is made of — so it is
    tinted rather than sharing the payment row's accent. */

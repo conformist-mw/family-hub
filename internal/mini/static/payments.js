@@ -47,15 +47,21 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
   const isEdit = Boolean(payment && payment.id)
   // A new payment takes the billing from the course card it was opened from;
   // an existing one from the row, which carries its course's billing type.
-  const monthly = (isEdit ? payment.billing : course.billing) === 'monthly'
+  const billingMonthly = (isEdit ? payment.billing : course.billing) === 'monthly'
   const today = todayISO()
   const [values, setValues] = useState(() => ({
+    kind: (isEdit && payment.kind) || 'course',
     date: isEdit ? payment.dateISO : today,
+    label: (isEdit && payment.label) || '',
     amount: isEdit ? payment.value : '',
     lessons: isEdit ? payment.lessons : '',
     month: (isEdit && payment.month) || today.slice(0, 7),
     comment: (isEdit && payment.comment) || '',
   }))
+  // An extra buys neither lessons nor a month, so the course's billing type
+  // says nothing about which field to ask for — the kind decides first.
+  const isExtra = values.kind === 'extra'
+  const monthly = billingMonthly && !isExtra
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -67,6 +73,10 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
     guardUnsaved(true)
     setValues((v) => ({ ...v, month: value }))
   }
+  const pickKind = (value) => {
+    guardUnsaved(true)
+    setValues((v) => ({ ...v, kind: value }))
+  }
   const done = () => guardUnsaved(false)
 
   const submit = async (e) => {
@@ -77,7 +87,9 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
     // Both fields always ride along; the server keeps whichever the course's
     // billing calls for and ignores the other.
     const body = {
+      kind: values.kind,
       date: values.date,
+      label: values.label,
       amount: values.amount,
       lessons: values.lessons,
       month: values.month,
@@ -98,7 +110,7 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
   const remove = async () => {
     // Deleting a payment moves the balance, and unlike a visit it leaves no
     // row behind — hence the question.
-    if (!confirm('Видалити цю оплату? Баланс перерахується.')) return
+    if (!confirm(isExtra ? 'Видалити цю оплату?' : 'Видалити цю оплату? Баланс перерахується.')) return
     setSaving(true)
     try {
       await api(`/payments/${payment.id}`, { method: 'DELETE' })
@@ -120,14 +132,31 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
         <span class="form-head-when">${head}</span>
       </p>
 
-      ${!isEdit && course.balance &&
+      ${!isEdit && !isExtra && course.balance &&
       html`<p class="sec-empty">Зараз: <span class="state-${course.state}">${course.balance}</span></p>`}
+
+      <div class="card">
+        <span class="label">Що це</span>
+        <div class="chips">
+          ${[{ value: 'course', label: 'За заняття' }, { value: 'extra', label: 'Додатково' }].map(
+            (k) => html`
+              <button type="button" key=${k.value}
+                class="chip ${values.kind === k.value ? 'chip-on' : ''}"
+                onClick=${() => pickKind(k.value)}>${k.label}</button>`,
+          )}
+        </div>
+      </div>
 
       <div class="card card-rows">
         <${Field} label="Сума, ₴" error=${errFor('amount')}>
           <input value=${values.amount} onInput=${set('amount')} inputmode="decimal" placeholder="3200" />
         <//>
-        ${!monthly &&
+        ${isExtra &&
+        html`
+          <${Field} label="За що" error=${errFor('label')}>
+            <input value=${values.label} onInput=${set('label')} placeholder="Кімоно, форма, поїздка…" />
+          <//>`}
+        ${!isExtra && !monthly &&
         html`
           <${Field} label="Оплачено занять" error=${errFor('lessons')}>
             <input value=${values.lessons} onInput=${set('lessons')} inputmode="numeric" placeholder="8" />

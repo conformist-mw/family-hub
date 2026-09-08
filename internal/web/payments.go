@@ -81,7 +81,7 @@ func (a *App) handlePaymentNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.render(w, "payment_form.html", "Нова оплата", "payments", paymentFormData{
-		Payment:     model.Payment{Date: today()},
+		Payment:     model.Payment{Date: today(), Kind: model.PaymentKindCourse},
 		Enrollments: enrollments,
 		Today:       today(),
 	})
@@ -154,7 +154,9 @@ func paymentForm(r *http.Request) (int64, payments.Form, error) {
 	}
 	enrollmentID, _ := strconv.ParseInt(r.FormValue("enrollment_id"), 10, 64)
 	return enrollmentID, payments.Form{
+		Kind:        r.FormValue("kind"),
 		Date:        r.FormValue("date"),
+		Label:       normalizeName(r.FormValue("label")),
 		Amount:      r.FormValue("amount"),
 		Lessons:     r.FormValue("lessons_paid"),
 		CoversMonth: r.FormValue("covers_month"),

@@ -71,7 +71,7 @@
     <div class="bar-row">
       <span class="bar-label">{{.Person}} · {{classLabel .Class .ClassDesc}}</span>
       <span class="bar-track"><span class="bar-fill" style="width:{{barPct .Amount $s.MaxCourse}}%"></span></span>
-      <span class="bar-value">{{money .Amount}} <span class="muted">/ {{.Attended}}</span></span>
+      <span class="bar-value">{{money .Amount}}{{if .Extras}} <span class="muted">(з них {{money .Extras}} доп.)</span>{{end}} <span class="muted">/ {{.Attended}}</span></span>
     </div>
     {{else}}
     <p class="empty">Оплат немає.</p>

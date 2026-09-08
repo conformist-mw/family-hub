@@ -108,10 +108,23 @@ func billingReminderText(bal model.Balance) string {
 	if bal.CurrentPrice > 0 {
 		fmt.Fprintf(&sb, "\nДо оплати %s ₴.", formatAmount(bal.CurrentPrice))
 	}
-	if bal.PaymentInstructions != "" {
-		sb.WriteString("\nРеквізити: " + bal.PaymentInstructions)
-	}
+	sb.WriteString(paymentDetailsLine(bal))
 	return sb.String()
+}
+
+// paymentDetailsLine is the "where to send the money" line, shared by the two
+// messages that say it is time to pay: this one for a monthly pass and the
+// pre-lesson warning in scheduler.go for a per-lesson course.
+//
+// Shared rather than written twice because the whole point of the field is to
+// arrive at that moment — a course that is out of paid lessons needs the payee
+// as much as one whose month is ending, and the per-lesson warning used to be
+// the half that forgot. Empty details produce no line at all, not an empty one.
+func paymentDetailsLine(bal model.Balance) string {
+	if bal.PaymentInstructions == "" {
+		return ""
+	}
+	return "\nРеквізити: " + bal.PaymentInstructions
 }
 
 // formatDate turns a stored "2006-01-02" into "02.01" for a one-line message;

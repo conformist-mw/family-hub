@@ -89,3 +89,79 @@ func TestBillingReminderTextOmitsMissingDetails(t *testing.T) {
 		t.Errorf("the last day should be said plainly, got:\n%s", text)
 	}
 }
+
+// A per-lesson course that has run out gets its warning from the scheduler,
+// not from the billing reminder — and that half used to drop the payment
+// details, so the message said money was due without saying where to send it.
+func TestBalanceWarningCarriesPaymentDetails(t *testing.T) {
+	bal := model.Balance{
+		Enrollment: model.Enrollment{
+			Person: "Демид", Name: "Логопед", BillingType: model.BillingPerLesson,
+			PaymentInstructions: "ФОП Іваненко, UA12 3456",
+		},
+		Paid: 4, Done: 4, Remaining: 0,
+	}
+
+	text := balanceWarningText(bal, "17:00")
+
+	for _, want := range []string{"Демид", "Логопед", "17:00", "немає оплачених занять", "UA12 3456"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("warning should mention %q, got:\n%s", want, text)
+		}
+	}
+	// The details belong on their own line: the first line is what a phone
+	// notification shows, and an IBAN pushed into it hides the course name.
+	lines := strings.Split(text, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want two lines, got %d:\n%s", len(lines), text)
+	}
+	if !strings.HasPrefix(lines[1], "Реквізити: ") {
+		t.Errorf("second line = %q", lines[1])
+	}
+}
+
+// A monthly course with no active pass gets the same warning shape, with the
+// wording that fits a pass rather than a pack of lessons.
+func TestBalanceWarningWordsAMonthlyCourseDifferently(t *testing.T) {
+	bal := model.Balance{
+		Enrollment: model.Enrollment{
+			Person: "Демид", Name: "Карате", BillingType: model.BillingMonthly,
+		},
+	}
+	text := balanceWarningText(bal, "18:30")
+
+	if !strings.Contains(text, "немає активного абонемента") {
+		t.Errorf("got:\n%s", text)
+	}
+	// Nothing was set, so no details line at all — not an empty one.
+	if strings.Contains(text, "Реквізити") {
+		t.Errorf("no details were set, got:\n%s", text)
+	}
+	if strings.Contains(text, "\n") {
+		t.Errorf("want a single line without details, got:\n%s", text)
+	}
+}
+
+// The two messages that say "time to pay" must word the details line the same;
+// they render it through one helper for that reason.
+func TestBothPaymentMessagesShareTheDetailsWording(t *testing.T) {
+	const details = "ФОП Іваненко, UA12 3456"
+
+	monthly := monthlyBalance(1, noticeDays(5), true)
+	monthly.PaymentInstructions = details
+
+	perLesson := model.Balance{
+		Enrollment: model.Enrollment{
+			Person: "Демид", Name: "Логопед", BillingType: model.BillingPerLesson,
+			PaymentInstructions: details,
+		},
+	}
+
+	line := "Реквізити: " + details
+	if !strings.Contains(billingReminderText(monthly), line) {
+		t.Errorf("monthly reminder lost the shared wording:\n%s", billingReminderText(monthly))
+	}
+	if !strings.Contains(balanceWarningText(perLesson, "17:00"), line) {
+		t.Errorf("pre-lesson warning lost the shared wording:\n%s", balanceWarningText(perLesson, "17:00"))
+	}
+}

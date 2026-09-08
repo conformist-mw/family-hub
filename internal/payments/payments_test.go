@@ -153,9 +153,9 @@ func TestParseExtraRequiresALabel(t *testing.T) {
 
 // The store names `kind` in its INSERT and UPDATE, which is precisely when the
 // column default stops applying. An empty Kind on the form therefore has to
-// come out of Parse as "course" — written as ” it would be dropped by the
-// `kind = 'course'` filters on PaymentsForEnrollment and LastPaymentDate, and
-// nothing would report an error: /packs would just go empty.
+// come out of Parse as "course" — written as an empty string it would be
+// dropped by the `kind = 'course'` filters on PaymentsForEnrollment and
+// LastPaymentDate, and nothing would report an error: /packs would go empty.
 func TestParseDefaultsToACoursePayment(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -224,6 +224,14 @@ func TestGroupTextNamesWhatTheMoneyBought(t *testing.T) {
 			model.Payment{Class: "Футбол", Person: "Єгор", Amount: 3200, CoversFrom: &from, CoversUntil: &until},
 			"💸 Оплата (Олег):\n💳 <b>Футбол</b> · Єгор — 3200 ₴ · за вересень",
 		},
+		{
+			// The label is what makes an extra legible in the group: without
+			// it the message reads as an unexplained sum against the course.
+			"an extra",
+			model.Payment{Class: "Карате", Person: "Демид", Amount: 1500,
+				Kind: model.PaymentKindExtra, Label: "Кімоно"},
+			"💸 Оплата (Олег):\n💳 <b>Карате</b> · Демид — 1500 ₴ · Кімоно",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,5 +261,23 @@ func TestGroupTextWithoutAuthor(t *testing.T) {
 	got := GroupChangeText(model.Payment{Class: "Логопед", Amount: 500}, "")
 	if !strings.HasPrefix(got, "🔄 Оплату змінено:\n") {
 		t.Errorf("got %q", got)
+	}
+}
+
+// Format appends what covers() returns without escaping it, which was safe
+// while that was only ever a numeral or a month name. A label is typed by a
+// person, and an unescaped "&" makes Telegram reject the whole message — after
+// the row is already saved, so the group would hear nothing at all.
+func TestGroupTextEscapesTheExtraLabel(t *testing.T) {
+	p := model.Payment{
+		Class: "Карате", Person: "Демид", Amount: 1500,
+		Kind: model.PaymentKindExtra, Label: "Кімоно & пояс <9>",
+	}
+	got := GroupAddText(p, "Олег")
+	if strings.Contains(got, "Кімоно & пояс <9>") {
+		t.Errorf("the label went in raw: %q", got)
+	}
+	if !strings.Contains(got, "Кімоно &amp; пояс &lt;9&gt;") {
+		t.Errorf("got %q, want the label escaped", got)
 	}
 }

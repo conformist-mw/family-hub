@@ -17,10 +17,10 @@ package actor
 import "strings"
 
 // Unknown is what a surface passes as the author when the write is
-// authenticated but the author cannot be named — oauth2-proxy forwarded no
-// username, say. It is fine in a group byline, where it says where the change
-// came from, and must never reach a `person` field: writing it there swaps one
-// unreadable value for another.
+// authenticated but the author cannot be named — the forward-auth proxy sent
+// no identity headers, say. It is fine in a group byline, where it says where
+// the change came from, and must never reach a `person` field: writing it
+// there swaps one unreadable value for another.
 const Unknown = "веб"
 
 // selfNames are the ways somebody writes "me" in a person field. The list

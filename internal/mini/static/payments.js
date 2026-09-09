@@ -43,7 +43,7 @@ function monthOptions(iso, extra) {
 
 const monthValue = ({ year, month }) => `${year}-${String(month + 1).padStart(2, '0')}`
 
-export function PaymentForm({ course, payment, onSaved, onCancel }) {
+export function PaymentForm({ course, payment, labels, onSaved, onCancel }) {
   const isEdit = Boolean(payment && payment.id)
   // A new payment takes the billing from the course card it was opened from;
   // an existing one from the row, which carries its course's billing type.
@@ -76,6 +76,13 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
   const pickKind = (value) => {
     guardUnsaved(true)
     setValues((v) => ({ ...v, kind: value }))
+  }
+  // A chip fills the field rather than replacing it: the label stays free
+  // text, and the chips are only there so the one paid every week — school
+  // meals — is not retyped, and not respelled, thirty times a year.
+  const pickLabel = (value) => {
+    guardUnsaved(true)
+    setValues((v) => ({ ...v, label: value }))
   }
   const done = () => guardUnsaved(false)
 
@@ -155,6 +162,16 @@ export function PaymentForm({ course, payment, onSaved, onCancel }) {
         html`
           <${Field} label="За що" error=${errFor('label')}>
             <input value=${values.label} onInput=${set('label')} placeholder="Кімоно, форма, поїздка…" />
+            ${(labels || []).length > 0 &&
+            html`
+              <div class="chips chips-inline">
+                ${labels.map(
+                  (l) => html`
+                    <button type="button" key=${l}
+                      class="chip ${values.label === l ? 'chip-on' : ''}"
+                      onClick=${() => pickLabel(l)}>${l}</button>`,
+                )}
+              </div>`}
           <//>`}
         ${!isExtra && !monthly &&
         html`

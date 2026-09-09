@@ -239,6 +239,7 @@ function App() {
       <${PaymentForm}
         course=${screen.course}
         payment=${screen.payment}
+        labels=${(home.data && home.data.labels) || []}
         onSaved=${() => { closeAll(); loadCourses(); loadHome() }}
         onCancel=${pop} />`
   }

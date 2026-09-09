@@ -83,6 +83,11 @@ type homeDTO struct {
 	Upcoming []agendaItemDTO  `json:"upcoming"`
 	Courses  []homeCourseDTO  `json:"courses"`
 	Payments []homePaymentDTO `json:"payments"`
+	// Labels are the extra labels already in use, for the payment form's
+	// quick-pick chips. They ride here rather than behind an endpoint of their
+	// own because the form is opened from this screen and this payload is
+	// already fetched by the time it can be.
+	Labels []string `json:"labels"`
 }
 
 func (rt *Router) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +130,14 @@ func (rt *Router) handleHome(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errInternal)
 		return
 	}
+	// Best-effort, unlike everything above it: a missing chip row costs a
+	// shortcut, not the screen, and this one query must not be what turns the
+	// home tab into an error.
+	labels, err := rt.store.FrequentExtraLabels(6)
+	if err != nil {
+		rt.log.Error("mini: extra labels", "err", err)
+		labels = nil
+	}
 
 	rt.writeJSON(w, http.StatusOK, homeDTO{
 		Date:     model.WeekdayFull[int(now.Weekday())] + ", " + dayAndMonth(now),
@@ -132,6 +145,7 @@ func (rt *Router) handleHome(w http.ResponseWriter, r *http.Request) {
 		Upcoming: agendaRows(head(day.Upcoming, homeUpcoming)),
 		Courses:  homeCourses(balances, absences, scheduleLines(slots)),
 		Payments: homePaymentRows(payments),
+		Labels:   labels,
 	})
 }
 

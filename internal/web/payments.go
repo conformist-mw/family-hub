@@ -69,9 +69,35 @@ func (a *App) handlePayments(w http.ResponseWriter, r *http.Request) {
 type paymentFormData struct {
 	Payment     model.Payment
 	Enrollments []model.Enrollment
-	IsEdit      bool
-	Today       string
-	Error       string
+	// Frequent and Labels drive the quick-pick chip rows, the same pattern the
+	// visit form uses for courses and skip reasons. Both are conveniences: the
+	// select and the text input below them still accept anything.
+	Frequent []model.Enrollment
+	Labels   []string
+	IsEdit   bool
+	Today    string
+	Error    string
+}
+
+// paidEnrollments and labelChips are best-effort: a chip row that fails to
+// load is a missing shortcut, not a form that cannot be filled in, so the
+// error is logged and the row simply does not render.
+func (a *App) paidEnrollments() []model.Enrollment {
+	fe, err := a.Store.FrequentPaidEnrollments(8)
+	if err != nil {
+		a.Logger.Error("frequent paid enrollments", "err", err)
+		return nil
+	}
+	return fe
+}
+
+func (a *App) labelChips() []string {
+	ls, err := a.Store.FrequentExtraLabels(6)
+	if err != nil {
+		a.Logger.Error("frequent extra labels", "err", err)
+		return nil
+	}
+	return ls
 }
 
 func (a *App) handlePaymentNew(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +109,8 @@ func (a *App) handlePaymentNew(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "payment_form.html", "Нова оплата", "payments", paymentFormData{
 		Payment:     model.Payment{Date: today(), Kind: model.PaymentKindCourse},
 		Enrollments: enrollments,
+		Frequent:    a.paidEnrollments(),
+		Labels:      a.labelChips(),
 		Today:       today(),
 	})
 }
@@ -116,6 +144,8 @@ func (a *App) handlePaymentEdit(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "payment_form.html", "Оплата", "payments", paymentFormData{
 		Payment:     p,
 		Enrollments: enrollments,
+		Frequent:    a.paidEnrollments(),
+		Labels:      a.labelChips(),
 		IsEdit:      true,
 		Today:       today(),
 	})
@@ -182,6 +212,8 @@ func (a *App) renderPaymentFormError(w http.ResponseWriter, p model.Payment, isE
 	a.render(w, "payment_form.html", "Оплата", "payments", paymentFormData{
 		Payment:     p,
 		Enrollments: enrollments,
+		Frequent:    a.paidEnrollments(),
+		Labels:      a.labelChips(),
 		IsEdit:      isEdit,
 		Today:       today(),
 		Error:       msg,

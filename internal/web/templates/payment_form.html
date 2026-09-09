@@ -10,6 +10,13 @@
 <form class="stack" method="post" action="{{if $d.IsEdit}}/lessons/payments/{{$p.ID}}{{else}}/lessons/payments{{end}}">
   <label>
     Курс
+    {{if $d.Frequent}}
+    <div class="pick-chips" id="enrollment-chips">
+      {{range $d.Frequent}}
+      <button type="button" data-eid="{{.ID}}">{{.Person}} · {{classLabel .Name .Description}}</button>
+      {{end}}
+    </div>
+    {{end}}
     <select name="enrollment_id" id="enrollment" required>
       <option value="">— вибери —</option>
       {{range $d.Enrollments}}
@@ -51,7 +58,14 @@
   <div id="block-extra" class="billing-block" hidden>
     <label>
       За що
-      <input type="text" name="label" value="{{$p.Label}}" placeholder="Кімоно, форма, поїздка…">
+      {{if $d.Labels}}
+      <div class="pick-chips" id="label-chips">
+        {{range $d.Labels}}
+        <button type="button" data-label="{{.}}">{{.}}</button>
+        {{end}}
+      </div>
+      {{end}}
+      <input type="text" name="label" id="label" value="{{$p.Label}}" placeholder="Кімоно, форма, поїздка…">
     </label>
   </div>
 
@@ -111,5 +125,35 @@
     for (var i = 0; i < kinds.length; i++) kinds[i].addEventListener('change', toggle);
     toggle();
   })();
+
+  // Course chips, as on the visit form. Picking one drives the select rather
+  // than a hidden field of its own, so the change event above still fires and
+  // the lessons/month block still swaps.
+  (function () {
+    var sel = document.getElementById('enrollment');
+    var chips = document.querySelectorAll('#enrollment-chips button');
+    function sync() {
+      chips.forEach(function (c) {
+        c.classList.toggle('active', c.dataset.eid === sel.value);
+      });
+    }
+    chips.forEach(function (c) {
+      c.addEventListener('click', function () {
+        var eid = c.dataset.eid;
+        Array.prototype.forEach.call(sel.options, function (o) {
+          o.selected = (o.value === eid);
+        });
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    sel.addEventListener('change', sync);
+    sync();
+  })();
+
+  document.querySelectorAll('#label-chips button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.getElementById('label').value = b.dataset.label;
+    });
+  });
 </script>
 {{end}}

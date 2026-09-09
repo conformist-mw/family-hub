@@ -175,3 +175,32 @@ func TestHomePaymentRowNamesAnExtra(t *testing.T) {
 		t.Errorf("row = %+v, want no lessons and no month", row)
 	}
 }
+
+// The payment form's label chips are fed from this payload rather than an
+// endpoint of their own, because the form is opened from this screen and it is
+// already loaded by the time it can be.
+func TestHomeCarriesTheExtraLabelsForChips(t *testing.T) {
+	st := testStore(t)
+	id := seedCourse(t, st)
+	for _, d := range []string{"2026-09-07", "2026-09-14"} {
+		if _, err := st.CreatePayment(model.Payment{
+			EnrollmentID: id, Kind: model.PaymentKindExtra,
+			Date: d, Amount: 1250, Label: "Харчування",
+		}); err != nil {
+			t.Fatalf("seed extra: %v", err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	testRouter(t, st, []int64{42}, 42).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/mini/api/home", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var body homeDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body)
+	}
+	if len(body.Labels) != 1 || body.Labels[0] != "Харчування" {
+		t.Errorf("labels = %q, want [Харчування]", body.Labels)
+	}
+}

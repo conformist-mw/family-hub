@@ -154,3 +154,35 @@ func (s *Store) DeletePayment(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM payments WHERE id=?`, id)
 	return err
 }
+
+// FrequentExtraLabels returns the most-used extra labels, for quick-pick chips
+// on the payment form. Same shape as FrequentComments, and for the same
+// reason: an extra is named by free text, and the one that recurs weekly —
+// school meals — would otherwise be retyped some thirty times a school year,
+// each keystroke a chance to split the expense into "Харчування" and
+// "харчування", two categories nothing ever adds back together.
+//
+// Ordered by use rather than recency: the weekly one is also the frequent one,
+// while a once-a-year "Кімоно" keeps a place instead of being buried the week
+// after it is bought. The length guard keeps a chip a chip.
+func (s *Store) FrequentExtraLabels(limit int) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT label FROM payments
+		WHERE kind = ? AND label <> '' AND length(label) <= 40
+		GROUP BY label
+		ORDER BY COUNT(*) DESC, label
+		LIMIT ?`, model.PaymentKindExtra, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}

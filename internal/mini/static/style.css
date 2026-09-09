@@ -229,6 +229,9 @@ button.row {
 .bar-empty .bar-fill { background: var(--danger); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* A chip row under an input rather than as a card of its own: the input is
+   what is being filled in, the chips only shortcut it. */
+.chips-inline { margin-top: 8px; }
 .chip {
   padding: 8px 13px;
   border: none;

@@ -1,6 +1,8 @@
 package store_test
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,5 +247,66 @@ func TestAPaymentWrittenWithoutAKindIsACoursePayment(t *testing.T) {
 	}
 	if after.Kind != model.PaymentKindCourse {
 		t.Errorf("kind after update = %q, want %q", after.Kind, model.PaymentKindCourse)
+	}
+}
+
+// The chips exist to stop a weekly label being retyped and respelled, so what
+// matters is that the frequent one leads and that nothing which is not an
+// extra's own label can turn up among them.
+func TestFrequentExtraLabelsRanksByUse(t *testing.T) {
+	st := testStore(t)
+	school := seedCourse(t, st, model.Enrollment{BillingType: model.BillingMonthly, CurrentPrice: 12500})
+	karate := seedCourse(t, st, model.Enrollment{Name: "Карате", BillingType: model.BillingPerLesson, CurrentPrice: 400})
+
+	// Meals, paid weekly, against one course; a kimono bought once against
+	// another. Frequency, not recency, is what puts meals first — the kimono
+	// is the more recent of the two.
+	for _, d := range []string{"2026-09-07", "2026-09-14", "2026-09-21"} {
+		mustCreatePayment(t, st, extra(school, d, "Харчування", 1250))
+	}
+	mustCreatePayment(t, st, extra(karate, "2026-09-28", "Кімоно", 1500))
+	// A course payment carries no label and must not contribute an empty chip.
+	mustCreatePayment(t, st, pack(karate, "2026-09-29", 3200, 8))
+	// Too long to be a chip.
+	mustCreatePayment(t, st, extra(karate, "2026-09-30", strings.Repeat("я", 41), 100))
+
+	got, err := st.FrequentExtraLabels(6)
+	if err != nil {
+		t.Fatalf("frequent extra labels: %v", err)
+	}
+	want := []string{"Харчування", "Кімоно"}
+	if !slices.Equal(got, want) {
+		t.Errorf("labels = %q, want %q", got, want)
+	}
+}
+
+// The reason this is not FrequentActiveEnrollments: a school is billed monthly
+// and marked exceptions_only, so it has no visits at all — and it is also the
+// course paid most often. Ranked by visits it would come last.
+func TestFrequentPaidEnrollmentsRanksBySpendNotAttendance(t *testing.T) {
+	st := testStore(t)
+	school := seedCourse(t, st, model.Enrollment{
+		Name: "Школа", BillingType: model.BillingMonthly, CurrentPrice: 12500,
+		AttendanceMode: model.AttendanceExceptionsOnly,
+	})
+	karate := seedCourse(t, st, model.Enrollment{Name: "Карате", BillingType: model.BillingPerLesson, CurrentPrice: 400})
+
+	for _, d := range []string{"2026-09-07", "2026-09-14", "2026-09-21"} {
+		mustCreatePayment(t, st, extra(school, d, "Харчування", 1250))
+	}
+	mustCreatePayment(t, st, pack(karate, "2026-09-01", 3200, 8))
+	// Karate is where the attendance is, and it still must not outrank school.
+	for _, d := range []string{"2026-09-02", "2026-09-04", "2026-09-09", "2026-09-11"} {
+		if _, err := st.CreateVisit(karate, d, model.StatusDone, ""); err != nil {
+			t.Fatalf("create visit: %v", err)
+		}
+	}
+
+	got, err := st.FrequentPaidEnrollments(8)
+	if err != nil {
+		t.Fatalf("frequent paid enrollments: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != school || got[1].ID != karate {
+		t.Errorf("order = %+v, want school (%d) then karate (%d)", got, school, karate)
 	}
 }

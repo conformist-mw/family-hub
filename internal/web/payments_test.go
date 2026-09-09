@@ -188,3 +188,59 @@ func TestBothPaymentListsMarkAnExtra(t *testing.T) {
 		}
 	}
 }
+
+// The two chip rows the payment form gained: courses above the select, and
+// past extra labels above "За що". The select and the input stay — a chip is
+// a shortcut to them, so what is asserted is that both are on the screen.
+func TestThePaymentFormOffersCourseAndLabelChips(t *testing.T) {
+	h, st, id := paymentsFixture(t)
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Kind: model.PaymentKindExtra,
+		Date: "2026-09-07", Amount: 1250, Label: "Харчування",
+	}); err != nil {
+		t.Fatalf("seed extra: %v", err)
+	}
+
+	body := get(t, h, "/lessons/payments/new").Body.String()
+	if !strings.Contains(body, `data-eid="`+itoa(id)+`"`) {
+		t.Errorf("no course chip for the seeded course:\n%s", body)
+	}
+	if !strings.Contains(body, `data-label="Харчування"`) {
+		t.Errorf("no chip for a label already in use:\n%s", body)
+	}
+	// The chip drives the select rather than a field of its own — that is what
+	// keeps the lessons/month block switching when a course is picked.
+	if !strings.Contains(body, `<select name="enrollment_id"`) {
+		t.Errorf("the course select is gone:\n%s", body)
+	}
+}
+
+// A rejected write re-renders the form, and the chips have to come back with
+// it: losing them exactly when the form is being corrected is when they are
+// most wanted.
+func TestChipsSurviveARejectedPayment(t *testing.T) {
+	h, st, id := paymentsFixture(t)
+	if _, err := st.CreatePayment(model.Payment{
+		EnrollmentID: id, Kind: model.PaymentKindExtra,
+		Date: "2026-09-07", Amount: 1250, Label: "Харчування",
+	}); err != nil {
+		t.Fatalf("seed extra: %v", err)
+	}
+
+	rec := post(t, h, "/lessons/payments", url.Values{
+		"enrollment_id": {itoa(id)},
+		"kind":          {"extra"},
+		"date":          {"2026-09-05"},
+		"amount":        {"1500"},
+		"label":         {"  "},
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `data-label="Харчування"`) {
+		t.Errorf("the re-rendered form lost its label chips:\n%s", rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `data-eid="`+itoa(id)+`"`) {
+		t.Errorf("the re-rendered form lost its course chips:\n%s", rec.Body)
+	}
+}

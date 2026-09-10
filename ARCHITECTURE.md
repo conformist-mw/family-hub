@@ -711,6 +711,36 @@ designed, not a misconfiguration.
   download every picture the family posts to discover it has nowhere to put
   it.
 
+### Filling the meal plan
+
+`internal/cooking/planner.go` keeps the coming week's lunch and dinner slots
+from being empty, so nobody has to press "generate" and the morning menu
+message always has something to announce. It runs from `main.go` on a
+once-a-minute ticker that fires at `MEALPLAN_FILL_TIME`, for the same reason
+the reminders materialiser does: filling the plan is data, and hanging it off
+the bot would stop it happening whenever messages are switched off.
+
+- **It does not use Mealie's own random generator.** That picks by tag alone,
+  so the same dish returns three times a week and the last-made date the
+  cooking log records changes nothing. The rules *can* filter on `lastMade`,
+  but only against a literal date — `lastMade < "now-14d"` is rejected with
+  `unknown date or datetime format` — so a rule carrying a freshness window
+  would rot the day after somebody wrote it.
+- **So the tag half stays in the rules and the freshness half is computed
+  per pass.** The rule for that day and meal is read from the API, and
+  ` AND (lastMade IS NONE OR lastMade < "<today − rest days>")` is appended.
+  Which dishes count as lunch remains a decision maintained in the UI.
+- A rule naming a weekday beats the general one, which is how "Friday is
+  pizza" would work. A slot with no rule is skipped entirely: somebody
+  deliberately did not describe it.
+- **Only empty slots are filled**, and only from tomorrow — today is already
+  being eaten. A dish already planned anywhere in the window is not picked
+  again, so борщ does not land on two days of the same week.
+- When nothing has rested long enough it falls back to the bare rule. A
+  repeat is a worse plan; an empty slot is a silent digest, which is worse.
+- No pass runs at startup. Deploys are frequent, and a plan that reshuffles
+  itself on every restart is not a plan.
+
 ## Reminders
 
 Recurring chores — cashback on the 1st, the car's mileage, the cactus. Three

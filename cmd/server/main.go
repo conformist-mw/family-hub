@@ -100,6 +100,34 @@ func main() {
 		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
 	}
 
+	// The recipe database. Two addresses on purpose: the API is spoken to
+	// inside the docker network, while a link in a Telegram message has to be
+	// one a phone can open. A deploy that sets only the first gets links to
+	// it, which is right for a single host where they are the same.
+	var cookingSvc *cooking.Service
+	mealieURL := os.Getenv("MEALIE_URL")
+	mealiePublicURL := os.Getenv("MEALIE_PUBLIC_URL")
+	if mealiePublicURL == "" {
+		mealiePublicURL = mealieURL
+	}
+	if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
+		mealieClient := mealie.New(mealieURL, mealieToken)
+		cookingSvc = cooking.NewService(mealieClient, mealiePublicURL)
+
+		// Filling the meal plan is data, like the reminder materialiser, so
+		// it runs from here rather than from the bot: hanging it off the
+		// bot's gates would stop the plan being written whenever messages
+		// are switched off. Empty MEALPLAN_FILL_TIME disables it.
+		go cooking.NewPlanner(mealieClient, cooking.PlannerConfig{
+			At:       os.Getenv("MEALPLAN_FILL_TIME"),
+			Slots:    splitCSV(os.Getenv("MEALPLAN_SLOTS")),
+			Horizon:  atoiOr(os.Getenv("MEALPLAN_HORIZON_DAYS"), 0),
+			RestDays: atoiOr(os.Getenv("MEALPLAN_REST_DAYS"), 0),
+			Loc:      time.Local,
+			Logger:   logger,
+		}).RunDaily(ctx)
+	}
+
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
 	var webhookPath string
@@ -136,23 +164,11 @@ func main() {
 			}
 		}
 
-		// The cooking log needs both halves: somewhere to write (Mealie) and
-		// something that can look at a photograph. Either one missing leaves
-		// both nil, which the bot reads as "not configured" and skips.
-		var cookingSvc *cooking.Service
+		// The cooking log needs a model on top of the recipe database: one to
+		// look at the photograph, the other to write the result down. A
+		// missing key leaves the recognizer nil, which the bot reads as "not
+		// configured" and skips.
 		var recognizer *dish.Recognizer
-		// Two addresses on purpose: the API is spoken to inside the docker
-		// network, while the link in a Telegram message has to be one a phone
-		// can open. A deploy that sets only the first gets links to it, which
-		// is right for a single-host setup where they are the same.
-		mealieURL := os.Getenv("MEALIE_URL")
-		mealiePublicURL := os.Getenv("MEALIE_PUBLIC_URL")
-		if mealiePublicURL == "" {
-			mealiePublicURL = mealieURL
-		}
-		if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
-			cookingSvc = cooking.NewService(mealie.New(mealieURL, mealieToken), mealiePublicURL)
-		}
 		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
 			// Defaults name the model this was measured against: on a plate
 			// holding a main dish plus side salads, the cheaper tiers
@@ -354,4 +370,15 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// atoiOr reads a positive integer from the environment, falling back to def
+// for anything unset or unparseable. Zero means "the package default", which
+// is where the actual numbers live.
+func atoiOr(s string, def int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
 }

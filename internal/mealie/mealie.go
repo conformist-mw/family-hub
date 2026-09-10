@@ -67,6 +67,73 @@ func (c *Client) Recipes(ctx context.Context) ([]Recipe, error) {
 	return out.Items, nil
 }
 
+// Rule is one meal-plan rule as configured in Mealie's UI: which day and
+// meal it applies to, and the filter that says which recipes are eligible.
+type Rule struct {
+	Day               string `json:"day"`       // "unset" or a weekday name
+	EntryType         string `json:"entryType"` // "lunch", "dinner", …
+	QueryFilterString string `json:"queryFilterString"`
+}
+
+// MealPlanRules returns the household's rules. They are read rather than
+// reimplemented: which dishes count as lunch is a decision that belongs in
+// the UI where somebody maintains it, not in this app's code.
+func (c *Client) MealPlanRules(ctx context.Context) ([]Rule, error) {
+	var out struct {
+		Items []Rule `json:"items"`
+	}
+	if err := c.getJSON(ctx, "/api/households/mealplans/rules?perPage=100", &out); err != nil {
+		return nil, err
+	}
+	return out.Items, nil
+}
+
+// PlanEntry is one planned meal. Recipe is nil for a plain note entry, which
+// is why every caller has to guard on it.
+type PlanEntry struct {
+	Date      string  `json:"date"`
+	EntryType string  `json:"entryType"`
+	Recipe    *Recipe `json:"recipe"`
+}
+
+// MealPlan returns the entries between two dates, both ends included.
+func (c *Client) MealPlan(ctx context.Context, from, to time.Time) ([]PlanEntry, error) {
+	var out struct {
+		Items []PlanEntry `json:"items"`
+	}
+	path := fmt.Sprintf("/api/households/mealplans?start_date=%s&end_date=%s&perPage=500",
+		from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err := c.getJSON(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return out.Items, nil
+}
+
+// AddPlanEntry puts a recipe in one meal slot of one day.
+func (c *Client) AddPlanEntry(ctx context.Context, date time.Time, entryType, recipeID string) error {
+	payload := map[string]any{
+		"date":      date.Format("2006-01-02"),
+		"entryType": entryType,
+		"recipeId":  recipeID,
+	}
+	_, err := c.do(ctx, http.MethodPost, "/api/households/mealplans", jsonBody(payload))
+	return err
+}
+
+// RecipesMatching returns the recipes a filter expression selects. The
+// expression is Mealie's own query language, the one the rules are written
+// in — see Planner for what gets appended to it.
+func (c *Client) RecipesMatching(ctx context.Context, filter string) ([]Recipe, error) {
+	var out struct {
+		Items []Recipe `json:"items"`
+	}
+	path := "/api/recipes?perPage=1000&queryFilter=" + url.QueryEscape(filter)
+	if err := c.getJSON(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return out.Items, nil
+}
+
 // GroupSlug is the segment a recipe's web address is built around
 // (/g/<group>/r/<slug>). It is read from the API rather than configured,
 // because getting it wrong produces a link that 404s only for whoever taps

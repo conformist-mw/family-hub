@@ -483,9 +483,12 @@ for exactly that reason.
   The text and the byline are built in `internal/appointments` so all three
   read alike; it is Telegram HTML with everything a person typed escaped.
   Sending is best-effort — the row is already saved, and reporting a Telegram
-  outage as a failed save invites a duplicate. The byline is the Telegram
-  `first_name` for the bot and the Mini App; on the web it is whatever the
-  forward-auth proxy forwards, falling back to "веб".
+  outage as a failed save invites a duplicate. The byline comes from
+  `actor.Roster` for the bot and the Mini App — the family by Telegram user
+  id, falling back to the display name for anyone unlisted; on the web it is
+  whatever the forward-auth proxy forwards, falling back to "веб". Both
+  surfaces read the same roster, so one person cannot turn up under two names
+  depending on which one they wrote from.
 - **And about every payment**, on the same terms: `payments.Service` announces
   an add, an edit and a delete, so "я вже заплатила за футбол" and "треба
   заплатити за футбол" stop being true in the same evening. The message names

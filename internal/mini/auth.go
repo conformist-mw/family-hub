@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"familyhub/internal/actor"
 )
 
 // Telegram authentication for the Mini App.
@@ -52,6 +54,7 @@ const maxClockSkew = 5 * time.Minute
 type verifier struct {
 	secret  []byte
 	allowed map[int64]bool
+	people  actor.Roster
 	maxAge  time.Duration
 	devUser int64 // 0 = fixture off
 	log     *slog.Logger
@@ -72,6 +75,7 @@ func newVerifier(botToken string, cfg Config, logger *slog.Logger, now func() ti
 	return &verifier{
 		secret:  mac.Sum(nil),
 		allowed: allowed,
+		people:  cfg.People,
 		maxAge:  cfg.MaxAge,
 		devUser: cfg.devFixtureUser(),
 		log:     logger,
@@ -196,8 +200,10 @@ func (v *verifier) parse(raw string) (launcher, error) {
 		return launcher{}, initDataError("auth_date in the future")
 	}
 
-	// first_name is what the bot's own byline uses, so a visit added in the Mini
-	// App and one captured in a private chat are attributed alike.
+	// The roster names the person behind the id, exactly as the bot does, so a
+	// payment entered in the Mini App and one captured in a private chat are
+	// attributed alike — and stay attributed alike after somebody edits their
+	// Telegram profile. Whoever is not in the roster keeps their display name.
 	var user struct {
 		ID        int64  `json:"id"`
 		FirstName string `json:"first_name"`
@@ -210,7 +216,7 @@ func (v *verifier) parse(raw string) (launcher, error) {
 	if name == "" {
 		name = user.Username
 	}
-	return launcher{ID: user.ID, Name: name}, nil
+	return launcher{ID: user.ID, Name: v.people.Name(user.ID, name)}, nil
 }
 
 // ParseUserIDs reads a comma-separated allowlist of Telegram user ids,

@@ -58,6 +58,10 @@ func main() {
 
 	st := store.New(database)
 
+	// One roster for both surfaces: a payment entered in the Mini App and a
+	// meal recorded by the bot must carry the same name for the same person.
+	people := actor.ParseRoster(os.Getenv("TELEGRAM_PEOPLE"))
+
 	// The reminder materialiser runs independently of the bot and of whether
 	// notifications are on at all. It writes the record of what came due, and
 	// hanging that off RunDigests — which bails out without NOTIFICATIONS_ENABLED
@@ -212,7 +216,7 @@ func main() {
 			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
 			Reminders:            remindersSvc,
 			School:               schoolSvc,
-			People:               actor.ParseRoster(os.Getenv("TELEGRAM_PEOPLE")),
+			People:               people,
 			Cooking:              cookingSvc,
 			Dish:                 recognizer,
 		}
@@ -264,6 +268,7 @@ func main() {
 		miniRouter, err := mini.NewRouter(st, logger, mini.Config{
 			BotToken:     token,
 			AllowedUsers: mini.ParseUserIDs(os.Getenv("TELEGRAM_MINI_USERS"), logger),
+			People:       people,
 			DevUser:      devUser,
 			WebhookURL:   os.Getenv("TELEGRAM_WEBHOOK_URL"),
 			Loc:          time.Local,

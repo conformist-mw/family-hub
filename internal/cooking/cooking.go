@@ -93,14 +93,14 @@ func (s *Service) Tags(ctx context.Context) ([]mealie.Organizer, error) {
 // each combination then accumulates its own history while the dishes
 // themselves stop accumulating any.
 type Record struct {
-	Main  mealie.Recipe
-	Sides []mealie.Recipe
-	Slot  Slot
-	At    time.Time // when it was cooked, local wall clock
-	Cook  string    // who sent the photo, for the entry's byline
-	Note  string    // what the model saw on the plate; may be empty
-	Photo []byte    // may be nil: the text-only path records no picture
-	Ext   string    // photo's file extension, without the dot
+	Main      mealie.Recipe
+	Alongside []mealie.Recipe
+	Slot      Slot
+	At        time.Time // when it was cooked, local wall clock
+	Cook      string    // who sent the photo, for the entry's byline
+	Note      string    // what the model saw on the plate; may be empty
+	Photo     []byte    // may be nil: the text-only path records no picture
+	Ext       string    // photo's file extension, without the dot
 }
 
 // Result says what actually happened, so the bot's final message can report it
@@ -114,7 +114,7 @@ type Result struct {
 	EventID   string   // the main dish's entry
 	MadeMain  bool     // the photo became the main dish's main image
 	HadPhoto  bool     // that recipe already had a real photograph
-	Sides     []string // names of the sides recorded alongside
+	Alongside []string // names of the other dishes recorded with it
 	FailedAt  string
 	RecipeURL string
 }
@@ -181,26 +181,26 @@ func (s *Service) Do(ctx context.Context, r Record) (Result, error) {
 		return res, err
 	}
 
-	// Sides get an entry and a date of their own, so the planner stops
-	// believing the mash has not been eaten since whenever, but deliberately
-	// no photograph: the picture is of a plate of goulash, and attaching it
-	// here would both misrepresent the dish and mark it as "already
-	// photographed", blocking a future photo that is actually of the mash.
-	for _, side := range r.Sides {
+	// Everything else on the plate gets an entry and a date of its own, so the
+	// planner stops believing the mash has not been eaten since whenever, but
+	// deliberately no photograph: the picture is of a plate of goulash, and
+	// attaching it here would both misrepresent the dish and mark it as
+	// "already photographed", blocking a future photo that is actually of it.
+	for _, side := range r.Alongside {
 		// A side already recorded at this instant is still part of the meal
 		// and still named in the reply — it just is not written twice.
 		if dup, err := s.c.HasEventAt(ctx, side.ID, r.At); err != nil || !dup {
-			note := "Гарнір до: " + r.Main.Name
+			note := "Разом з: " + r.Main.Name
 			if _, err := s.c.AddTimelineEvent(ctx, side.ID, subject, note, r.At); err != nil {
-				res.FailedAt = "запис гарніру: " + side.Name
+				res.FailedAt = "запис страви: " + side.Name
 				return res, err
 			}
 			if err := s.c.SetLastMade(ctx, side.Slug, r.At); err != nil {
-				res.FailedAt = "дата гарніру: " + side.Name
+				res.FailedAt = "дата страви: " + side.Name
 				return res, err
 			}
 		}
-		res.Sides = append(res.Sides, side.Name)
+		res.Alongside = append(res.Alongside, side.Name)
 	}
 
 	res.RecipeURL = s.RecipeURL(ctx, r.Main.Slug)

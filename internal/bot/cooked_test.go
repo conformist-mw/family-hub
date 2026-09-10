@@ -186,7 +186,7 @@ func entryWith(main []string, sides []string) *cookedEntry {
 			dish.Candidate{Recipe: mealie.Recipe{Slug: s, Name: s}})
 	}
 	for _, s := range sides {
-		e.guess.Sides = append(e.guess.Sides,
+		e.guess.Alongside = append(e.guess.Alongside,
 			dish.Candidate{Recipe: mealie.Recipe{Slug: s, Name: s}})
 	}
 	return e
@@ -203,7 +203,7 @@ func slugsOf(rs []mealie.Recipe) []string {
 func TestChosenSides(t *testing.T) {
 	t.Run("everything the model saw is included by default", func(t *testing.T) {
 		e := entryWith([]string{"guliash"}, []string{"piure", "salat"})
-		if got := strings.Join(slugsOf(e.chosenSides()), ","); got != "piure,salat" {
+		if got := strings.Join(slugsOf(e.chosenAlongside()), ","); got != "piure,salat" {
 			t.Fatalf("sides = %q", got)
 		}
 	})
@@ -211,7 +211,7 @@ func TestChosenSides(t *testing.T) {
 	t.Run("an un-ticked side is left out", func(t *testing.T) {
 		e := entryWith([]string{"guliash"}, []string{"piure", "salat"})
 		e.dropped["salat"] = true
-		if got := strings.Join(slugsOf(e.chosenSides()), ","); got != "piure" {
+		if got := strings.Join(slugsOf(e.chosenAlongside()), ","); got != "piure" {
 			t.Fatalf("sides = %q", got)
 		}
 	})
@@ -220,7 +220,7 @@ func TestChosenSides(t *testing.T) {
 	t.Run("the chosen main never doubles as a side", func(t *testing.T) {
 		e := entryWith([]string{"guliash", "piure"}, []string{"piure"})
 		e.main = 1
-		if got := e.chosenSides(); len(got) != 0 {
+		if got := e.chosenAlongside(); len(got) != 0 {
 			t.Fatalf("sides = %v, want none", slugsOf(got))
 		}
 		if main, _ := e.mainDish(); main.Slug != "piure" {

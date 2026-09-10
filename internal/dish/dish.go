@@ -58,23 +58,27 @@ type Candidate struct {
 // catalogue, Candidates is empty and NewName proposes what to call the dish.
 type Guess struct {
 	Candidates []Candidate
-	// Sides are the other dishes on the same plate that are recipes in their
-	// own right. They are additions, not alternatives: a meal is recorded as
-	// one main dish plus these.
-	Sides    []Candidate
-	NewName  string
-	Category string
-	Tags     []string
-	Note     string // what is on the plate, one line, Ukrainian
-	Slot     string // "obid" | "vecheria" | ""
-	Date     string // "YYYY-MM-DD" | ""
+	// Alongside is everything else eaten at this meal that is a recipe in its
+	// own right — a side, a salad, a second dish, a cutlet. They are
+	// additions, not alternatives: the meal is the main dish plus these.
+	//
+	// Deliberately not called "sides": named that way, the prompt described
+	// them as garnish, and a chicken cutlet next to the goulash fitted no
+	// category and was silently dropped.
+	Alongside []Candidate
+	NewName   string
+	Category  string
+	Tags      []string
+	Note      string // what is on the plate, one line, Ukrainian
+	Slot      string // "obid" | "vecheria" | ""
+	Date      string // "YYYY-MM-DD" | ""
 }
 
 const (
 	maxCandidates = 3
 	// A plate holding more than three recognised dishes beside the main one is
 	// the model narrating the table, not reading a meal.
-	maxSides = 3
+	maxAlongside = 3
 )
 
 const systemPrompt = `Ти асистент домашньої кулінарної бази. Тобі дають фотографію страви (іноді без фото — лише текст) і список рецептів, які вже є в базі.
@@ -83,7 +87,7 @@ const systemPrompt = `Ти асистент домашньої кулінарн�
 
 Правила:
 - Головна страва — та, що на тарілці основна. Тарілка з дерунами, яйцями та помідорами — це деруни, а не сніданок: не описуй тарілку цілком, назви головну страву.
-- sides — інші страви з того ж списку, які теж є на тарілці окремими стравами: гарнір (пюре, гречка, картопля), салат, закуска. Тільки те, що справді є окремим рецептом у списку; дрібні додатки (сметана, кріп, спеції, шматок хліба) не рахуй. Головну страву в sides не повторюй. Якщо нічого такого немає — порожній список.
+- alongside — УСІ інші страви з того ж списку, які були в цьому ж прийомі їжі поруч з головною: гарнір, салат, друга страва, котлета, закуска — будь-що, що є окремим рецептом у списку. Не звужуй до гарніру: «гуляш, макарони і куряча котлета» — це головна страва плюс дві інші. Не рахуй лише дрібні додатки, які не є рецептами: сметана, кріп, спеції, соус, шматок хліба. Головну страву не повторюй. Якщо більше нічого не було — порожній список.
 - Якщо жоден рецепт зі списку не підходить, поверни порожній candidates і запропонуй у new_name назву нової страви УКРАЇНСЬКОЮ, навіть якщо підказка була російською.
 - category та tags для нової страви обирай лише зі списків дозволених значень. Якщо нічого не підходить — залиш порожніми.
 - note — один рядок українською про те, що на тарілці.
@@ -165,7 +169,7 @@ var responseSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
 		"candidates": candidateSchema,
-		"sides":      candidateSchema,
+		"alongside":  candidateSchema,
 		"new_name":   map[string]any{"type": []string{"string", "null"}},
 		"category":   map[string]any{"type": []string{"string", "null"}},
 		"tags":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -173,7 +177,7 @@ var responseSchema = map[string]any{
 		"slot":       map[string]any{"type": "string", "enum": []string{"obid", "vecheria", ""}},
 		"date":       map[string]any{"type": "string"},
 	},
-	"required":             []string{"candidates", "sides", "new_name", "category", "tags", "note", "slot", "date"},
+	"required":             []string{"candidates", "alongside", "new_name", "category", "tags", "note", "slot", "date"},
 	"additionalProperties": false,
 }
 
@@ -184,7 +188,7 @@ type rawCandidate struct {
 
 type rawGuess struct {
 	Candidates []rawCandidate `json:"candidates"`
-	Sides      []rawCandidate `json:"sides"`
+	Alongside  []rawCandidate `json:"alongside"`
 	NewName    *string        `json:"new_name"`
 	Category   *string        `json:"category"`
 	Tags       []string       `json:"tags"`
@@ -229,19 +233,19 @@ func parseGuess(raw []byte, catalogue []mealie.Recipe) (Guess, error) {
 		}
 	}
 
-	// Sides are deduplicated only against each other. A dish can legitimately
-	// appear in both lists — the model may offer пюре as an alternative
-	// reading of the plate *and* as the side it actually is — so which one it
-	// ends up being is decided by the main dish the cook confirms, not here.
+	// Deduplicated only against each other. A dish can legitimately appear in
+	// both lists — the model may offer пюре as an alternative reading of the
+	// plate *and* as the dish beside it — so which one it ends up being is
+	// decided by the main dish the cook confirms, not here.
 	seenSide := make(map[string]bool)
-	for _, c := range rg.Sides {
+	for _, c := range rg.Alongside {
 		rec, ok := bySlug[c.Slug]
 		if !ok || seenSide[c.Slug] {
 			continue
 		}
 		seenSide[c.Slug] = true
-		g.Sides = append(g.Sides, Candidate{Recipe: rec, Confidence: c.Confidence})
-		if len(g.Sides) == maxSides {
+		g.Alongside = append(g.Alongside, Candidate{Recipe: rec, Confidence: c.Confidence})
+		if len(g.Alongside) == maxAlongside {
 			break
 		}
 	}

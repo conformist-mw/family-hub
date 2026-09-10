@@ -635,9 +635,12 @@ designed, not a misconfiguration.
   one tap instead of a wrong entry. A slug the catalogue does not have is
   dropped as an invention (`internal/dish`), which turns a hallucination into
   the "create it?" path.
-- **A meal is a plate, not a dish.** The same call also returns the *sides* —
-  other recipes visible beside the main one — and confirming records all of
-  them: an entry and a `lastMade` each. Without that, a side's last-made date
+- **A meal is a plate, not a dish.** The same call also returns everything
+  *alongside* the main dish — any other recipe eaten at that meal — and
+  confirming records all of them: an entry and a `lastMade` each. The field
+  is deliberately not called "sides": it was, and the prompt written from
+  that name described garnish, so a chicken cutlet next to the goulash fitted
+  no category and was silently dropped. Without that, a side's last-made date
   never moves and the planner keeps offering mash nobody has stopped eating.
   Combining the pair into a "goulash with mash" recipe was considered and
   rejected: it multiplies out to every pairing the kitchen makes, and each
@@ -651,8 +654,8 @@ designed, not a misconfiguration.
   never in the same row — they answer different questions, and a side that is
   also an alternative resolves by whichever the cook confirms as the main, so
   the same recipe can never be written down twice for one meal.
-- **The photo goes only to the main dish.** A side gets an entry saying
-  «Гарнір до: Гуляш» and no picture: the photograph is of a plate of goulash,
+- **The photo goes only to the main dish.** The rest get an entry saying
+  «Разом з: Гуляш» and no picture: the photograph is of a plate of goulash,
   and attaching it to the mash would both misrepresent it and mark it as
   already photographed, blocking a future picture that really is of the mash.
 - **The model tier matters more than the prompt here.** Measured on fourteen

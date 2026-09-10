@@ -201,7 +201,7 @@ func (b *Bot) cookedCard(key string, e *cookedEntry) (string, *tele.ReplyMarkup)
 	var sb strings.Builder
 	if main, ok := e.mainDish(); ok {
 		fmt.Fprintf(&sb, "🍽 <b>%s</b>", html.EscapeString(main.Name))
-		for _, side := range e.chosenSides() {
+		for _, side := range e.chosenAlongside() {
 			fmt.Fprintf(&sb, " + %s", html.EscapeString(side.Name))
 		}
 	} else {
@@ -238,7 +238,7 @@ func (b *Bot) cookedCard(key string, e *cookedEntry) (string, *tele.ReplyMarkup)
 	}
 
 	var sides []tele.Btn
-	for _, cand := range e.guess.Sides {
+	for _, cand := range e.guess.Alongside {
 		if main, ok := e.mainDish(); ok && main.Slug == cand.Recipe.Slug {
 			continue
 		}
@@ -274,13 +274,13 @@ func (e *cookedEntry) mainDish() (mealie.Recipe, bool) {
 	return e.guess.Candidates[e.main].Recipe, true
 }
 
-// chosenSides are the sides that will be recorded: everything the model saw,
+// chosenAlongside are the sides that will be recorded: everything the model saw,
 // less what was un-ticked, less whatever is currently the main dish — the
 // same recipe must not be written down twice for one meal.
-func (e *cookedEntry) chosenSides() []mealie.Recipe {
+func (e *cookedEntry) chosenAlongside() []mealie.Recipe {
 	main, hasMain := e.mainDish()
 	var out []mealie.Recipe
-	for _, c := range e.guess.Sides {
+	for _, c := range e.guess.Alongside {
 		if e.dropped[c.Recipe.Slug] {
 			continue
 		}
@@ -419,14 +419,14 @@ func (b *Bot) writeCooked(c tele.Context, key string, e *cookedEntry) error {
 	defer cancel()
 
 	res, err := b.cfg.Cooking.Do(ctx, cooking.Record{
-		Main:  e.recipe,
-		Sides: e.chosenSides(),
-		Slot:  e.slot,
-		At:    cookedAt(e.date, e.slot),
-		Cook:  e.cook,
-		Note:  e.guess.Note,
-		Photo: e.photo,
-		Ext:   e.ext,
+		Main:      e.recipe,
+		Alongside: e.chosenAlongside(),
+		Slot:      e.slot,
+		At:        cookedAt(e.date, e.slot),
+		Cook:      e.cook,
+		Note:      e.guess.Note,
+		Photo:     e.photo,
+		Ext:       e.ext,
 	})
 	if err != nil {
 		b.logger.Error("bot: record cooked", "err", err, "recipe", e.recipe.Slug, "step", res.FailedAt)
@@ -456,7 +456,7 @@ func (b *Bot) writeCooked(c tele.Context, key string, e *cookedEntry) error {
 func (b *Bot) cookedDone(e *cookedEntry, res cooking.Result) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "✓ <b>%s</b>", html.EscapeString(e.recipe.Name))
-	for _, name := range res.Sides {
+	for _, name := range res.Alongside {
 		fmt.Fprintf(&sb, " + %s", html.EscapeString(name))
 	}
 	fmt.Fprintf(&sb, " · %s · %s", e.date.Format("02.01"), strings.ToLower(e.slot.Title()))

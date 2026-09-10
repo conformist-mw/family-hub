@@ -304,17 +304,17 @@ func TestSlotTitle(t *testing.T) {
 
 // A side is a dish too: it gets its own entry and its own last-made date, or
 // the planner keeps believing nobody has eaten mash since whenever.
-func TestSidesGetEntryAndDateButNoPhoto(t *testing.T) {
+func TestAlongsideGetsEntryAndDateButNoPhoto(t *testing.T) {
 	f := &fakeMealie{}
 	r := record(true)
-	r.Sides = []mealie.Recipe{{ID: "u2", Slug: "piure-kartopliane", Name: "Пюре картопляне"}}
+	r.Alongside = []mealie.Recipe{{ID: "u2", Slug: "piure-kartopliane", Name: "Пюре картопляне"}}
 
 	res, err := NewService(f.start(t), "").Do(context.Background(), r)
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	if len(res.Sides) != 1 || res.Sides[0] != "Пюре картопляне" {
-		t.Fatalf("res.Sides = %v", res.Sides)
+	if len(res.Alongside) != 1 || res.Alongside[0] != "Пюре картопляне" {
+		t.Fatalf("res.Alongside = %v", res.Alongside)
 	}
 
 	var sawEntry, sawDate bool
@@ -344,10 +344,10 @@ func TestSidesGetEntryAndDateButNoPhoto(t *testing.T) {
 
 // Attaching the plate photo to a side would also mark that recipe as
 // "already photographed", blocking a future picture that is really of it.
-func TestSideStaysUnphotographed(t *testing.T) {
+func TestAlongsideStaysUnphotographed(t *testing.T) {
 	f := &fakeMealie{}
 	r := record(true)
-	r.Sides = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
+	r.Alongside = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
 	if _, err := NewService(f.start(t), "").Do(context.Background(), r); err != nil {
 		t.Fatalf("Do: %v", err)
 	}
@@ -363,16 +363,16 @@ func TestSideStaysUnphotographed(t *testing.T) {
 	}
 }
 
-func TestSideFailureNamesTheDish(t *testing.T) {
+func TestAlongsideFailureNamesTheDish(t *testing.T) {
 	f := &fakeMealie{failOn: "PATCH /api/recipes/grechka/last-made"}
 	r := record(false)
-	r.Sides = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
+	r.Alongside = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
 
 	res, err := NewService(f.start(t), "").Do(context.Background(), r)
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	if res.FailedAt != "дата гарніру: Гречка" {
+	if res.FailedAt != "дата страви: Гречка" {
 		t.Fatalf("FailedAt = %q", res.FailedAt)
 	}
 }
@@ -424,17 +424,17 @@ func TestSameMealRecordedTwiceIsANoOp(t *testing.T) {
 
 // A side already recorded by the other cook is still named in the reply — it
 // was on the plate — but is not written a second time.
-func TestDuplicateSideIsReportedButNotRewritten(t *testing.T) {
+func TestDuplicateAlongsideIsReportedButNotRewritten(t *testing.T) {
 	f := &fakeMealie{dupSides: map[string]bool{"u2": true}}
 	r := record(false)
-	r.Sides = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
+	r.Alongside = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
 
 	res, err := NewService(f.start(t), "").Do(context.Background(), r)
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	if len(res.Sides) != 1 || res.Sides[0] != "Гречка" {
-		t.Fatalf("res.Sides = %v", res.Sides)
+	if len(res.Alongside) != 1 || res.Alongside[0] != "Гречка" {
+		t.Fatalf("res.Alongside = %v", res.Alongside)
 	}
 	for _, c := range f.calls {
 		if c == "PATCH /api/recipes/grechka/last-made" {

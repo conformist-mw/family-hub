@@ -251,7 +251,7 @@ func TestIdentifyLive(t *testing.T) {
 	for i, c := range g.Candidates {
 		t.Logf("candidate %d: %s (%s)", i+1, c.Recipe.Name, c.Confidence)
 	}
-	for _, c := range g.Sides {
+	for _, c := range g.Alongside {
 		t.Logf("side: %s (%s)", c.Recipe.Name, c.Confidence)
 	}
 	t.Logf("new=%q slot=%q date=%q note=%q", g.NewName, g.Slot, g.Date, g.Note)
@@ -260,39 +260,39 @@ func TestIdentifyLive(t *testing.T) {
 	}
 }
 
-func TestParseGuessSides(t *testing.T) {
+func TestParseGuessAlongside(t *testing.T) {
 	tests := []struct {
-		name      string
-		answer    string
-		wantMain  []string
-		wantSides []string
+		name          string
+		answer        string
+		wantMain      []string
+		wantAlongside []string
 	}{
 		{
-			name:      "main plus its side",
-			answer:    `{"candidates":[{"slug":"borshch","confidence":"high"}],"sides":[{"slug":"oladki","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:  []string{"borshch"},
-			wantSides: []string{"oladki"},
+			name:          "main plus its side",
+			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"}],"alongside":[{"slug":"oladki","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
+			wantMain:      []string{"borshch"},
+			wantAlongside: []string{"oladki"},
 		},
 		{
-			name:      "invented side dropped",
-			answer:    `{"candidates":[{"slug":"borshch","confidence":"high"}],"sides":[{"slug":"kimchi","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:  []string{"borshch"},
-			wantSides: nil,
+			name:          "invented side dropped",
+			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"}],"alongside":[{"slug":"kimchi","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
+			wantMain:      []string{"borshch"},
+			wantAlongside: nil,
 		},
 		{
-			name:      "sides capped at three",
-			answer:    `{"candidates":[{"slug":"borshch","confidence":"high"}],"sides":[{"slug":"oladki","confidence":"low"},{"slug":"mlintsi","confidence":"low"},{"slug":"deruni","confidence":"low"},{"slug":"oladki","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:  []string{"borshch"},
-			wantSides: []string{"oladki", "mlintsi", "deruni"},
+			name:          "sides capped at three",
+			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"}],"alongside":[{"slug":"oladki","confidence":"low"},{"slug":"mlintsi","confidence":"low"},{"slug":"deruni","confidence":"low"},{"slug":"oladki","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
+			wantMain:      []string{"borshch"},
+			wantAlongside: []string{"oladki", "mlintsi", "deruni"},
 		},
 		{
 			// The same dish may be both an alternative reading of the plate
 			// and the side it actually is; which one it becomes is settled by
 			// the main dish the cook confirms, not by the parser.
-			name:      "a dish may be both an alternative and a side",
-			answer:    `{"candidates":[{"slug":"borshch","confidence":"high"},{"slug":"oladki","confidence":"low"}],"sides":[{"slug":"oladki","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:  []string{"borshch", "oladki"},
-			wantSides: []string{"oladki"},
+			name:          "a dish may be both an alternative and a side",
+			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"},{"slug":"oladki","confidence":"low"}],"alongside":[{"slug":"oladki","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
+			wantMain:      []string{"borshch", "oladki"},
+			wantAlongside: []string{"oladki"},
 		},
 	}
 	for _, tt := range tests {
@@ -305,15 +305,56 @@ func TestParseGuessSides(t *testing.T) {
 			for _, c := range g.Candidates {
 				main = append(main, c.Recipe.Slug)
 			}
-			for _, c := range g.Sides {
+			for _, c := range g.Alongside {
 				sides = append(sides, c.Recipe.Slug)
 			}
 			if strings.Join(main, ",") != strings.Join(tt.wantMain, ",") {
 				t.Errorf("candidates = %v, want %v", main, tt.wantMain)
 			}
-			if strings.Join(sides, ",") != strings.Join(tt.wantSides, ",") {
-				t.Errorf("sides = %v, want %v", sides, tt.wantSides)
+			if strings.Join(sides, ",") != strings.Join(tt.wantAlongside, ",") {
+				t.Errorf("sides = %v, want %v", sides, tt.wantAlongside)
 			}
 		})
 	}
+}
+
+// TestIdentifyLiveText asks the real model the question a text-only /cooked
+// asks, with the household's real catalogue. Skipped without the key.
+//
+//	AI_API_KEY=… MEALIE_URL=… MEALIE_TOKEN=… DISH_TEST_TEXT="макароны, гуляш, котлета куриная" \
+//	  go test ./internal/dish -run LiveText -v
+func TestIdentifyLiveText(t *testing.T) {
+	key, text := os.Getenv("AI_API_KEY"), os.Getenv("DISH_TEST_TEXT")
+	if key == "" || text == "" {
+		t.Skip("AI_API_KEY or DISH_TEST_TEXT not set")
+	}
+	recipes := catalogue
+	if url, tok := os.Getenv("MEALIE_URL"), os.Getenv("MEALIE_TOKEN"); url != "" && tok != "" {
+		live, err := mealie.New(url, tok).Recipes(context.Background())
+		if err != nil {
+			t.Fatalf("catalogue: %v", err)
+		}
+		recipes = live
+	}
+	base, model := os.Getenv("AI_BASE_URL"), os.Getenv("AI_MODEL")
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	if model == "" {
+		model = "gpt-5.6-luna"
+	}
+
+	g, err := New(base, key, model).Identify(context.Background(), Input{
+		Caption: text, Now: time.Now(), Recipes: recipes,
+	})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	for i, c := range g.Candidates {
+		t.Logf("candidate %d: %s (%s)", i+1, c.Recipe.Name, c.Confidence)
+	}
+	for _, c := range g.Alongside {
+		t.Logf("alongside: %s (%s)", c.Recipe.Name, c.Confidence)
+	}
+	t.Logf("slot=%q date=%q note=%q", g.Slot, g.Date, g.Note)
 }

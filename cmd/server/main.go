@@ -16,7 +16,10 @@ import (
 	"github.com/joho/godotenv"
 
 	"familyhub/internal/bot"
+	"familyhub/internal/cooking"
 	"familyhub/internal/db"
+	"familyhub/internal/dish"
+	"familyhub/internal/mealie"
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
@@ -132,6 +135,39 @@ func main() {
 			}
 		}
 
+		// The cooking log needs both halves: somewhere to write (Mealie) and
+		// something that can look at a photograph. Either one missing leaves
+		// both nil, which the bot reads as "not configured" and skips.
+		var cookingSvc *cooking.Service
+		var recognizer *dish.Recognizer
+		// Two addresses on purpose: the API is spoken to inside the docker
+		// network, while the link in a Telegram message has to be one a phone
+		// can open. A deploy that sets only the first gets links to it, which
+		// is right for a single-host setup where they are the same.
+		mealieURL := os.Getenv("MEALIE_URL")
+		mealiePublicURL := os.Getenv("MEALIE_PUBLIC_URL")
+		if mealiePublicURL == "" {
+			mealiePublicURL = mealieURL
+		}
+		if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
+			cookingSvc = cooking.NewService(mealie.New(mealieURL, mealieToken), mealiePublicURL)
+		}
+		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
+			// Defaults name the model this was measured against: on a plate
+			// holding a main dish plus side salads, the cheaper tiers
+			// consistently answered with the whole plate ("English
+			// breakfast") instead of the dish.
+			aiBase := os.Getenv("AI_BASE_URL")
+			if aiBase == "" {
+				aiBase = "https://api.openai.com/v1"
+			}
+			aiModel := os.Getenv("AI_MODEL")
+			if aiModel == "" {
+				aiModel = "gpt-5.6-luna"
+			}
+			recognizer = dish.New(aiBase, aiKey, aiModel)
+		}
+
 		cfg := bot.Config{
 			Token:                token,
 			WebhookURL:           os.Getenv("TELEGRAM_WEBHOOK_URL"),
@@ -159,6 +195,8 @@ func main() {
 			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
 			Reminders:            remindersSvc,
 			School:               schoolSvc,
+			Cooking:              cookingSvc,
+			Dish:                 recognizer,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already

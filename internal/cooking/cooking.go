@@ -106,6 +106,11 @@ type Record struct {
 // Result says what actually happened, so the bot's final message can report it
 // and a partial failure can name the step that did not run.
 type Result struct {
+	// AlreadyDone means this exact meal was already written down — the other
+	// cook got there first, or the same card was confirmed twice. Nothing was
+	// written and it is not an error.
+	AlreadyDone bool
+
 	EventID   string   // the main dish's entry
 	MadeMain  bool     // the photo became the main dish's main image
 	HadPhoto  bool     // that recipe already had a real photograph
@@ -122,6 +127,17 @@ type Result struct {
 // one only means the dish stays eligible a while longer.
 func (s *Service) Do(ctx context.Context, r Record) (Result, error) {
 	res := Result{}
+
+	// Two people eating different things at the same meal is normal here and
+	// writes two independent records; two people recording the *same* dish is
+	// the case worth catching, and "same recipe, same instant" catches it. A
+	// failed check falls through to writing: a duplicate line somebody can
+	// delete beats a meal that went unrecorded.
+	if dup, err := s.c.HasEventAt(ctx, r.Main.ID, r.At); err == nil && dup {
+		res.AlreadyDone = true
+		res.RecipeURL = s.RecipeURL(ctx, r.Main.Slug)
+		return res, nil
+	}
 
 	subject := r.Slot.Title()
 	if r.Cook != "" {
@@ -171,14 +187,18 @@ func (s *Service) Do(ctx context.Context, r Record) (Result, error) {
 	// here would both misrepresent the dish and mark it as "already
 	// photographed", blocking a future photo that is actually of the mash.
 	for _, side := range r.Sides {
-		note := "Гарнір до: " + r.Main.Name
-		if _, err := s.c.AddTimelineEvent(ctx, side.ID, subject, note, r.At); err != nil {
-			res.FailedAt = "запис гарніру: " + side.Name
-			return res, err
-		}
-		if err := s.c.SetLastMade(ctx, side.Slug, r.At); err != nil {
-			res.FailedAt = "дата гарніру: " + side.Name
-			return res, err
+		// A side already recorded at this instant is still part of the meal
+		// and still named in the reply — it just is not written twice.
+		if dup, err := s.c.HasEventAt(ctx, side.ID, r.At); err != nil || !dup {
+			note := "Гарнір до: " + r.Main.Name
+			if _, err := s.c.AddTimelineEvent(ctx, side.ID, subject, note, r.At); err != nil {
+				res.FailedAt = "запис гарніру: " + side.Name
+				return res, err
+			}
+			if err := s.c.SetLastMade(ctx, side.Slug, r.At); err != nil {
+				res.FailedAt = "дата гарніру: " + side.Name
+				return res, err
+			}
 		}
 		res.Sides = append(res.Sides, side.Name)
 	}

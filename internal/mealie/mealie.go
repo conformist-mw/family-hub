@@ -213,6 +213,22 @@ func (c *Client) HasPhotoEvent(ctx context.Context, recipeID string) (bool, erro
 	return out.Total > 0, nil
 }
 
+// HasEventAt reports whether this recipe already has an entry at exactly this
+// instant. Meals are pinned to a canonical hour, so "same recipe, same
+// instant" is precisely "this meal is already written down" — which is what
+// makes it safe for two people to photograph the same dinner.
+func (c *Client) HasEventAt(ctx context.Context, recipeID string, ts time.Time) (bool, error) {
+	filter := fmt.Sprintf(`recipeId=%q AND timestamp=%q`, recipeID, ts.UTC().Format("2006-01-02T15:04:05"))
+	var out struct {
+		Total int `json:"total"`
+	}
+	path := "/api/recipes/timeline/events?perPage=1&queryFilter=" + url.QueryEscape(filter)
+	if err := c.getJSON(ctx, path, &out); err != nil {
+		return false, err
+	}
+	return out.Total > 0, nil
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, dst any) error {
 	body, err := c.do(ctx, http.MethodGet, path, reqBody{})
 	if err != nil {

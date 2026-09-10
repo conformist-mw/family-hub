@@ -14,7 +14,10 @@
 // disagree about who did what.
 package actor
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Unknown is what a surface passes as the author when the write is
 // authenticated but the author cannot be named — the forward-auth proxy sent
@@ -56,4 +59,47 @@ func Resolve(person, by string) string {
 		return person
 	}
 	return by
+}
+
+// Roster maps a Telegram user id to the name this family calls that person.
+//
+// The id is the identity, not the display name: a display name is the
+// person's to change, and when they do, every "Я" they write starts resolving
+// to a different string while the rows already written keep the old one — one
+// human, two names, and no way to tell they are the same. Ids never change.
+type Roster map[int64]string
+
+// ParseRoster reads "<id>:<name>,<id>:<name>". Malformed entries are skipped
+// rather than refused: the roster is a convenience over the Telegram display
+// name, and a typo in it must not stop the app from starting.
+func ParseRoster(raw string) Roster {
+	r := Roster{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, name, ok := strings.Cut(part, ":")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+		if err != nil {
+			continue
+		}
+		if name = strings.TrimSpace(name); name != "" {
+			r[n] = name
+		}
+	}
+	return r
+}
+
+// Name is what to call the person behind a Telegram id. fallback is their
+// current display name, used for anyone the roster does not list — a guest in
+// the group is still better named badly than not at all.
+func (r Roster) Name(id int64, fallback string) string {
+	if name, ok := r[id]; ok {
+		return name
+	}
+	return fallback
 }

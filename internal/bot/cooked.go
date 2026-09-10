@@ -169,7 +169,7 @@ func (b *Bot) recognise(c tele.Context, photo []byte, ext, mime, caption string)
 
 	e := &cookedEntry{
 		photo: photo, ext: ext, mime: mime,
-		cook:    senderName(c),
+		cook:    b.senderName(c),
 		guess:   guess,
 		dropped: map[string]bool{},
 		slot:    slotFrom(guess.Slot, now),
@@ -439,6 +439,13 @@ func (b *Bot) writeCooked(c tele.Context, key string, e *cookedEntry) error {
 		m := &tele.ReplyMarkup{}
 		m.Inline(m.Row(m.Data("↻ Повторити", "ckd_ok", key), m.Data("✕ Скасувати", "ckd_cancel", key)))
 		return c.Edit(fmt.Sprintf("⚠️ <b>%s</b> — не вдалося: %s", html.EscapeString(e.recipe.Name), res.FailedAt), m, tele.ModeHTML)
+	}
+
+	if res.AlreadyDone {
+		_ = c.Respond(&tele.CallbackResponse{Text: "Вже записано"})
+		return c.Edit(fmt.Sprintf("✓ <b>%s</b> · %s · %s — вже було записано",
+			html.EscapeString(e.recipe.Name), e.date.Format("02.01"),
+			strings.ToLower(e.slot.Title())), b.appMarkup(), tele.ModeHTML)
 	}
 
 	e.result = res

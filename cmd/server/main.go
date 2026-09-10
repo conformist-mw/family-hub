@@ -15,6 +15,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/bot"
 	"familyhub/internal/cooking"
 	"familyhub/internal/db"
@@ -195,6 +196,7 @@ func main() {
 			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
 			Reminders:            remindersSvc,
 			School:               schoolSvc,
+			People:               actor.ParseRoster(os.Getenv("TELEGRAM_PEOPLE")),
 			Cooking:              cookingSvc,
 			Dish:                 recognizer,
 		}

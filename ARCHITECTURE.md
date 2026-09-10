@@ -686,11 +686,26 @@ designed, not a misconfiguration.
   container, so the public address is a separate setting
   (`MEALIE_PUBLIC_URL`); tapping the link needs a Mealie session, since the
   group is private.
+- **Two cooks, two meals, no collision.** Entries and last-made dates are
+  per recipe, and the meal plan is never touched, so "goulash for me, sushi
+  for her" writes two independent records. What is caught is the *same* dish
+  recorded twice — meals are pinned to a canonical hour (13:00 and 19:00), so
+  "same recipe, same instant" is exactly that, and the second confirmation
+  reports «вже було записано» without writing. A check that errors falls
+  through to writing: a duplicate line somebody can delete beats a meal that
+  went unrecorded.
 - Cards live in memory (`cookedPending`) because they carry the photograph
   itself, which is needed again after the write for the promote button. A
   restart drops them and the photo is re-sent, the same bargain the
   appointment cards make. The card is claimed once, so a double tap cannot
   produce two entries.
+- **Who cooked it comes from `TELEGRAM_PEOPLE`, keyed by user id** — see
+  `actor.Roster`. A display name is the person's to change, and when they do,
+  every "Я" they write starts resolving to a new string while the rows already
+  written keep the old one: one human, two names, no way to tell. The id never
+  changes. Unlisted senders keep their Telegram display name, and the same
+  lookup serves the appointment capture, so the calendar and the kitchen
+  cannot disagree about who somebody is.
 - Without `MEALIE_TOKEN`/`MEALIE_URL` or `AI_API_KEY` the whole flow is not
   registered — including `OnPhoto`, so that a bot with no cooking log does not
   download every picture the family posts to discover it has nowhere to put
@@ -819,6 +834,8 @@ a person can pick that the app refuses.
     created as `family-hub-bot` rather than shared with a person's, so it can
     be revoked without locking anyone out of the kitchen.
   - `family_hub_ai_api_key` — the model that reads a photograph of a plate
+  - `family_hub_people` — `<telegram id>:<name>` pairs, the family by user id.
+    Secret because it is real names against real ids in a public repo.
   - `family_hub_mini_users` — the Telegram **user** ids allowed into the Mini
     App, comma-separated. Store it as a quoted string: as a bare YAML number
     it decrypts back as a float with a `.0` glued on.

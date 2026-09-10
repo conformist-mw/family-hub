@@ -51,3 +51,36 @@ func TestIsSelfCoversWhatTheBotAlwaysAccepted(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRoster(t *testing.T) {
+	r := ParseRoster(" 111:Олег, 222:Аня ")
+	if r.Name(111, "conformíst") != "Олег" {
+		t.Errorf("111 = %q", r.Name(111, "conformíst"))
+	}
+	if r.Name(222, "x") != "Аня" {
+		t.Errorf("222 = %q", r.Name(222, "x"))
+	}
+	// Anyone unlisted keeps whatever Telegram calls them: a guest in the
+	// group is better named badly than not at all.
+	if got := r.Name(999, "Гість"); got != "Гість" {
+		t.Errorf("unlisted = %q, want the display name", got)
+	}
+}
+
+// A typo in the roster must not stop the app from starting: it is a
+// convenience over the display name, not a source of truth.
+func TestParseRosterSkipsJunk(t *testing.T) {
+	r := ParseRoster("notanid:X,,333:,:Y,444:Оля,555")
+	if len(r) != 1 {
+		t.Fatalf("roster = %v, want only the one good entry", r)
+	}
+	if r.Name(444, "") != "Оля" {
+		t.Fatalf("444 = %q", r.Name(444, ""))
+	}
+}
+
+func TestEmptyRosterNamesNobody(t *testing.T) {
+	if got := ParseRoster("").Name(111, "conformíst"); got != "conformíst" {
+		t.Fatalf("got %q, want the display name", got)
+	}
+}

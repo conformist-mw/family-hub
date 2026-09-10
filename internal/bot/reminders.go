@@ -222,7 +222,7 @@ func (b *Bot) onChoreTap(c tele.Context) error {
 
 	// senderName is the same Telegram first name the Mini App stores, so both
 	// entry points name a person the same way in the record.
-	switch err := b.cfg.Reminders.Mark(id, dueAt, status, senderName(c)); {
+	switch err := b.cfg.Reminders.Mark(id, dueAt, status, b.senderName(c)); {
 	case err == nil:
 		_ = c.Respond(&tele.CallbackResponse{Text: choreDoneToast(status)})
 	case errors.Is(err, reminders.ErrNoSuchOccurrence), store.IsNotFound(err):

@@ -19,7 +19,11 @@ import (
 type fakeMealie struct {
 	calls    []string
 	hasPhoto bool
-	failOn   string // "METHOD /path" to answer 400 instead
+	// hasEventAt answers the "is this meal already written down" probe, and
+	// dupSides answers it for one side's recipe id only.
+	hasEventAt bool
+	dupSides   map[string]bool
+	failOn     string // "METHOD /path" to answer 400 instead
 }
 
 func (f *fakeMealie) start(t *testing.T) *mealie.Client {
@@ -34,9 +38,23 @@ func (f *fakeMealie) start(t *testing.T) *mealie.Client {
 		}
 		switch {
 		case r.URL.Path == "/api/recipes/timeline/events" && r.Method == http.MethodGet:
+			// The two probes differ by what they filter on: one asks whether a
+			// photo exists, the other whether this exact meal does.
+			filter := r.URL.Query().Get("queryFilter")
 			total := 0
-			if f.hasPhoto {
+			switch {
+			case strings.Contains(filter, "has image"):
+				if f.hasPhoto {
+					total = 1
+				}
+			case f.hasEventAt:
 				total = 1
+			default:
+				for id := range f.dupSides {
+					if strings.Contains(filter, id) {
+						total = 1
+					}
+				}
 			}
 			_, _ = w.Write([]byte(`{"total":` + strconv.Itoa(total) + `}`))
 		case r.URL.Path == "/api/recipes/timeline/events":
@@ -79,8 +97,9 @@ func TestFirstPhotoBecomesMainImage(t *testing.T) {
 		t.Fatalf("res = %+v, want MadeMain", res)
 	}
 	want := []string{
+		"GET /api/recipes/timeline/events", // already recorded?
 		"POST /api/recipes/timeline/events",
-		"GET /api/recipes/timeline/events",
+		"GET /api/recipes/timeline/events", // photographed before?
 		"PUT /api/recipes/timeline/events/ev1/image",
 		"PUT /api/recipes/deruni/image",
 		"PATCH /api/recipes/deruni/last-made",
@@ -138,7 +157,11 @@ func TestTextOnlyRecordSkipsImages(t *testing.T) {
 	if res.MadeMain {
 		t.Fatal("no photo means no main image")
 	}
-	want := []string{"POST /api/recipes/timeline/events", "PATCH /api/recipes/deruni/last-made"}
+	want := []string{
+		"GET /api/recipes/timeline/events",
+		"POST /api/recipes/timeline/events",
+		"PATCH /api/recipes/deruni/last-made",
+	}
 	if strings.Join(f.calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls = %v", f.calls)
 	}
@@ -377,5 +400,61 @@ func TestRecipeURLEmptyWithoutPublicAddress(t *testing.T) {
 	f := &fakeMealie{}
 	if got := NewService(f.start(t), "").RecipeURL(context.Background(), "guliash"); got != "" {
 		t.Fatalf("url = %q, want empty", got)
+	}
+}
+
+// Two people photographing the same dinner must not produce two records of
+// it. Different dishes at the same meal are a different matter entirely and
+// are written independently — that case is covered by the sides tests.
+func TestSameMealRecordedTwiceIsANoOp(t *testing.T) {
+	f := &fakeMealie{hasEventAt: true}
+	res, err := NewService(f.start(t), "").Do(context.Background(), record(true))
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if !res.AlreadyDone {
+		t.Fatal("want AlreadyDone")
+	}
+	for _, c := range f.calls {
+		if c != "GET /api/recipes/timeline/events" {
+			t.Fatalf("nothing should have been written, got %v", f.calls)
+		}
+	}
+}
+
+// A side already recorded by the other cook is still named in the reply — it
+// was on the plate — but is not written a second time.
+func TestDuplicateSideIsReportedButNotRewritten(t *testing.T) {
+	f := &fakeMealie{dupSides: map[string]bool{"u2": true}}
+	r := record(false)
+	r.Sides = []mealie.Recipe{{ID: "u2", Slug: "grechka", Name: "Гречка"}}
+
+	res, err := NewService(f.start(t), "").Do(context.Background(), r)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if len(res.Sides) != 1 || res.Sides[0] != "Гречка" {
+		t.Fatalf("res.Sides = %v", res.Sides)
+	}
+	for _, c := range f.calls {
+		if c == "PATCH /api/recipes/grechka/last-made" {
+			t.Fatal("side was already recorded; it must not be written again")
+		}
+	}
+}
+
+// A check that errors must not swallow the meal: writing a duplicate line
+// somebody can delete beats losing the record.
+func TestFailedDuplicateCheckStillRecords(t *testing.T) {
+	f := &fakeMealie{failOn: "GET /api/recipes/timeline/events"}
+	res, err := NewService(f.start(t), "").Do(context.Background(), record(false))
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if res.AlreadyDone {
+		t.Fatal("an unanswerable check must not read as 'already done'")
+	}
+	if res.EventID == "" {
+		t.Fatal("the meal should still have been written")
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/audit"
 	"familyhub/internal/cooking"
 	"familyhub/internal/dish"
@@ -90,6 +91,12 @@ type Config struct {
 	// Mealie token and a vision model; either one missing disables the cooking
 	// log and leaves the rest of the bot untouched — the same bargain
 	// free-text capture makes with GEMINI_API_KEY.
+	// People names the family by Telegram user id, so that "Я" in a captured
+	// note and the byline on a cooking entry both resolve to the same person
+	// even after somebody edits their Telegram profile. Empty just means
+	// everyone is called whatever Telegram currently says.
+	People actor.Roster
+
 	Cooking *cooking.Service
 	Dish    *dish.Recognizer
 }

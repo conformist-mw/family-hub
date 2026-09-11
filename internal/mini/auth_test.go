@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"familyhub/internal/actor"
 )
 
 const testToken = "123456:test-bot-token"
@@ -301,5 +303,43 @@ func TestParseUserIDs(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v, want %v", got, want)
 		}
+	}
+}
+
+// The Mini App attributes a write the way the bot does: by roster, keyed on
+// the Telegram id, so one person does not appear under two names depending on
+// which surface they used.
+func TestVerifyNamesTheLauncherFromTheRoster(t *testing.T) {
+	const id = 192475189
+	v := newVerifier(testToken, Config{
+		AllowedUsers: []int64{id},
+		MaxAge:       DefaultMaxAge,
+		People:       actor.ParseRoster("192475189:Котан"),
+	}, discardLogger(), func() time.Time { return testNow })
+
+	who, apiErr := v.authenticate(request(signInitData(t, testToken, launchData(t, id, testNow))))
+	if apiErr != nil {
+		t.Fatalf("authenticate: %v", apiErr)
+	}
+	if who.Name != "Котан" {
+		t.Fatalf("name = %q, want the roster's name", who.Name)
+	}
+}
+
+// Anyone the roster does not list keeps the display name Telegram reports.
+func TestVerifyFallsBackToTheDisplayName(t *testing.T) {
+	const id = 555
+	v := newVerifier(testToken, Config{
+		AllowedUsers: []int64{id},
+		MaxAge:       DefaultMaxAge,
+		People:       actor.ParseRoster("192475189:Котан"),
+	}, discardLogger(), func() time.Time { return testNow })
+
+	who, apiErr := v.authenticate(request(signInitData(t, testToken, launchData(t, id, testNow))))
+	if apiErr != nil {
+		t.Fatalf("authenticate: %v", apiErr)
+	}
+	if who.Name != "Тест" {
+		t.Fatalf("name = %q, want the display name from init data", who.Name)
 	}
 }

@@ -85,7 +85,7 @@ func (b *Bot) captureText(c tele.Context, text string, now time.Time) error {
 
 	// Unspecified (or self-referential) "who" defaults to the message sender —
 	// the parser can't know who sent the message, so we resolve it here.
-	resolvePerson(parsed, senderName(c))
+	resolvePerson(parsed, b.senderName(c))
 
 	// If exactly one visit already sits at this time (single-item capture), offer
 	// to update it instead of silently creating a second entry.
@@ -230,15 +230,15 @@ func (b *Bot) mirrorToGroup(c tele.Context, text string) {
 }
 
 func (b *Bot) groupAddText(c tele.Context, items []model.Appointment) string {
-	return appointments.GroupAddText(items, senderName(c), b.cfg.Loc)
+	return appointments.GroupAddText(items, b.senderName(c), b.cfg.Loc)
 }
 
 func (b *Bot) groupChangeText(c tele.Context, a model.Appointment, verb string) string {
-	return appointments.GroupChangeText(a, verb, senderName(c), b.cfg.Loc)
+	return appointments.GroupChangeText(a, verb, b.senderName(c), b.cfg.Loc)
 }
 
 func (b *Bot) groupCancelText(c tele.Context, a model.Appointment) string {
-	return appointments.GroupCancelText(a, senderName(c), b.cfg.Loc)
+	return appointments.GroupCancelText(a, b.senderName(c), b.cfg.Loc)
 }
 
 // applyEdit routes a follow-up text message to the field the user chose to edit.
@@ -303,15 +303,20 @@ func senderID(c tele.Context) int64 {
 
 // senderName is the best display name for the message author, used as the
 // default "who".
-func senderName(c tele.Context) string {
+// senderName is what to call whoever sent this message: the roster's name for
+// their user id, falling back to the display name Telegram reports. It is a
+// method rather than a function because the roster is configuration — see
+// actor.Roster for why the id, and not the display name, is the identity.
+func (b *Bot) senderName(c tele.Context) string {
 	u := c.Sender()
 	if u == nil {
 		return ""
 	}
-	if u.FirstName != "" {
-		return u.FirstName
+	display := u.FirstName
+	if display == "" {
+		display = u.Username
 	}
-	return u.Username
+	return b.cfg.People.Name(u.ID, display)
 }
 
 // resolvePerson fills an empty or self-referential person with self (the

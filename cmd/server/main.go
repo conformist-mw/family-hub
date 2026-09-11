@@ -15,8 +15,12 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/bot"
+	"familyhub/internal/cooking"
 	"familyhub/internal/db"
+	"familyhub/internal/dish"
+	"familyhub/internal/mealie"
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
@@ -53,6 +57,10 @@ func main() {
 	defer stop()
 
 	st := store.New(database)
+
+	// One roster for both surfaces: a payment entered in the Mini App and a
+	// meal recorded by the bot must carry the same name for the same person.
+	people := actor.ParseRoster(os.Getenv("TELEGRAM_PEOPLE"))
 
 	// The reminder materialiser runs independently of the bot and of whether
 	// notifications are on at all. It writes the record of what came due, and
@@ -96,6 +104,34 @@ func main() {
 		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
 	}
 
+	// The recipe database. Two addresses on purpose: the API is spoken to
+	// inside the docker network, while a link in a Telegram message has to be
+	// one a phone can open. A deploy that sets only the first gets links to
+	// it, which is right for a single host where they are the same.
+	var cookingSvc *cooking.Service
+	mealieURL := os.Getenv("MEALIE_URL")
+	mealiePublicURL := os.Getenv("MEALIE_PUBLIC_URL")
+	if mealiePublicURL == "" {
+		mealiePublicURL = mealieURL
+	}
+	if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
+		mealieClient := mealie.New(mealieURL, mealieToken)
+		cookingSvc = cooking.NewService(mealieClient, mealiePublicURL)
+
+		// Filling the meal plan is data, like the reminder materialiser, so
+		// it runs from here rather than from the bot: hanging it off the
+		// bot's gates would stop the plan being written whenever messages
+		// are switched off. Empty MEALPLAN_FILL_TIME disables it.
+		go cooking.NewPlanner(mealieClient, cooking.PlannerConfig{
+			At:       os.Getenv("MEALPLAN_FILL_TIME"),
+			Slots:    splitCSV(os.Getenv("MEALPLAN_SLOTS")),
+			Horizon:  atoiOr(os.Getenv("MEALPLAN_HORIZON_DAYS"), 0),
+			RestDays: atoiOr(os.Getenv("MEALPLAN_REST_DAYS"), 0),
+			Loc:      time.Local,
+			Logger:   logger,
+		}).RunDaily(ctx)
+	}
+
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
 	var webhookPath string
@@ -132,6 +168,27 @@ func main() {
 			}
 		}
 
+		// The cooking log needs a model on top of the recipe database: one to
+		// look at the photograph, the other to write the result down. A
+		// missing key leaves the recognizer nil, which the bot reads as "not
+		// configured" and skips.
+		var recognizer *dish.Recognizer
+		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
+			// Defaults name the model this was measured against: on a plate
+			// holding a main dish plus side salads, the cheaper tiers
+			// consistently answered with the whole plate ("English
+			// breakfast") instead of the dish.
+			aiBase := os.Getenv("AI_BASE_URL")
+			if aiBase == "" {
+				aiBase = "https://api.openai.com/v1"
+			}
+			aiModel := os.Getenv("AI_MODEL")
+			if aiModel == "" {
+				aiModel = "gpt-5.6-luna"
+			}
+			recognizer = dish.New(aiBase, aiKey, aiModel)
+		}
+
 		cfg := bot.Config{
 			Token:                token,
 			WebhookURL:           os.Getenv("TELEGRAM_WEBHOOK_URL"),
@@ -159,6 +216,9 @@ func main() {
 			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
 			Reminders:            remindersSvc,
 			School:               schoolSvc,
+			People:               people,
+			Cooking:              cookingSvc,
+			Dish:                 recognizer,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already
@@ -208,6 +268,7 @@ func main() {
 		miniRouter, err := mini.NewRouter(st, logger, mini.Config{
 			BotToken:     token,
 			AllowedUsers: mini.ParseUserIDs(os.Getenv("TELEGRAM_MINI_USERS"), logger),
+			People:       people,
 			DevUser:      devUser,
 			WebhookURL:   os.Getenv("TELEGRAM_WEBHOOK_URL"),
 			Loc:          time.Local,
@@ -314,4 +375,15 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// atoiOr reads a positive integer from the environment, falling back to def
+// for anything unset or unparseable. Zero means "the package default", which
+// is where the actual numbers live.
+func atoiOr(s string, def int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
 }

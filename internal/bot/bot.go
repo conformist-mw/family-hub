@@ -14,7 +14,10 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/audit"
+	"familyhub/internal/cooking"
+	"familyhub/internal/dish"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
 	"familyhub/internal/schooltoday"
@@ -82,6 +85,20 @@ type Config struct {
 	// which is what a deploy without portal credentials gets — disables the
 	// review regardless of the times, because there would be nothing to read.
 	School *schooltoday.Service
+
+	// Cooking writes meals down in the recipe database and Dish works out
+	// which dish a photograph shows. Both are nil unless the deploy carries a
+	// Mealie token and a vision model; either one missing disables the cooking
+	// log and leaves the rest of the bot untouched — the same bargain
+	// free-text capture makes with GEMINI_API_KEY.
+	// People names the family by Telegram user id, so that "Я" in a captured
+	// note and the byline on a cooking entry both resolve to the same person
+	// even after somebody edits their Telegram profile. Empty just means
+	// everyone is called whatever Telegram currently says.
+	People actor.Roster
+
+	Cooking *cooking.Service
+	Dish    *dish.Recognizer
 }
 
 type Bot struct {
@@ -97,6 +114,11 @@ type Bot struct {
 	parser   *parse.Parser
 	pending  *pendingStore
 	awaiting *awaitingStore
+
+	// cookedCards holds the confirmation cards of the cooking log, including
+	// the photograph itself: it is needed again after the write, for the
+	// "make it the main picture" tap.
+	cookedCards *cookedPending
 
 	// reviewRunning guards the Friday school review, which is the only message
 	// that leaves the ticker's goroutine. Without it a portal crawling badly
@@ -159,6 +181,8 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		allowed:  make(map[int64]bool, len(cfg.AllowedChats)),
 		pending:  newPendingStore(),
 		awaiting: newAwaitingStore(),
+
+		cookedCards: newCookedPending(),
 	}
 	for _, id := range cfg.AllowedChats {
 		bot.allowed[id] = true
@@ -206,6 +230,24 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		logger.Info("bot: free-text capture disabled (GEMINI_API_KEY not set)")
 	}
 
+	// The cooking log. OnPhoto is registered only with both halves present:
+	// without them a photo has nowhere to go, and the handler would download
+	// every picture the family posts to find that out.
+	if cfg.Cooking != nil && cfg.Dish != nil {
+		tb.Handle("/cooked", bot.cmdCooked)
+		tb.Handle(tele.OnPhoto, bot.onPhoto)
+		tb.Handle(&tele.Btn{Unique: "ckd_ok"}, bot.onCookedConfirm)
+		tb.Handle(&tele.Btn{Unique: "ckd_new"}, bot.onCookedNew)
+		tb.Handle(&tele.Btn{Unique: "ckd_day"}, bot.onCookedDay)
+		tb.Handle(&tele.Btn{Unique: "ckd_slot"}, bot.onCookedSlot)
+		tb.Handle(&tele.Btn{Unique: "ckd_main"}, bot.onCookedPickMain)
+		tb.Handle(&tele.Btn{Unique: "ckd_side"}, bot.onCookedSide)
+		tb.Handle(&tele.Btn{Unique: "ckd_promote"}, bot.onCookedPromote)
+		tb.Handle(&tele.Btn{Unique: "ckd_cancel"}, bot.onCookedCancel)
+	} else {
+		logger.Info("bot: cooking log disabled (MEALIE_TOKEN or AI_API_KEY not set)")
+	}
+
 	// Populate the "/" menu — how the group discovers the appointment commands
 	// (best-effort; a network hiccup here must not block startup).
 	cmds := []tele.Command{
@@ -217,6 +259,9 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	}
 	if parser != nil {
 		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записати візит: /visit завтра 15:00 педикюр"})
+	}
+	if cfg.Cooking != nil && cfg.Dish != nil {
+		cmds = append(cmds, tele.Command{Text: "cooked", Description: "Що приготували: фото тарілки або /cooked драники"})
 	}
 	cmds = append(cmds,
 		tele.Command{Text: "week", Description: "Записи на найближчий тиждень"},

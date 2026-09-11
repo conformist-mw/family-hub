@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"familyhub/internal/actor"
 	"familyhub/internal/appointments"
 	"familyhub/internal/audit"
 	"familyhub/internal/payments"
@@ -50,6 +51,10 @@ type Config struct {
 	// TELEGRAM_ALLOWED_CHATS: that lists chats, including the family group,
 	// while a Mini App authenticates the individual who opened it.
 	AllowedUsers []int64
+	// People names the family by Telegram user id, so a write from here is
+	// attributed the way the bot attributes one. Empty leaves everyone under
+	// whatever display name Telegram reports.
+	People actor.Roster
 	// MaxAge overrides DefaultMaxAge when non-zero.
 	MaxAge time.Duration
 	// DevUser makes the API accept unsigned requests as this Telegram id, so

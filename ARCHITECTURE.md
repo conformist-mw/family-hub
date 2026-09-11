@@ -11,6 +11,10 @@ to look when picking it back up after a break.
 - `pressly/goose` migrations, embedded into the binary
 - `gopkg.in/telebot.v3` for the Telegram bot
 - `google.golang.org/genai` (Gemini) to parse appointments out of free text
+- the OpenAI chat-completions protocol, spoken over plain `net/http`, to
+  recognise a dish from a photograph — Gemini serves that protocol too, so
+  which model looks at the plate is three environment variables, not a code
+  path
 - `joho/godotenv` to load `.env` in local development
 
 ## Domain model
@@ -175,6 +179,9 @@ internal/
   valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
+  dish/        # vision client: photo of a plate -> which recipe it is
+  cooking/     # what was eaten, written into Mealie: entries, photos, last-made
+  mealie/      # HTTP client for the recipe database
   ics/         # the VCALENDAR feeds HA polls (family + school)
   schooltoday/ # mirrors the school portal timetable; feeds /school.ics
 data/          # local SQLite (gitignored)
@@ -476,9 +483,12 @@ for exactly that reason.
   The text and the byline are built in `internal/appointments` so all three
   read alike; it is Telegram HTML with everything a person typed escaped.
   Sending is best-effort — the row is already saved, and reporting a Telegram
-  outage as a failed save invites a duplicate. The byline is the Telegram
-  `first_name` for the bot and the Mini App; on the web it is whatever the
-  forward-auth proxy forwards, falling back to "веб".
+  outage as a failed save invites a duplicate. The byline comes from
+  `actor.Roster` for the bot and the Mini App — the family by Telegram user
+  id, falling back to the display name for anyone unlisted; on the web it is
+  whatever the forward-auth proxy forwards, falling back to "веб". Both
+  surfaces read the same roster, so one person cannot turn up under two names
+  depending on which one they wrote from.
 - **And about every payment**, on the same terms: `payments.Service` announces
   an add, an edit and a delete, so "я вже заплатила за футбол" and "треба
   заплатити за футбол" stop being true in the same evening. The message names
@@ -601,6 +611,142 @@ for exactly that reason.
   all) simply shows no date instead of a guessed one. Any lookup failure
   degrades to the bare remainder rather than dropping the balance.
 
+### The cooking log
+
+Photograph a plate, and the bot writes down that the dish was cooked. It
+exists because Mealie cannot do this: its AI import reads a *recipe* out of an
+image — a page of a cookbook — and answers a photo of dinner with
+`No recipe was found in the provided source`, which is the endpoint working as
+designed, not a misconfiguration.
+
+- **Entry points** (`internal/bot/cooked.go`). A bare photo counts only in a
+  private chat. In the family group it takes `/cooked` in the caption: this
+  bot can read every message there, and running the family's snapshots through
+  a vision model would be both expensive and none of its business. `/cooked
+  <text>` is the same flow without a picture, and works anywhere.
+- A caption is a **hint, never a key**. The cook writes Russian and the
+  recipes are Ukrainian, so nothing is matched locally — the caption goes to
+  the model as context, along with the whole recipe catalogue, and one call
+  answers with up to three candidates, a proposed name for a dish that is not
+  in the database yet, the meal, the day, and a line about what is on the
+  plate.
+- **Three candidates, not one**, because деруни, оладки and сирники look alike
+  and all three are in the database. They become buttons, so a near miss costs
+  one tap instead of a wrong entry. A slug the catalogue does not have is
+  dropped as an invention (`internal/dish`), which turns a hallucination into
+  the "create it?" path.
+- **A meal is a plate, not a dish.** The same call also returns everything
+  *alongside* the main dish — any other recipe eaten at that meal — and
+  confirming records all of them: an entry and a `lastMade` each. The field
+  is deliberately not called "sides": it was, and the prompt written from
+  that name described garnish, so a chicken cutlet next to the goulash fitted
+  no category and was silently dropped. Without that, a side's last-made date
+  never moves and the planner keeps offering mash nobody has stopped eating.
+  Combining the pair into a "goulash with mash" recipe was considered and
+  rejected: it multiplies out to every pairing the kitchen makes, and each
+  combination then accumulates the history that the dishes themselves stop
+  accumulating. Baking a pairing into one recipe stays the exception for when
+  the pair really is the dish («Скумбрія копчена з картоплею»).
+- **One button writes the whole plate**, because a plate with a main, a side
+  and a salad is one meal and approving it three times is three chances to
+  give up half way. Everything else on the card only redraws it: alternatives
+  (`↔`) *replace* the main dish, sides (`✓`/`✗`) are *added to* it. The two are
+  never in the same row — they answer different questions, and a side that is
+  also an alternative resolves by whichever the cook confirms as the main, so
+  the same recipe can never be written down twice for one meal.
+- **The photo goes only to the main dish.** The rest get an entry saying
+  «Разом з: Гуляш» and no picture: the photograph is of a plate of goulash,
+  and attaching it to the mash would both misrepresent it and mark it as
+  already photographed, blocking a future picture that really is of the mash.
+- **The model tier matters more than the prompt here.** Measured on fourteen
+  photographs, `gemini-flash-lite-latest` scored 12/14 but failed the case
+  that actually matters — a real plate holding a main dish plus eggs, salad
+  and mushrooms — answering "англійський сніданок" three times out of three:
+  it saw the deruny and still described the whole plate. `gpt-5.6-luna` and
+  `gemini-flash-latest` both read the main dish correctly. Hence the default
+  in `main.go`, and `AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY` to move it.
+- **What a confirmation writes** (`internal/cooking`): a timeline entry
+  subject-lined `Обід · Олег`, the photo attached to it, and `lastMade` — the
+  field the meal-plan rules filter on, and so the one that stops a dish being
+  suggested again next week. The three are not a transaction; the order is
+  chosen for what a half-finished write leaves behind, and a failure names the
+  step it died at rather than claiming success.
+- **The first real photograph becomes the recipe's main image**, displacing
+  the stock picture the recipe was seeded with; later ones stay in history
+  behind a "зробити головним" button. "Has anyone photographed this before?"
+  is answered by asking Mealie for a timeline entry that has an image, which
+  keeps the fact out of this app's database entirely. The probe runs *before*
+  the new photo is attached, or the entry would be the evidence that stops
+  itself.
+- **A new recipe is created with a name, a category, tags and the photo — and
+  no ingredients.** An invented ingredient list would flow into the shopping
+  list as fact, and how to cook something can be looked up; what this database
+  is for is which dishes exist and when they were last eaten. Organizers are
+  resolved against the live lists and anything unrecognised is dropped, never
+  created: Mealie answers an unknown organizer id with a silent `200` that
+  discards the *whole* payload, so one invented tag would also lose the
+  category and the serving count.
+- **The link back to Mealie is `/g/<group>/r/<slug>`**, and the group is read
+  from the API rather than assumed — a wrong guess produces an address that
+  404s only for whoever taps it. The API itself is reached container-to-
+  container, so the public address is a separate setting
+  (`MEALIE_PUBLIC_URL`); tapping the link needs a Mealie session, since the
+  group is private.
+- **Two cooks, two meals, no collision.** Entries and last-made dates are
+  per recipe, and the meal plan is never touched, so "goulash for me, sushi
+  for her" writes two independent records. What is caught is the *same* dish
+  recorded twice — meals are pinned to a canonical hour (13:00 and 19:00), so
+  "same recipe, same instant" is exactly that, and the second confirmation
+  reports «вже було записано» without writing. A check that errors falls
+  through to writing: a duplicate line somebody can delete beats a meal that
+  went unrecorded.
+- Cards live in memory (`cookedPending`) because they carry the photograph
+  itself, which is needed again after the write for the promote button. A
+  restart drops them and the photo is re-sent, the same bargain the
+  appointment cards make. The card is claimed once, so a double tap cannot
+  produce two entries.
+- **Who cooked it comes from `TELEGRAM_PEOPLE`, keyed by user id** — see
+  `actor.Roster`. A display name is the person's to change, and when they do,
+  every "Я" they write starts resolving to a new string while the rows already
+  written keep the old one: one human, two names, no way to tell. The id never
+  changes. Unlisted senders keep their Telegram display name, and the same
+  lookup serves the appointment capture, so the calendar and the kitchen
+  cannot disagree about who somebody is.
+- Without `MEALIE_TOKEN`/`MEALIE_URL` or `AI_API_KEY` the whole flow is not
+  registered — including `OnPhoto`, so that a bot with no cooking log does not
+  download every picture the family posts to discover it has nowhere to put
+  it.
+
+### Filling the meal plan
+
+`internal/cooking/planner.go` keeps the coming week's lunch and dinner slots
+from being empty, so nobody has to press "generate" and the morning menu
+message always has something to announce. It runs from `main.go` on a
+once-a-minute ticker that fires at `MEALPLAN_FILL_TIME`, for the same reason
+the reminders materialiser does: filling the plan is data, and hanging it off
+the bot would stop it happening whenever messages are switched off.
+
+- **It does not use Mealie's own random generator.** That picks by tag alone,
+  so the same dish returns three times a week and the last-made date the
+  cooking log records changes nothing. The rules *can* filter on `lastMade`,
+  but only against a literal date — `lastMade < "now-14d"` is rejected with
+  `unknown date or datetime format` — so a rule carrying a freshness window
+  would rot the day after somebody wrote it.
+- **So the tag half stays in the rules and the freshness half is computed
+  per pass.** The rule for that day and meal is read from the API, and
+  ` AND (lastMade IS NONE OR lastMade < "<today − rest days>")` is appended.
+  Which dishes count as lunch remains a decision maintained in the UI.
+- A rule naming a weekday beats the general one, which is how "Friday is
+  pizza" would work. A slot with no rule is skipped entirely: somebody
+  deliberately did not describe it.
+- **Only empty slots are filled**, and only from tomorrow — today is already
+  being eaten. A dish already planned anywhere in the window is not picked
+  again, so борщ does not land on two days of the same week.
+- When nothing has rested long enough it falls back to the bare rule. A
+  repeat is a worse plan; an empty slot is a silent digest, which is worse.
+- No pass runs at startup. Deploys are frequent, and a plan that reshuffles
+  itself on every restart is not a plan.
+
 ## Reminders
 
 Recurring chores — cashback on the 1st, the car's mileage, the cactus. Three
@@ -704,9 +850,9 @@ a person can pick that the app refuses.
 - SOPS + age. Private key at
   `~/Library/Application Support/sops/age/keys.txt` (macOS default; sops
   auto-detects). Public recipient lives in `dotfiles/.sops.yaml`.
-- Encrypted file: `dotfiles/roles/family-hub/vars/secrets.sops.yaml`.
-  Loaded into the play by `community.sops.load_vars` at the top of the
-  role.
+- Encrypted file: `dotfiles/host_vars/hetzner/secrets.sops.yaml`, decrypted by
+  the `community.sops.sops` vars plugin with no explicit load task. Every
+  `family_hub_*` secret lives there; the role carries no `vars/` of its own.
 - Keys currently used:
   - `family_hub_bot_token`
   - `family_hub_webhook_path`
@@ -720,13 +866,16 @@ a person can pick that the app refuses.
   - `family_hub_school_ics_token` — shared secret for `/school.ics`
   - `family_hub_school_week_review_dow`, `family_hub_school_week_review_time` —
     when the Friday week review goes out (0=Sun..6=Sat; unset disables)
-- Host-scoped secrets live in `dotfiles/host_vars/hetzner/secrets.sops.yaml`
-  instead, auto-decrypted by the `community.sops.sops` vars plugin with no
-  explicit load task. `lessons_mini_users` — the Telegram **user** ids allowed
-  into the Mini App, comma-separated — belongs there because it is about this
-  VPS. Store it as a quoted string: as a bare YAML number it decrypts back as
-  a float with a `.0` glued on.
-- Edit a value: `cd ~/dev/dotfiles && sops edit roles/family-hub/vars/secrets.sops.yaml`.
+  - `family_hub_mealie_token` — the recipe database's API token. Its own,
+    created as `family-hub-bot` rather than shared with a person's, so it can
+    be revoked without locking anyone out of the kitchen.
+  - `family_hub_ai_api_key` — the model that reads a photograph of a plate
+  - `family_hub_people` — `<telegram id>:<name>` pairs, the family by user id.
+    Secret because it is real names against real ids in a public repo.
+  - `family_hub_mini_users` — the Telegram **user** ids allowed into the Mini
+    App, comma-separated. Store it as a quoted string: as a bare YAML number
+    it decrypts back as a float with a `.0` glued on.
+- Edit a value: `cd ~/dev/dotfiles && sops edit host_vars/hetzner/secrets.sops.yaml`.
 - Rotate without echoing: `sops --set '["key"] "value"' …`.
 - The rest of the dotfiles still uses Bitwarden Secrets Manager. Full
   migration is planned together with the k3s move

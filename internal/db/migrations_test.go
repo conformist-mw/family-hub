@@ -309,6 +309,30 @@ func TestSchoolDetailTablesExistAfterMigration(t *testing.T) {
 	}
 }
 
+// 0012 adds the pupil tab's two columns to a table that already holds rows.
+// An ALTER that goose does not pick up fails as "no such column: praise" on
+// the next Friday collect, three days after the deploy that was supposed to
+// add it.
+func TestSchoolDetailPupilColumnsExistAfterMigration(t *testing.T) {
+	database := migrated(t)
+
+	mustExec(t, database, `
+		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
+		VALUES (1, 79311, '2026-09-03T09:50', 'Біологія [9]')`)
+
+	var praise, comment string
+	if err := database.QueryRow(
+		`SELECT praise, pupil_comment FROM school_lesson_details WHERE event_id = 1`).
+		Scan(&praise, &comment); err != nil {
+		t.Fatalf("pupil columns missing after migrate: %v", err)
+	}
+	// A row written before the teacher wrote anything reads as blank, not as
+	// NULL: every consumer takes these as plain strings.
+	if praise != "" || comment != "" {
+		t.Fatalf("praise = %q, comment = %q, want both blank", praise, comment)
+	}
+}
+
 // A detail row with no subject or no start is unrenderable and unselectable —
 // it would sit in the table forever, invisible to the week query that keys on
 // starts_at. Cheaper to refuse it at the schema than to filter it at read.

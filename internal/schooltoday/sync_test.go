@@ -256,15 +256,20 @@ func TestAPlaceholderTopicIsNotMirrored(t *testing.T) {
 	}
 }
 
-// The detail page has three such fields, and the teacher can leave any of them
-// as a dash.
+// The detail page has five such fields, and the teacher can leave any of them
+// as a dash. The pupil tab's two are the likeliest of the lot: the portal
+// renders "---" in Коментар for every ordinary lesson, which is most of them.
 func TestPlaceholderDetailFieldsAreNotMirrored(t *testing.T) {
 	svc := &Service{cfg: Config{PupilID: 7}, loc: time.UTC}
 	got := svc.toDetail(
 		Event{EventID: 1, Subject: "Алгебра [9]", Start: "2026-09-01T09:00:00"},
-		LessonDetail{Teacher: "Петренко Оксана", Topic: "---", Notes: "—", Homework: "-"})
+		LessonDetail{Teacher: "Петренко Оксана", Topic: "---", Notes: "—", Homework: "-",
+			Praise: "—", PupilComment: "---"})
 	if got.Topic != "" || got.Notes != "" || got.Homework != "" {
 		t.Errorf("placeholders were mirrored: %+v", got)
+	}
+	if got.Praise != "" || got.PupilComment != "" {
+		t.Errorf("pupil-tab placeholders were mirrored: %+v", got)
 	}
 	// The lesson itself is still mirrored: a blank field is not a missing
 	// lesson, and its marks are what the week review leads with.

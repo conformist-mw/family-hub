@@ -80,6 +80,8 @@ func TestABlankFieldDoesNotOverwriteAFilledOne(t *testing.T) {
 	full.Notes = "Розвʼязали 12 задач"
 	full.Homework = "№ 4, 7 ст. 11"
 	full.Teacher = "Зайцева В."
+	full.Praise = "Активна робота"
+	full.PupilComment = "Забув зошит"
 	if err := st.SaveLessonDetails([]model.SchoolLessonDetail{full}); err != nil {
 		t.Fatalf("save full: %v", err)
 	}
@@ -95,6 +97,56 @@ func TestABlankFieldDoesNotOverwriteAFilledOne(t *testing.T) {
 	if got[0].Topic != "Квадратні рівняння" || got[0].Notes != "Розвʼязали 12 задач" ||
 		got[0].Homework != "№ 4, 7 ст. 11" || got[0].Teacher != "Зайцева В." {
 		t.Fatalf("a blank collect erased a filled record: %+v", got[0])
+	}
+	if got[0].Praise != "Активна робота" || got[0].PupilComment != "Забув зошит" {
+		t.Fatalf("a blank collect erased the pupil's own record: %+v", got[0])
+	}
+}
+
+// The praise is the half of the page the parent came for, and it travels a
+// route of its own — the pupil tab, its own two columns, added by 0012 to a
+// table that already had rows in it. A round trip is what says the read and
+// the write agree about which column is which.
+func TestThePupilsOwnFieldsRoundTrip(t *testing.T) {
+	st := schoolStore(t)
+
+	d := detail(1, "2026-09-03T09:50", "Біологія [9]")
+	d.Praise = "Найкраща відповідь на уроці"
+	d.PupilComment = "Похвалили за проєкт"
+	if err := st.SaveLessonDetails([]model.SchoolLessonDetail{d}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := st.LessonDetails("2026-09-01T00:00", "2026-09-07T00:00")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d details, want 1", len(got))
+	}
+	if got[0].Praise != "Найкраща відповідь на уроці" ||
+		got[0].PupilComment != "Похвалили за проєкт" {
+		t.Fatalf("pupil fields came back wrong: %+v", got[0])
+	}
+}
+
+// A lesson collected before 0012 ran has no praise and no comment, and reads
+// as the blank it is rather than failing the scan.
+func TestARowWrittenWithoutThePupilFieldsStillReads(t *testing.T) {
+	st := schoolStore(t)
+
+	d := detail(1, "2026-09-03T09:50", "Алгебра [9]")
+	d.Topic = "Квадратні рівняння"
+	if err := st.SaveLessonDetails([]model.SchoolLessonDetail{d}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := st.LessonDetails("2026-09-01T00:00", "2026-09-07T00:00")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got[0].Praise != "" || got[0].PupilComment != "" {
+		t.Fatalf("blank pupil fields came back filled: %+v", got[0])
 	}
 }
 

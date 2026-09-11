@@ -168,6 +168,7 @@ func TestParseLessonDetailOnUnrecognisedMarkup(t *testing.T) {
 			t.Fatalf("parse %q: %v", body, err)
 		}
 		if d.Topic != "" || d.Notes != "" || d.Homework != "" ||
+			d.Praise != "" || d.PupilComment != "" ||
 			len(d.Marks) != 0 || len(d.Files) != 0 {
 			t.Fatalf("invented content from %q: %+v", body, d)
 		}
@@ -186,5 +187,106 @@ func TestParsedTextIsWhitespaceNormalised(t *testing.T) {
 		if strings.Contains(v, "\n") || strings.Contains(v, "\t") || strings.Contains(v, "  ") {
 			t.Errorf("%s carries raw whitespace: %q", name, v)
 		}
+	}
+}
+
+// --- the pupil tab ----------------------------------------------------------
+
+// The praise is the one line on the page that is about this child rather than
+// about the class, and it is the reason a parent opens the app at all. It
+// hangs in a table, not behind a bold label like the general tab's fields.
+func TestParseLessonDetailReadsThePupilTab(t *testing.T) {
+	const praised = `<html><body>
+		<div class="tab-pane" id="pupil">
+			<table>
+				<thead><tr>
+					<th>Учень</th><th>Відвідування</th><th>Запізнення</th>
+					<th>Заохочення</th><th>Коментар</th>
+				</tr></thead>
+				<tbody><tr>
+					<td>Іваненко Тарас</td><td><input checked="checked" type="checkbox"></td>
+					<td>0</td><td>Активна робота на уроці</td>
+					<td>Молодець, гарно підготувався</td>
+				</tr></tbody>
+			</table>
+		</div></body></html>`
+
+	d, err := ParseLessonDetail([]byte(praised))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Praise != "Активна робота на уроці" {
+		t.Errorf("praise = %q", d.Praise)
+	}
+	if d.PupilComment != "Молодець, гарно підготувався" {
+		t.Errorf("comment = %q", d.PupilComment)
+	}
+}
+
+// Cells are keyed by their header rather than counted from the left. The two
+// columns wanted here are the last two of five, so a column inserted anywhere
+// before them would otherwise file the praise as the comment — and a review
+// that mislabels which is which is worse than one that omits both.
+func TestThePupilTabIsReadByHeaderNotByPosition(t *testing.T) {
+	const reordered = `<html><body>
+		<div class="tab-pane" id="pupil">
+			<table>
+				<thead><tr>
+					<th>Учень</th><th>Коментар</th><th>Група</th><th>Заохочення</th>
+				</tr></thead>
+				<tbody><tr>
+					<td>Іваненко Тарас</td><td>Забув зошит</td><td>1</td><td>Допоміг товаришу</td>
+				</tr></tbody>
+			</table>
+		</div></body></html>`
+
+	d, err := ParseLessonDetail([]byte(reordered))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Praise != "Допоміг товаришу" || d.PupilComment != "Забув зошит" {
+		t.Fatalf("columns were read positionally: praise = %q, comment = %q",
+			d.Praise, d.PupilComment)
+	}
+}
+
+// The captured response has an unremarkable day in it: nothing in Заохочення
+// and a dash in Коментар. The parser hands both back as the portal wrote
+// them — turning a dash into a blank is model.PortalText's job on the way into
+// the mirror, and doing it here as well would leave two places to change.
+func TestThePupilTabKeepsThePortalsOwnPlaceholder(t *testing.T) {
+	d, err := ParseLessonDetail(lessonFixture(t))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Praise != "" {
+		t.Errorf("praise = %q, want the fixture's empty cell", d.Praise)
+	}
+	if d.PupilComment != "---" {
+		t.Errorf("comment = %q, want the portal's dash verbatim", d.PupilComment)
+	}
+}
+
+// A teacher account sees the whole class here too, and the first row is ours —
+// the same rule the marks and homework tabs follow. Reading further would
+// attach another child's praise to this one's lesson.
+func TestThePupilTabTakesTheFirstRowOnly(t *testing.T) {
+	const twoPupils = `<html><body>
+		<div class="tab-pane" id="pupil">
+			<table>
+				<thead><tr><th>Учень</th><th>Заохочення</th></tr></thead>
+				<tbody>
+					<tr><td>Іваненко Тарас</td><td>Наш</td></tr>
+					<tr><td>Хтось Інший</td><td>Не наш</td></tr>
+				</tbody>
+			</table>
+		</div></body></html>`
+
+	d, err := ParseLessonDetail([]byte(twoPupils))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Praise != "Наш" {
+		t.Fatalf("praise = %q, want only the first row's", d.Praise)
 	}
 }

@@ -24,8 +24,9 @@ func (s *Store) SaveLessonDetails(details []model.SchoolLessonDetail) error {
 	// is "" rather than NULL and has to be tested for explicitly.
 	upsert, err := tx.Prepare(`
 		INSERT INTO school_lesson_details
-			(event_id, pupil_id, starts_at, subject, teacher, topic, notes, homework, fetched_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S','now','localtime'))
+			(event_id, pupil_id, starts_at, subject, teacher, topic, notes,
+			 praise, pupil_comment, homework, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S','now','localtime'))
 		ON CONFLICT (event_id) DO UPDATE SET
 			pupil_id   = excluded.pupil_id,
 			starts_at  = excluded.starts_at,
@@ -33,6 +34,8 @@ func (s *Store) SaveLessonDetails(details []model.SchoolLessonDetail) error {
 			teacher    = CASE WHEN excluded.teacher  <> '' THEN excluded.teacher  ELSE school_lesson_details.teacher  END,
 			topic      = CASE WHEN excluded.topic    <> '' THEN excluded.topic    ELSE school_lesson_details.topic    END,
 			notes      = CASE WHEN excluded.notes    <> '' THEN excluded.notes    ELSE school_lesson_details.notes    END,
+			praise     = CASE WHEN excluded.praise   <> '' THEN excluded.praise   ELSE school_lesson_details.praise   END,
+			pupil_comment = CASE WHEN excluded.pupil_comment <> '' THEN excluded.pupil_comment ELSE school_lesson_details.pupil_comment END,
 			homework   = CASE WHEN excluded.homework <> '' THEN excluded.homework ELSE school_lesson_details.homework END,
 			fetched_at = excluded.fetched_at`)
 	if err != nil {
@@ -66,7 +69,7 @@ func (s *Store) SaveLessonDetails(details []model.SchoolLessonDetail) error {
 
 	for _, d := range details {
 		if _, err := upsert.Exec(d.EventID, d.PupilID, d.StartsAt, d.Subject,
-			d.Teacher, d.Topic, d.Notes, d.Homework); err != nil {
+			d.Teacher, d.Topic, d.Notes, d.Praise, d.PupilComment, d.Homework); err != nil {
 			return err
 		}
 		if _, err := delMarks.Exec(d.EventID); err != nil {
@@ -100,7 +103,8 @@ func (s *Store) SaveLessonDetails(details []model.SchoolLessonDetail) error {
 // de-duplicating what it just asked for.
 func (s *Store) LessonDetails(from, to string) ([]model.SchoolLessonDetail, error) {
 	rows, err := s.db.Query(`
-		SELECT event_id, pupil_id, starts_at, subject, teacher, topic, notes, homework
+		SELECT event_id, pupil_id, starts_at, subject, teacher, topic, notes,
+		       praise, pupil_comment, homework
 		FROM school_lesson_details
 		WHERE starts_at >= ? AND starts_at < ?
 		ORDER BY starts_at, subject`, from, to)
@@ -114,7 +118,8 @@ func (s *Store) LessonDetails(from, to string) ([]model.SchoolLessonDetail, erro
 	for rows.Next() {
 		var d model.SchoolLessonDetail
 		if err := rows.Scan(&d.EventID, &d.PupilID, &d.StartsAt, &d.Subject,
-			&d.Teacher, &d.Topic, &d.Notes, &d.Homework); err != nil {
+			&d.Teacher, &d.Topic, &d.Notes, &d.Praise, &d.PupilComment,
+			&d.Homework); err != nil {
 			return nil, err
 		}
 		byID[d.EventID] = len(out)

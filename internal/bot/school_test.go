@@ -423,6 +423,63 @@ func TestTheWeekReviewCarriesNotesAndHomework(t *testing.T) {
 	}
 }
 
+// The praise is why this message exists at all on some weeks: the class notes
+// say what everybody did, and this says what the teacher singled this child
+// out for. Both per-pupil lines have to survive the regrouping, and stay
+// distinguishable from the notes — rendered in the same italics they would
+// read as one more remark about the lesson.
+func TestTheWeekReviewCarriesThePupilsPraiseAndComment(t *testing.T) {
+	lesson := reviewLesson("2026-08-31T09:00", "Біологія [9]", "Клітина",
+		"Розглядали будову клітини", "")
+	lesson.Praise = "Найкраща відповідь на уроці"
+	lesson.PupilComment = "Похвалили за проєкт"
+
+	got, ok := schoolWeekReviewText(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		[]model.SchoolLessonDetail{lesson}, 0, time.UTC)
+	if !ok {
+		t.Fatal("the week rendered nothing")
+	}
+	if !strings.Contains(got, "🌟 Найкраща відповідь на уроці") {
+		t.Errorf("praise missing:\n%s", got)
+	}
+	if !strings.Contains(got, "💬 Похвалили за проєкт") {
+		t.Errorf("comment missing:\n%s", got)
+	}
+	// The praise belongs to the child; the notes to the room. A reader who
+	// cannot tell them apart learns the wrong thing from the message.
+	if strings.Contains(got, "<i>Найкраща відповідь на уроці</i>") {
+		t.Errorf("praise was rendered as a lesson note:\n%s", got)
+	}
+}
+
+// The portal writes "---" in Коментар for every unremarkable lesson, and rows
+// collected before PortalText reached this field still hold it. A week of
+// those must not render as a column of dashes.
+func TestTheWeekReviewDropsPlaceholderPupilFields(t *testing.T) {
+	lesson := reviewLesson("2026-08-31T09:00", "Біологія [9]", "Клітина", "", "")
+	lesson.Praise = "—"
+	lesson.PupilComment = "---"
+
+	got, _ := schoolWeekReviewText(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		[]model.SchoolLessonDetail{lesson}, 0, time.UTC)
+	if strings.Contains(got, "🌟") || strings.Contains(got, "💬") {
+		t.Errorf("a placeholder was rendered as a remark:\n%s", got)
+	}
+}
+
+// A lesson whose only record is a praise is still a lesson with a record:
+// "без записів" under a line the teacher did write reads as a bug.
+func TestAPraiseAloneCountsAsARecord(t *testing.T) {
+	lesson := reviewLesson("2026-08-31T09:00", "Біологія [9]", "", "", "")
+	lesson.Praise = "Активна робота на уроці"
+
+	got, _ := schoolWeekReviewText(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		[]model.SchoolLessonDetail{lesson}, 0, time.UTC)
+	if strings.Contains(got, "без записів") {
+		t.Errorf("a lesson with a praise was called empty:\n%s", got)
+	}
+}
+
 // A subject that met but has nothing written up must say so. Rendered as an
 // empty block it is indistinguishable from a collector that dropped it.
 func TestASubjectWithNoRecordsSaysSo(t *testing.T) {

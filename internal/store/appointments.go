@@ -294,3 +294,50 @@ func orDefault(s, def string) string {
 	}
 	return s
 }
+
+// FrequentAppointmentTitles returns the visit names this family books most
+// often, and FrequentAppointmentPersons the people they are booked for — the
+// quick-pick chips on the Mini App's visit form.
+//
+// Ordered by use rather than recency, the same way the payment form's labels
+// are: the orthodontist seen every six weeks keeps a chip through a month of
+// one-off visits, which recency would have buried. The point is that
+// "Ортодонт" is picked rather than retyped, and so never becomes "ортодонт"
+// and "Ортодонт" — two names for one appointment that no list ever adds back
+// together.
+func (s *Store) FrequentAppointmentTitles(limit int) ([]string, error) {
+	return s.frequentAppointmentValues("title", limit)
+}
+
+func (s *Store) FrequentAppointmentPersons(limit int) ([]string, error) {
+	return s.frequentAppointmentValues("person", limit)
+}
+
+// frequentAppointmentValues counts one free-text column across the visits that
+// still exist. column is a constant from this file and never caller input.
+//
+// Cancelled visits count: a visit called off is still one this family books,
+// and dropping it would make a chip disappear for the month after a
+// cancellation. Deleted ones do not — those were typed by mistake. The length
+// guard keeps a chip a chip.
+func (s *Store) frequentAppointmentValues(column string, limit int) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT `+column+` AS value FROM appointments
+		WHERE deleted_at IS NULL AND value <> '' AND length(value) <= 40
+		GROUP BY value
+		ORDER BY COUNT(*) DESC, value
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

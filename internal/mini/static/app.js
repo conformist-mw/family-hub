@@ -86,7 +86,7 @@ function App() {
   const [home, setHome] = useState({ phase: 'loading' })
   const [appointments, setAppointments] = useState({ phase: 'loading' })
   const [courses, setCourses] = useState({ phase: 'loading' })
-  const [persons, setPersons] = useState([])
+  const [suggest, setSuggest] = useState({ titles: [], persons: [] })
   const [reminders, setReminders] = useState({ phase: 'loading' })
 
   const loadHome = useCallback(async () => {
@@ -127,12 +127,13 @@ function App() {
     }
   }, [])
 
-  const loadPersons = useCallback(async () => {
+  const loadSuggestions = useCallback(async () => {
     try {
-      setPersons((await api('/persons')).persons || [])
+      const d = await api('/suggestions')
+      setSuggest({ titles: d.titles || [], persons: d.persons || [] })
     } catch {
-      // The list only fills a form's dropdown; a failure here must not take
-      // the space down with it.
+      // These only fill a form's chips and dropdown; a failure here must not
+      // take the space down with it.
     }
   }, [])
 
@@ -147,9 +148,9 @@ function App() {
       loadHome()
       loadAppointments()
       loadReminders()
-      loadPersons()
+      loadSuggestions()
     },
-    [loadHome, loadAppointments, loadReminders, loadPersons, loadCourses],
+    [loadHome, loadAppointments, loadReminders, loadSuggestions, loadCourses],
   )
 
   // Five requests used to go out on boot no matter which tab was open. Now the
@@ -216,11 +217,13 @@ function App() {
   }
 
   if (screen && screen.name === 'appointmentForm') {
+    // The chips reload on save as well: a visit just written down is the one
+    // most likely to be written down again.
     return html`
       <${AppointmentForm}
         initial=${screen.item}
-        persons=${persons}
-        onSaved=${() => { closeAll(); loadAppointments(); loadHome() }}
+        suggest=${suggest}
+        onSaved=${() => { closeAll(); loadAppointments(); loadHome(); loadSuggestions() }}
         onCancel=${pop} />`
   }
 

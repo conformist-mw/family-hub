@@ -413,6 +413,15 @@ links already mixed the daily (Баланс, Заняття) with the reference 
   answers `bot_off` (503) when there is none and `canSend` tells the screen to
   hide the button. `mini.Config.Notifier` therefore carries both modes: HTML
   for the write notifications, plain text for this.
+- The visit form fills «Що» and «Хто» from chips (`GET /mini/api/suggestions`)
+  — the titles and the people this family actually books, most-used first,
+  counted over the visits still in the table. Both fields stay free text: a
+  visit can be for a grandmother or be called something nobody has booked
+  before. The people list keeps the whole household behind the frequent names,
+  because the first dentist visit is booked for whoever has never had one; the
+  same list also fills the field's `<datalist>`. Ordered by use rather than by
+  recency, the way the payment form's labels are: a course of six-weekly
+  appointments must survive a month of one-off ones.
 - The date field keeps the native picker and spells the chosen date out under
   it ("14 серпня 2026", `dateLong` in `api.js`). A native `<input type="date">`
   renders in whatever order the OS regional settings say — `mm/dd/yyyy` on a

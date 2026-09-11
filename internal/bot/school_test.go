@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"familyhub/internal/audit"
 	"familyhub/internal/db"
 	"familyhub/internal/schooltoday"
 	"familyhub/internal/store"
@@ -627,41 +626,118 @@ func TestAnUnparseableStartDropsOnlyThatLesson(t *testing.T) {
 // A real week is well past Telegram's 4096-byte cap, and notify() splits on
 // line boundaries. Pinned because the renderer is what makes the split safe:
 // every line closes its own tags, so no chunk can start mid-<b>.
-func TestAFullWeekSplitsIntoWholeLines(t *testing.T) {
+func TestAFullWeekSplitsBetweenSubjects(t *testing.T) {
 	var week []model.SchoolLessonDetail
 	subjects := []string{"Алгебра", "Геометрія", "Українська мова", "Біологія", "Географія",
 		"Фізика", "Правознавство", "Англійська мова", "Інформатика", "Мистецтво",
 		"Інтегрований курс літератур", "Фізична культура", "soft skills", "Закріплення матеріалу"}
+	days := []string{"2026-08-31", "2026-09-01"}
 	for i, s := range subjects {
-		for lesson := 0; lesson < 2; lesson++ {
+		for lesson, day := range days {
 			week = append(week, reviewLesson(
-				fmt.Sprintf("2026-08-3%dT%02d:00", 1+lesson, 9+i%6), s+" [9]",
+				fmt.Sprintf("%sT%02d:%02d", day, 9+i%6, 30*lesson), s+" [9]",
 				"ПОВТОРЕННЯ, УЗАГАЛЬНЕННЯ ТА ПОГЛИБЛЕННЯ ВИВЧЕНОГО. Головні та другорядні члени речення",
 				"Повторили головні та другорядні члени речення, питання до них. Опрацювали вправи 1,2,3 на сторінці 10",
 				"виконати вправи 4, 7 ст 11, вправу 10 ст.13"))
 		}
 	}
 
-	text, ok := schoolWeekReviewText(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), week, 0, time.UTC)
+	review, ok := renderWeekReview(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), week, 0, time.UTC)
 	if !ok {
 		t.Fatal("a full week rendered nothing")
 	}
-	if len(text) <= 4096 {
-		t.Fatalf("the fixture is too small to exercise splitting: %d bytes", len(text))
+	chunks := review.messages(4000)
+	if len(chunks) < 2 {
+		t.Fatalf("a fourteen-subject week fitted in %d message(s) — the fixture no longer exercises the split", len(chunks))
 	}
 
-	chunks := audit.SplitMessage(text, 4000)
+	for i, c := range chunks {
+		// Measured as Telegram measures: a Ukrainian week counted in bytes
+		// would be cut twice as often as it needs to be.
+		if messageLen(c) > 4000 {
+			t.Errorf("chunk %d is %d units, over the limit", i, messageLen(c))
+		}
+		if strings.Count(c, "<b>") != strings.Count(c, "</b>") {
+			t.Errorf("chunk %d splits a bold tag:\n%s", i, c)
+		}
+		// Every message says which week it is about. Without it the second one
+		// arrives as a wall of subjects belonging to nothing.
+		if !strings.HasPrefix(c, "📚 <b>Тиждень 31 серпня – 4 вересня</b>") {
+			t.Errorf("chunk %d opens with %q", i, firstLine(c))
+		}
+		if i > 0 && !strings.HasPrefix(c, "📚 <b>Тиждень 31 серпня – 4 вересня</b> · продовження") {
+			t.Errorf("chunk %d does not say it is a continuation: %q", i, firstLine(c))
+		}
+	}
+	// The count belongs to the week, not to each message of it.
+	if n := strings.Count(strings.Join(chunks, "\n"), "· 28 уроків"); n != 1 {
+		t.Errorf("the week total appears %d times, want once", n)
+	}
+
+	// No subject is cut in half: every heading is followed, in the same
+	// message, by the lessons under it.
+	for _, subject := range subjects {
+		heading := "<b>" + subject + "</b> · 2 уроки"
+		var found int
+		for _, c := range chunks {
+			i := strings.Index(c, heading)
+			if i < 0 {
+				continue
+			}
+			found++
+			if !strings.Contains(c[i:], "виконати вправи 4, 7 ст 11") {
+				t.Errorf("%s is split away from its lessons", subject)
+			}
+		}
+		if found != 1 {
+			t.Errorf("%s appears in %d messages, want 1", subject, found)
+		}
+	}
+}
+
+// One subject can outgrow a whole message on its own — a fortnight of homework
+// written up under a single heading. There is nothing left to break on but
+// lines, and that must still produce sendable messages rather than one the
+// group never sees.
+func TestASubjectLongerThanAMessageStillSends(t *testing.T) {
+	var week []model.SchoolLessonDetail
+	for i := 0; i < 40; i++ {
+		week = append(week, reviewLesson(
+			fmt.Sprintf("2026-08-31T%02d:%02d", 8+i/4, (i%4)*15), "Українська мова [9]",
+			"Тире між підметом і присудком у неповному реченні, "+strings.Repeat("повторення ", 10),
+			"", "виконати письмово вправи, "+strings.Repeat("сторінка ", 10)))
+	}
+	week = append(week, reviewLesson("2026-09-04T09:00", "Фізика [9]", "Електричний струм", "", ""))
+
+	review, ok := renderWeekReview(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), week, 0, time.UTC)
+	if !ok {
+		t.Fatal("the week rendered nothing")
+	}
+	chunks := review.messages(4000)
 	if len(chunks) < 2 {
-		t.Fatalf("a %d-byte review was not split", len(text))
+		t.Fatalf("a single oversized subject was not split: %d message(s)", len(chunks))
 	}
 	for i, c := range chunks {
-		if len(c) > 4000 {
-			t.Errorf("chunk %d is %d bytes, over the limit", i, len(c))
+		// Measured as Telegram measures: a Ukrainian week counted in bytes
+		// would be cut twice as often as it needs to be.
+		if messageLen(c) > 4000 {
+			t.Errorf("chunk %d is %d units, over the limit", i, messageLen(c))
 		}
 		if strings.Count(c, "<b>") != strings.Count(c, "</b>") {
 			t.Errorf("chunk %d splits a bold tag:\n%s", i, c)
 		}
 	}
+	// And the subject that follows it still gets a message with a heading.
+	if !strings.Contains(chunks[len(chunks)-1], "<b>Фізика</b>") {
+		t.Errorf("the subject after the oversized one is missing:\n%s", chunks[len(chunks)-1])
+	}
+}
+
+func firstLine(s string) string {
+	if i := strings.Index(s, "\n"); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // The review answers to its own day and time, and needs a portal service as
@@ -996,8 +1072,8 @@ func TestSchoolWeekRepliesInChunks(t *testing.T) {
 		t.Fatalf("a full week came back as %d chunk(s)", len(chunks))
 	}
 	for i, c := range chunks {
-		if len(c) > 4000 {
-			t.Errorf("chunk %d is %d bytes", i, len(c))
+		if messageLen(c) > 4000 {
+			t.Errorf("chunk %d is %d units", i, messageLen(c))
 		}
 	}
 }

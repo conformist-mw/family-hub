@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	tele "gopkg.in/telebot.v3"
 
@@ -264,76 +265,153 @@ type subjectRun struct {
 	lessons []model.SchoolLessonDetail
 }
 
-// schoolWeekReviewText renders the review of the week starting at weekStart,
-// or ok=false to send nothing.
+// schoolMessageLimit is what one message of the review may hold, counted the
+// way Telegram counts it: UTF-16 code units, not bytes. Telegram caps a
+// message at 4096 of them and the margin is for a subject block landing just
+// under the line.
+//
+// The unit matters here more than the number. Every Cyrillic letter is two
+// bytes and one unit, so a review measured in bytes is cut at half the length
+// Telegram would have accepted — which is a week in four messages instead of
+// two.
+const schoolMessageLimit = 4000
+
+// messageLen measures a message the way Telegram does. A rune outside the BMP
+// — an emoji — counts as two, which is what the API's own cap counts.
+func messageLen(s string) int { return len(utf16.Encode([]rune(s))) }
+
+// weekReview is a rendered review: the heading, and one block per subject.
+//
+// Kept apart rather than joined into one string because a full week is several
+// messages, and where those messages end matters. A subject is the unit a
+// parent reads — "how did the week go in maths" — so a message ends between
+// two subjects, never inside one. Split blindly on lines, as this used to be,
+// the second message could open on a lone teacher's comment with nothing above
+// it to say whose lesson it belonged to.
+type weekReview struct {
+	head   string   // the week's heading, on the first message
+	cont   string   // what the messages after it open with
+	blocks []string // one subject each, plus the skipped warning if there is one
+}
+
+// schoolWeekReviewText renders the whole review as one string. It is what the
+// review *is*; whether it fits in a message is messages()'s business.
+func schoolWeekReviewText(weekStart time.Time, details []model.SchoolLessonDetail,
+	skipped int, loc *time.Location) (string, bool) {
+	r, ok := renderWeekReview(weekStart, details, skipped, loc)
+	if !ok {
+		return "", false
+	}
+	return strings.Join(append([]string{r.head}, r.blocks...), "\n\n"), true
+}
+
+// messages packs the review into as few messages as fit, breaking only between
+// subjects. A single subject longer than a whole message — a fortnight of
+// homework under one heading — falls back to the line split, which is blunt
+// but never cuts a tag in half.
+func (r weekReview) messages(limit int) []string {
+	var out []string
+	cur := r.head
+	for _, block := range r.blocks {
+		if messageLen(cur)+len("\n\n")+messageLen(block) <= limit {
+			cur += "\n\n" + block
+			continue
+		}
+		out = append(out, cur)
+		cur = r.cont + "\n\n" + block
+		if messageLen(cur) > limit {
+			// The byte limit is the blunt one on purpose: UTF-8 never takes
+			// fewer bytes than UTF-16 takes units, so a piece under it is
+			// under Telegram's cap whatever the text is made of.
+			parts := audit.SplitMessage(cur, limit)
+			out = append(out, parts[:len(parts)-1]...)
+			cur = parts[len(parts)-1]
+		}
+	}
+	return append(out, cur)
+}
+
+// renderWeekReview builds the review of the week starting at weekStart, or
+// ok=false to send nothing.
 //
 // Nothing is sent for a week with no lessons at all — the holidays, a week off
 // — matching the evening digest, where silence is the honest answer and a
 // message saying "nothing happened" is noise.
-func schoolWeekReviewText(weekStart time.Time, details []model.SchoolLessonDetail,
-	skipped int, loc *time.Location) (string, bool) {
+func renderWeekReview(weekStart time.Time, details []model.SchoolLessonDetail,
+	skipped int, loc *time.Location) (weekReview, bool) {
 	runs := groupBySubject(details, loc)
 	if len(runs) == 0 {
-		return "", false
+		return weekReview{}, false
 	}
 
-	var b strings.Builder
 	end := weekStart.AddDate(0, 0, 4) // Monday–Friday; the school week has no weekend
-	// The week's own total next to the range: with the per-lesson lines gone
-	// wherever the teacher wrote nothing, the counts are all that says how big
-	// the week was, and the subject headings only ever give it a subject at a
-	// time.
-	fmt.Fprintf(&b, "📚 <b>Тиждень %d %s – %d %s</b>%s\n",
+	week := fmt.Sprintf("📚 <b>Тиждень %d %s – %d %s</b>",
 		weekStart.Day(), schoolMonths[weekStart.Month()-1],
-		end.Day(), schoolMonths[end.Month()-1], lessonCount(countLessons(runs)))
-
+		end.Day(), schoolMonths[end.Month()-1])
+	r := weekReview{
+		// The week's own total next to the range: with the per-lesson lines
+		// gone wherever the teacher wrote nothing, the counts are all that
+		// says how big the week was, and the subject headings only ever give
+		// it a subject at a time.
+		head: week + lessonCount(countLessons(runs)),
+		// The later messages repeat the week but not its total — the total
+		// belongs to the review, and repeating it would read as a second one.
+		cont: week + " · продовження",
+	}
 	for _, run := range runs {
-		b.WriteString("\n")
-		fmt.Fprintf(&b, "<b>%s</b>%s%s\n",
-			html.EscapeString(run.subject), lessonCount(len(run.lessons)), marksSummary(run))
-
-		var wrote bool
-		for _, l := range run.lessons {
-			if topic := model.PortalText(l.Topic); topic != "" {
-				fmt.Fprintf(&b, "• %s\n", html.EscapeString(topic))
-				wrote = true
-			}
-			if notes := model.PortalText(l.Notes); notes != "" {
-				fmt.Fprintf(&b, "  <i>%s</i>\n", html.EscapeString(notes))
-				wrote = true
-			}
-			// The two per-pupil fields come after the lesson's own text and
-			// before the homework, which is where they read as being about the
-			// child: the topic and notes say what the class did, the praise
-			// says how this one did at it, and the homework is tomorrow's
-			// business rather than today's. Marked rather than italicised —
-			// the italics already mean "the teacher's words about the lesson",
-			// and these are worth finding by eye in a fourteen-subject week.
-			if praise := model.PortalText(l.Praise); praise != "" {
-				fmt.Fprintf(&b, "  🌟 %s\n", html.EscapeString(praise))
-				wrote = true
-			}
-			if comment := model.PortalText(l.PupilComment); comment != "" {
-				fmt.Fprintf(&b, "  💬 %s\n", html.EscapeString(comment))
-				wrote = true
-			}
-			if hw := model.PortalText(l.Homework); hw != "" {
-				fmt.Fprintf(&b, "  📕 %s\n", html.EscapeString(hw))
-				wrote = true
-			}
-		}
-		// A subject that met but has nothing written up is worth a line of its
-		// own: "the teacher wrote nothing" and "the collector missed it" look
-		// identical otherwise.
-		if !wrote {
-			b.WriteString("  <i>без записів</i>\n")
-		}
+		r.blocks = append(r.blocks, subjectBlock(run))
 	}
-
 	if skipped > 0 {
-		fmt.Fprintf(&b, "\n⚠️ Не вдалося прочитати уроків: %d", skipped)
+		r.blocks = append(r.blocks,
+			fmt.Sprintf("⚠️ Не вдалося прочитати уроків: %d", skipped))
 	}
-	return strings.TrimRight(b.String(), "\n"), true
+	return r, true
+}
+
+// subjectBlock renders one subject's week: its heading, then every lesson the
+// teacher wrote anything about.
+func subjectBlock(run subjectRun) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<b>%s</b>%s%s\n",
+		html.EscapeString(run.subject), lessonCount(len(run.lessons)), marksSummary(run))
+
+	var wrote bool
+	for _, l := range run.lessons {
+		if topic := model.PortalText(l.Topic); topic != "" {
+			fmt.Fprintf(&b, "• %s\n", html.EscapeString(topic))
+			wrote = true
+		}
+		if notes := model.PortalText(l.Notes); notes != "" {
+			fmt.Fprintf(&b, "  <i>%s</i>\n", html.EscapeString(notes))
+			wrote = true
+		}
+		// The two per-pupil fields come after the lesson's own text and
+		// before the homework, which is where they read as being about the
+		// child: the topic and notes say what the class did, the praise
+		// says how this one did at it, and the homework is tomorrow's
+		// business rather than today's. Marked rather than italicised —
+		// the italics already mean "the teacher's words about the lesson",
+		// and these are worth finding by eye in a fourteen-subject week.
+		if praise := model.PortalText(l.Praise); praise != "" {
+			fmt.Fprintf(&b, "  🌟 %s\n", html.EscapeString(praise))
+			wrote = true
+		}
+		if comment := model.PortalText(l.PupilComment); comment != "" {
+			fmt.Fprintf(&b, "  💬 %s\n", html.EscapeString(comment))
+			wrote = true
+		}
+		if hw := model.PortalText(l.Homework); hw != "" {
+			fmt.Fprintf(&b, "  📕 %s\n", html.EscapeString(hw))
+			wrote = true
+		}
+	}
+	// A subject that met but has nothing written up is worth a line of its
+	// own: "the teacher wrote nothing" and "the collector missed it" look
+	// identical otherwise.
+	if !wrote {
+		b.WriteString("  <i>без записів</i>\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // groupBySubject collapses the week into one run per subject, ordered by when
@@ -487,11 +565,11 @@ func (b *Bot) sendSchoolWeekReview(ctx context.Context, now time.Time) {
 			b.logger.Error("bot: school week review collect", "err", err)
 			return
 		}
-		text, ok := schoolWeekReviewText(weekStart, details, skipped, b.cfg.Loc)
+		review, ok := renderWeekReview(weekStart, details, skipped, b.cfg.Loc)
 		if !ok {
 			return
 		}
-		if err := b.notify(text, tele.ModeHTML); err != nil {
+		if err := b.notifyChunks(review.messages(schoolMessageLimit), tele.ModeHTML); err != nil {
 			b.logger.Error("bot: send school week review", "err", err)
 		}
 	}()
@@ -547,7 +625,7 @@ func (b *Bot) schoolWeekChunks(now time.Time, back int) ([]string, error) {
 		return nil, err
 	}
 
-	text, rendered := schoolWeekReviewText(weekStart, details, skippedUnknown, b.cfg.Loc)
+	review, rendered := renderWeekReview(weekStart, details, skippedUnknown, b.cfg.Loc)
 	if !rendered {
 		return []string{fmt.Sprintf("За тиждень з %d %s записів немає.",
 			weekStart.Day(), schoolMonths[weekStart.Month()-1])}, nil
@@ -555,7 +633,7 @@ func (b *Bot) schoolWeekChunks(now time.Time, back int) ([]string, error) {
 	// Split for the same reason the Friday push is: a full week of fourteen
 	// subjects is several times Telegram’s 4096-byte cap, and one Send would
 	// simply fail on it.
-	return audit.SplitMessage(text, 4000), nil
+	return review.messages(schoolMessageLimit), nil
 }
 
 // parseWeeksBack reads the command argument: empty means this week, a

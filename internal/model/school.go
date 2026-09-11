@@ -23,10 +23,11 @@ type SchoolLesson struct {
 }
 
 // SchoolLessonDetail is what actually happened at one lesson, read from the
-// portal's lesson detail page: the topic, the teacher's notes, the homework
-// and the marks. Unlike SchoolLesson, this is a record rather than a mirror —
-// it is collected once a week and never swept, because the timetable window it
-// came from scrolls away and the portal offers no way back to an old week.
+// portal's lesson detail page: the topic, the teacher's notes, the homework,
+// the marks, and what the teacher wrote about this pupil in particular. Unlike
+// SchoolLesson, this is a record rather than a mirror — it is collected once a
+// week and never swept, because the timetable window it came from scrolls away
+// and the portal offers no way back to an old week.
 //
 // Marks and Files are carried inline: a lesson and its marks are written and
 // read as one thing, and splitting the store API by table would put the
@@ -37,13 +38,18 @@ type SchoolLessonDetail struct {
 	StartsAt string // LocalDatetime, copied from the timetable event
 	// Subject keeps the portal's group tag ("Алгебра [9]"), the same shape
 	// SchoolLesson carries, so stripGroupTag and Classify work unchanged.
-	Subject  string
-	Teacher  string
-	Topic    string
-	Notes    string
-	Homework string
-	Marks    []SchoolMark
-	Files    []SchoolFile
+	Subject string
+	Teacher string
+	Topic   string
+	Notes   string
+	// Praise and PupilComment are about the child, not the class: the portal's
+	// "Заохочення" and "Коментар" columns, one row per pupil. Notes, Topic and
+	// Homework beside them are the same for everybody who sat in the room.
+	Praise       string
+	PupilComment string
+	Homework     string
+	Marks        []SchoolMark
+	Files        []SchoolFile
 }
 
 // SchoolMark is one mark given at a lesson. Value is the portal's own

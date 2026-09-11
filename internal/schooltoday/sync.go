@@ -318,9 +318,11 @@ func (s *Service) toDetail(e Event, d LessonDetail) model.SchoolLessonDetail {
 		Teacher:  d.Teacher,
 		// Placeholders are dropped here rather than by each screen: a field
 		// the teacher left blank is blank, whatever dash the portal put in it.
-		Topic:    model.PortalText(d.Topic),
-		Notes:    model.PortalText(d.Notes),
-		Homework: model.PortalText(d.Homework),
+		Topic:        model.PortalText(d.Topic),
+		Notes:        model.PortalText(d.Notes),
+		Praise:       model.PortalText(d.Praise),
+		PupilComment: model.PortalText(d.PupilComment),
+		Homework:     model.PortalText(d.Homework),
 	}
 	for _, m := range d.Marks {
 		out.Marks = append(out.Marks, model.SchoolMark{Kind: m.Kind, Value: m.Value})

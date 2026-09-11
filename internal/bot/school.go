@@ -302,6 +302,21 @@ func schoolWeekReviewText(weekStart time.Time, details []model.SchoolLessonDetai
 				fmt.Fprintf(&b, "  <i>%s</i>\n", html.EscapeString(notes))
 				wrote = true
 			}
+			// The two per-pupil fields come after the lesson's own text and
+			// before the homework, which is where they read as being about the
+			// child: the topic and notes say what the class did, the praise
+			// says how this one did at it, and the homework is tomorrow's
+			// business rather than today's. Marked rather than italicised —
+			// the italics already mean "the teacher's words about the lesson",
+			// and these are worth finding by eye in a fourteen-subject week.
+			if praise := model.PortalText(l.Praise); praise != "" {
+				fmt.Fprintf(&b, "  🌟 %s\n", html.EscapeString(praise))
+				wrote = true
+			}
+			if comment := model.PortalText(l.PupilComment); comment != "" {
+				fmt.Fprintf(&b, "  💬 %s\n", html.EscapeString(comment))
+				wrote = true
+			}
 			if hw := model.PortalText(l.Homework); hw != "" {
 				fmt.Fprintf(&b, "  📕 %s\n", html.EscapeString(hw))
 				wrote = true

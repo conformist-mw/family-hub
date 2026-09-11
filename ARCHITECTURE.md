@@ -283,16 +283,29 @@ links already mixed the daily (Баланс, Заняття) with the reference 
 
     The Friday week review is the one school message that reads neither the
     feed nor the mirror. What happened at a lesson — the topic, the teacher's
-    notes, the homework, the marks — is published only on the portal's own
-    lesson detail page (`POST /Timetable/LessonView`, HTML), never in the
-    timetable JSON, which carries a bare `hasMarks` boolean. So the review
-    logs in, re-fetches the week live, walks ~29 lesson pages and records what
-    it read in `school_lesson_details` / `_marks` / `_files` — tables kept
+    notes, the homework, the marks, and what the teacher wrote about this child
+    in particular — is published only on the portal's own lesson detail page
+    (`POST /Timetable/LessonView`, HTML), never in the timetable JSON, which
+    carries a bare `hasMarks` boolean. So the review logs in, re-fetches the
+    week live, walks ~29 lesson pages and records what it read in
+    `school_lesson_details` / `_marks` / `_files` — tables kept
     deliberately apart from `school_lessons`, because that mirror is a rolling
     window `ReplaceSchoolLessons` wipes every sync and these are a record that
     must outlive it. No FK for the same reason: the lesson row is expected to
     vanish. `/schoolweek N` replays any recorded week from those tables and
     never touches the portal.
+
+    That page is four tab panes and all four are read. Three of them describe
+    the class — one topic, one set of notes, one homework for the room — and
+    the fourth, `id="pupil"`, is a table with a row per pupil: attendance,
+    lateness, "Заохочення" and "Коментар". The last two are the only per-child
+    text the portal publishes, so they are their own columns (`praise`,
+    `pupil_comment`, migration 0012) rather than more prose appended to
+    `notes`, and the review marks them 🌟 and 💬 instead of italicising them
+    like the class notes — a parent has to be able to tell which half is about
+    their child. Attendance and lateness are not read; the pupil tab's cells
+    are keyed by their header rather than counted, so picking those up later
+    is a case in one switch.
 
     A field the teacher left blank arrives from the portal as a dash run
     ("---"), not as nothing. `model.PortalText` is the one place that knows

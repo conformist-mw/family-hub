@@ -9,20 +9,23 @@ import (
 )
 
 // The lesson detail page is the only place the portal publishes what actually
-// happened at a lesson: the topic, the teacher's notes, the homework and the
-// marks. None of it is in the timetable JSON, which carries a bare `hasMarks`
-// boolean, and the documented Open API has no marks endpoint at all — so this
-// is HTML scraping by necessity, not by preference.
+// happened at a lesson: the topic, the teacher's notes, the homework, the
+// marks, and what the teacher wrote about this pupil in particular. None of it
+// is in the timetable JSON, which carries a bare `hasMarks` boolean, and the
+// documented Open API has no marks endpoint at all — so this is HTML scraping
+// by necessity, not by preference.
 //
-// The page is four Bootstrap tab panes. Parsing keys on their ids and on the
-// bold field labels inside them, both of which are the portal's own markup and
-// will change without notice; the tests pin the parser to a real captured
-// response so a redesign fails loudly here rather than quietly downstream.
+// The page is four Bootstrap tab panes, all four of them read. Parsing keys on
+// their ids, on the bold field labels inside them and on the table headers,
+// all of which are the portal's own markup and will change without notice; the
+// tests pin the parser to a real captured response so a redesign fails loudly
+// here rather than quietly downstream.
 
 // Tab pane ids on the lesson detail page.
 const (
 	tabGeneral  = "general"
 	tabHomework = "lessonhomework"
+	tabPupil    = "pupil"
 	tabMark     = "mark"
 )
 
@@ -33,17 +36,31 @@ const (
 	labelNotes   = "Нотатки:"
 )
 
+// Column headers in the pupil tab. Unlike the other three panes, that one is
+// about this child rather than about the lesson: the class all got the same
+// notes and homework, and only these two say anything about who sat there.
+const (
+	colPraise  = "Заохочення"
+	colComment = "Коментар"
+)
+
 // LessonDetail is one lesson's detail page, parsed. Subject is deliberately
 // absent: the page carries one, but the collector takes the subject from the
 // timetable event instead, because that is the spelling — group tag and all —
 // the rest of the school code strips and classifies.
 type LessonDetail struct {
-	Teacher  string
-	Topic    string
-	Notes    string
-	Homework string
-	Marks    []Mark
-	Files    []File
+	Teacher string
+	Topic   string
+	Notes   string
+	// Praise and PupilComment are per-pupil, unlike everything above them:
+	// "Заохочення" is what the teacher singled this child out for, and
+	// "Коментар" is the free-text note beside it. Kept apart from Notes for
+	// that reason — Notes is what the whole class did.
+	Praise       string
+	PupilComment string
+	Homework     string
+	Marks        []Mark
+	Files        []File
 }
 
 // Mark is one mark as the portal presents it: the column it sits under and the
@@ -81,6 +98,9 @@ func ParseLessonDetail(body []byte) (LessonDetail, error) {
 	}
 	if homework := elementByID(doc, tabHomework); homework != nil {
 		d.Homework, d.Files = parseHomework(homework)
+	}
+	if pupil := elementByID(doc, tabPupil); pupil != nil {
+		d.Praise, d.PupilComment = parsePupil(pupil)
 	}
 	if marks := elementByID(doc, tabMark); marks != nil {
 		d.Marks = parseMarks(marks)
@@ -157,6 +177,32 @@ func parseHomework(n *html.Node) (string, []File) {
 	// The links render as paperclip icons with no text of their own, so the
 	// cell's text is the assignment and nothing else.
 	return strings.TrimSpace(nodeText(cell)), files
+}
+
+// parsePupil reads the pupil tab: an "Учень | Відвідування | Запізнення |
+// Заохочення | Коментар" table, one row per pupil the login can see.
+//
+// Cells are keyed by their header rather than by position. Attendance and
+// lateness are not read — they are columns this needs to skip either way, and
+// keying on the header means a sixth column appearing between them does not
+// silently shift praise into the comment.
+func parsePupil(n *html.Node) (praise, comment string) {
+	head := firstRowIn(n, "thead")
+	row := firstBodyRow(n)
+	if head == nil || row == nil {
+		return "", ""
+	}
+	headers := childElements(head, "th")
+	cells := childElements(row, "td")
+	for i := 0; i < len(headers) && i < len(cells); i++ {
+		switch strings.TrimSpace(nodeText(headers[i])) {
+		case colPraise:
+			praise = strings.TrimSpace(nodeText(cells[i]))
+		case colComment:
+			comment = strings.TrimSpace(nodeText(cells[i]))
+		}
+	}
+	return praise, comment
 }
 
 // parseMarks reads the marks tab, zipping the header row's mark kinds against

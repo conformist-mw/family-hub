@@ -204,6 +204,43 @@ button.row {
 .muted { color: var(--hint); }
 .dim { opacity: 0.62; }
 
+/* Сьогодні ------------------------------------------------------------- */
+
+/* The one block on the screen that is not a white card under a grey heading.
+   Everything else here — what is coming, the courses, the last payments — is
+   reference; this is the day being lived, and it has to be findable in the
+   half-second the app is open for. The band carries the date, so the day is
+   named once instead of twice. */
+.today {
+  padding: 0;
+  overflow: hidden; /* the band's corners are the card's */
+}
+.today-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 15px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.today-kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.today-date {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+/* The rows own their vertical padding, the way .card-rows arranges it, so the
+   dividers run the width of the text column. */
+.today-rows { padding: 2px 16px; }
+.today-empty { margin: 0; padding: 15px 16px 17px; color: var(--hint); }
+
 /* Course cards --------------------------------------------------------- */
 
 .course-head {

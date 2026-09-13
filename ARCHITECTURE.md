@@ -371,7 +371,12 @@ links already mixed the daily (Баланс, Заняття) with the reference 
   the phone and the browser would start telling different stories about one
   day. Rows already answered keep their place with their label rather than
   disappearing, because a row that vanishes once marked cannot be told from one
-  nobody has answered yet.
+  nobody has answered yet. The day is the one block on that screen
+  carrying the accent — a band with the date on it, rather than a fourth white
+  card under a fourth grey heading — because everything below it (what is
+  coming, the courses, the last payments) is reference and this is the part
+  being lived. The date is on the band and nowhere else; a screen title plus a
+  section called "Сьогодні" named the same day twice.
 - The Справи screen answers the daily question first — what is still open —
   and lists the chores themselves below it. Managing a rule is rare; closing
   this morning's item is what happens every day. Whether an occurrence can be

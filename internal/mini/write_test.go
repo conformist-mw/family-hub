@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -184,7 +185,7 @@ func TestWritesRequireAuthentication(t *testing.T) {
 		jsonRequest(http.MethodPost, "/mini/api/appointments", validBody),
 		jsonRequest(http.MethodPut, "/mini/api/appointments/1", validBody),
 		httptest.NewRequest(http.MethodDelete, "/mini/api/appointments/1", nil),
-		httptest.NewRequest(http.MethodGet, "/mini/api/persons", nil),
+		httptest.NewRequest(http.MethodGet, "/mini/api/suggestions", nil),
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, r)
@@ -264,25 +265,66 @@ func TestWritesReachTheFamilyGroup(t *testing.T) {
 	}
 }
 
-func TestPersonsSuggestions(t *testing.T) {
+// The chips are there to be picked, so what this asserts is the order: the
+// name visits are actually booked for leads, and the rest of the household
+// stays reachable behind it.
+func TestSuggestionsRankUseAheadOfTheRoster(t *testing.T) {
 	st := testStore(t)
 	h := testRouter(t, st, []int64{42}, 42)
 
+	for _, when := range []string{"2026-08-10T14:30", "2026-08-24T14:30"} {
+		if _, err := st.CreateAppointment(model.Appointment{
+			Title: "Ортодонт", Person: "Демид", StartsAt: when,
+		}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	// A guest nobody in the roster is named after.
+	if _, err := st.CreateAppointment(model.Appointment{
+		Title: "Педикюр", Person: "Бабуся", StartsAt: "2026-08-25T10:00",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/mini/api/persons", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/mini/api/suggestions", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
 	var body struct {
+		Titles  []string `json:"titles"`
 		Persons []string `json:"persons"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// The seed migration ships the family, so this is never empty in practice;
-	// the contract under test is the shape, not the contents.
-	if body.Persons == nil {
-		t.Fatal("persons key missing from the response")
+
+	if len(body.Titles) == 0 || body.Titles[0] != "Ортодонт" {
+		t.Errorf("titles = %q, want the twice-booked one first", body.Titles)
+	}
+	if len(body.Persons) < 2 || body.Persons[0] != "Демид" || body.Persons[1] != "Бабуся" {
+		t.Fatalf("persons = %q, want Демид and Бабуся in front", body.Persons)
+	}
+	// The roster still rides along — the first visit for someone who has never
+	// had one is exactly what the chips cannot know about.
+	persons, err := st.ListPersons()
+	if err != nil {
+		t.Fatalf("list persons: %v", err)
+	}
+	for _, p := range persons {
+		if !slices.Contains(body.Persons, p.Name) {
+			t.Errorf("%q is in the household but not among the suggestions %q", p.Name, body.Persons)
+		}
+	}
+	// And rides along once: a name that is both is still one chip.
+	var seen int
+	for _, p := range body.Persons {
+		if p == "Демид" {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Errorf("Демид appears %d times in %q, want once", seen, body.Persons)
 	}
 }
 

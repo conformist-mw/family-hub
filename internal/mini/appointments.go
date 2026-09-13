@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"familyhub/internal/appointments"
@@ -139,24 +140,72 @@ func (rt *Router) handleAppointmentDelete(w http.ResponseWriter, r *http.Request
 	rt.writeJSON(w, http.StatusOK, map[string]int64{"id": id})
 }
 
-// handlePersons feeds the "хто" suggestion list. Appointment.Person is free
-// text — it can be a guest or "обоє" — so these are hints, never a constraint.
-func (rt *Router) handlePersons(w http.ResponseWriter, r *http.Request) {
+// maxSuggestions caps each chip row on the visit form. Six is what fits two
+// rows on a phone without the chips pushing the fields it is meant to fill off
+// the screen.
+const maxSuggestions = 6
+
+// handleSuggestions feeds the visit form's quick-pick chips: what this family
+// books, and who it is usually booked for. Both fields are free text —
+// Appointment.Person can be a guest or "обоє", and a title is whatever it was
+// called on the phone — so these are hints, never a constraint.
+//
+// Each list is best-effort on its own. A chip row that fails to fill costs a
+// shortcut; failing the request would cost the other list too, for no gain —
+// the form is typeable without either.
+func (rt *Router) handleSuggestions(w http.ResponseWriter, r *http.Request) {
 	if _, err := rt.v.authenticate(r); err != nil {
 		rt.fail(w, err)
 		return
 	}
+	titles, err := rt.store.FrequentAppointmentTitles(maxSuggestions)
+	if err != nil {
+		rt.log.Error("mini: frequent visit titles", "err", err)
+		titles = nil
+	}
+	rt.writeJSON(w, http.StatusOK, map[string][]string{
+		"titles":  titles,
+		"persons": rt.suggestedPersons(),
+	})
+}
+
+// suggestedPersons puts the names visits are actually booked for first, then
+// the rest of the family behind them.
+//
+// The roster alone was what this used to answer, and it cannot rank: it lists
+// the household in whatever order the table holds, while three quarters of the
+// visits in it are for one child. The roster still rides along, because a
+// person who has never been to the dentist is exactly who the first dentist
+// visit gets booked for.
+func (rt *Router) suggestedPersons() []string {
+	names, err := rt.store.FrequentAppointmentPersons(maxSuggestions)
+	if err != nil {
+		rt.log.Error("mini: frequent visit persons", "err", err)
+		names = nil
+	}
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		seen[strings.ToLower(n)] = true
+	}
+
 	persons, err := rt.store.ListPersons()
 	if err != nil {
 		rt.log.Error("mini: list persons", "err", err)
-		rt.fail(w, errInternal)
-		return
+		return names
 	}
-	names := make([]string, 0, len(persons))
 	for _, p := range persons {
+		if seen[strings.ToLower(p.Name)] {
+			continue
+		}
+		seen[strings.ToLower(p.Name)] = true
 		names = append(names, p.Name)
 	}
-	rt.writeJSON(w, http.StatusOK, map[string][]string{"persons": names})
+	// Never nil: the client reads this straight into a map over the list, and
+	// a null there is a needless branch on the far side.
+	if names == nil {
+		names = []string{}
+	}
+	return names
 }
 
 func pathID(r *http.Request) (int64, *apiError) {

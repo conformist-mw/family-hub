@@ -214,8 +214,27 @@ function FormHead({ initial }) {
     </p>`
 }
 
-export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
+// Quick-pick chips under a free-text field. A chip fills the field, it does
+// not replace what the field accepts: a visit can be for a grandmother, or be
+// called something nobody has booked before, and typing that stays possible.
+// What the chips buy is the other case — the orthodontist every six weeks,
+// typed once instead of twenty times, and so spelled one way instead of three.
+function Suggestions({ value, options, onPick }) {
+  if (!options || options.length === 0) return null
+  return html`
+    <div class="chips chips-inline">
+      ${options.map(
+        (o) => html`
+          <button type="button" key=${o} class="chip ${value === o ? 'chip-on' : ''}"
+            onClick=${() => onPick(o)}>${o}</button>`,
+      )}
+    </div>`
+}
+
+export function AppointmentForm({ initial, suggest, onSaved, onCancel }) {
   const isEdit = Boolean(initial && initial.id)
+  const titles = (suggest && suggest.titles) || []
+  const persons = (suggest && suggest.persons) || []
   const [values, setValues] = useState(() => ({ ...EMPTY, date: todayISO(), ...(initial || {}) }))
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -225,6 +244,13 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
     dirty.current = true
     guardUnsaved(true)
     setValues((v) => ({ ...v, [name]: e.target.value }))
+  }
+  // Picking a chip goes through the same guard a keystroke does: it is an
+  // edit, and closing the form after one must still ask.
+  const pick = (name) => (value) => {
+    dirty.current = true
+    guardUnsaved(true)
+    setValues((v) => ({ ...v, [name]: value }))
   }
   const done = () => {
     dirty.current = false
@@ -265,10 +291,14 @@ export function AppointmentForm({ initial, persons, onSaved, onCancel }) {
       <div class="card card-rows">
         <${Field} label="Що" error=${errFor('title')}>
           <input value=${values.title} onInput=${set('title')} placeholder="Ортодонт" />
+          <${Suggestions} value=${values.title} options=${titles} onPick=${pick('title')} />
         <//>
         <${Field} label="Хто">
           <input value=${values.person} onInput=${set('person')} list="persons" placeholder="хто піде" />
+          <!-- The chips carry the few names that come up; the datalist keeps
+               the whole household reachable behind the keyboard. -->
           <datalist id="persons">${persons.map((p) => html`<option value=${p} key=${p} />`)}</datalist>
+          <${Suggestions} value=${values.person} options=${persons} onPick=${pick('person')} />
         <//>
         <div class="field-row">
           <${Field} label="Дата" error=${errFor('date')} help=${dateLong(values.date)}>

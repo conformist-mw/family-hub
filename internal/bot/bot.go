@@ -317,10 +317,16 @@ func (b *Bot) NotifyHTML(text string) error { return b.notify(text, tele.ModeHTM
 // its own tags, so chunking cannot cut HTML in half. No notify chat means
 // nowhere to post, which is not an error.
 func (b *Bot) notify(text string, opts ...any) error {
+	return b.notifyChunks(audit.SplitMessage(text, 4000), opts...)
+}
+
+// notifyChunks posts a message that is already split — the school week review,
+// which breaks between subjects rather than wherever 4000 bytes happen to
+// land, and so cannot let this function choose for it.
+func (b *Bot) notifyChunks(chunks []string, opts ...any) error {
 	if b.cfg.NotifyChat == 0 {
 		return nil
 	}
-	chunks := audit.SplitMessage(text, 4000)
 	for i, chunk := range chunks {
 		// Only the last chunk carries the app button: one per chunk would put
 		// three of them under a long reconciliation.

@@ -315,6 +315,19 @@ links already mixed the daily (Баланс, Заняття) with the reference 
     the week's own lesson total for that reason — with the blank lines gone,
     the counts are what says how big the week was — and a subject's marks are
     labelled, since the heading already ends in a number.
+
+    A full week is more than one Telegram message, so the review is rendered
+    as a heading plus one block per subject and packed into as few messages as
+    fit, breaking only between subjects: a message that ends mid-subject opens
+    the next one on a teacher's comment with nothing above it to say whose
+    lesson it was. Every message repeats the week in its heading, the ones
+    after the first marked «продовження», and only the first carries the
+    week's total. The limit is counted in UTF-16 code units, the way Telegram
+    counts it rather than in bytes — every Cyrillic letter is two bytes and
+    one unit, so a byte-measured review is cut twice as often as it needs to
+    be. A single subject longer than a whole message falls back to the line
+    split (`audit.SplitMessage`), which is blunt but never cuts a tag in
+    half.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.

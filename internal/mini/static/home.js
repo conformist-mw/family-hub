@@ -45,6 +45,33 @@ function AgendaRow({ item }) {
     </div>`
 }
 
+// Сьогодні is why the screen is opened, so it is not one more section under
+// one more grey heading. The day's own date sits on it — the screen title and
+// a section called "Сьогодні" were saying the same thing twice — and the band
+// above the rows is what the eye lands on first.
+//
+// The rows themselves stay the uniform agenda row. A day reads as one sequence
+// whatever is in it, and lifting the next item out of that sequence into a
+// card of its own is what this screen used to do, back when it could only show
+// appointments: with lessons and chores in the list too, the thing lifted out
+// was as often a bin night as it was the thing worth knowing.
+function Today({ date, items }) {
+  return html`
+    <section>
+      <div class="card today">
+        <div class="today-head">
+          <span class="today-kicker">Сьогодні</span>
+          ${date && html`<h1 class="today-date">${date}</h1>`}
+        </div>
+        ${items.length === 0
+          ? html`<p class="today-empty">Нічого не заплановано</p>`
+          : html`<div class="today-rows">
+              ${items.map((it, i) => html`<${AgendaRow} key=${it.kind + it.id + i} item=${it} />`)}
+            </div>`}
+      </div>
+    </section>`
+}
+
 function AgendaList({ items }) {
   return html`<div class="card card-rows">${items.map((it, i) => html`<${AgendaRow} key=${it.kind + it.id + i} item=${it} />`)}</div>`
 }
@@ -73,11 +100,7 @@ export function Home({ data, onOpenVisits, onOpenCourses, onOpenPayment }) {
 
   return html`
     <main class="screen">
-      ${date && html`<h1 class="screen-title">${date}</h1>`}
-
-      <${Section} title="Сьогодні" empty=${today.length === 0 ? 'На сьогодні нічого не заплановано' : null}>
-        <${AgendaList} items=${today} />
-      <//>
+      <${Today} date=${date} items=${today} />
 
       ${attention.length > 0 &&
       html`

@@ -667,21 +667,46 @@ designed, not a misconfiguration.
 - A caption is a **hint, never a key**. The cook writes Russian and the
   recipes are Ukrainian, so nothing is matched locally — the caption goes to
   the model as context, along with the whole recipe catalogue, and one call
-  answers with up to three candidates, a proposed name for a dish that is not
-  in the database yet, the meal, the day, and a line about what is on the
-  plate.
-- **Three candidates, not one**, because деруни, оладки and сирники look alike
-  and all three are in the database. They become buttons, so a near miss costs
-  one tap instead of a wrong entry. A slug the catalogue does not have is
-  dropped as an invention (`internal/dish`), which turns a hallucination into
-  the "create it?" path.
-- **A meal is a plate, not a dish.** The same call also returns everything
-  *alongside* the main dish — any other recipe eaten at that meal — and
-  confirming records all of them: an entry and a `lastMade` each. The field
-  is deliberately not called "sides": it was, and the prompt written from
-  that name described garnish, so a chicken cutlet next to the goulash fitted
-  no category and was silently dropped. Without that, a side's last-made date
-  never moves and the planner keeps offering mash nobody has stopped eating.
+  answers with the plate read as a **list of dishes**: each one named in
+  Ukrainian and matched to a recipe or marked as one the database has never
+  heard of, with up to two other readings of that same dish, plus the meal,
+  the day and a line about what is on the plate.
+- **The plate is a list, not one dish with runners-up.** Meat, porridge and
+  salad are three lines on the card and three buttons, each asking "is this
+  the right recipe?" about its own dish. The card used to be a main dish with
+  alternatives beside it, and the model answered in the shape it was asked in:
+  a plate of three dishes came back as one dish and two rivals, so the
+  porridge was offered as a competing reading of the meat and the salad was
+  not offered at all.
+- **Alternatives belong to a dish, not to the meal**, because деруни, оладки
+  and сирники look alike and all three are in the database. Up to two per
+  dish, offered on that dish's own card, so a near miss costs a tap instead of
+  a wrong entry.
+- **Similar is not the same, and the prompt says so with examples.** Given a
+  closed list to answer from, the model will always find something close
+  enough: «смажене м'ясо з цибулею» came back as «Відбивні» — breaded and
+  beaten — with «Гуляш», which is stewed in tomato, offered as the
+  alternative. The rule is now to match only when it is genuinely the same
+  dish and otherwise to answer with no recipe at all, putting the near misses
+  in that dish's alternatives. A dish proposed as new costs one tap to create;
+  a meal recorded against somebody else's recipe has to be hunted down in
+  Mealie and deleted by hand. A match the model itself called uncertain is
+  marked «(не точно)» on the card, because a stretch and a real match
+  otherwise look identical until the history is already wrong.
+- **A dish the catalogue does not have stays on the card** as one to create. A
+  slug the model invented is dropped (`internal/dish`), but the dish it stood
+  for is not: it was eaten. Creating it is its own tap and deliberately does
+  not also record the meal — the recipe is one decision and the plate is
+  another, and a card that wrote the meal down the moment a side dish was
+  created was a card whose buttons could not be predicted. Until then the
+  confirmation reads «Зафіксувати без нових», and the closing message names
+  what went unrecorded.
+- **A meal is a plate, not a dish.** Confirming records every dish on it: an
+  entry and a `lastMade` each. Nothing in the prompt calls them "sides" — an
+  earlier one did, and described garnish, so a chicken cutlet next to the
+  goulash fitted no category and was silently dropped. Without all of them, a
+  second dish's last-made date never moves and the planner keeps offering mash
+  nobody has stopped eating.
   Combining the pair into a "goulash with mash" recipe was considered and
   rejected: it multiplies out to every pairing the kitchen makes, and each
   combination then accumulates the history that the dishes themselves stop
@@ -689,11 +714,14 @@ designed, not a misconfiguration.
   the pair really is the dish («Скумбрія копчена з картоплею»).
 - **One button writes the whole plate**, because a plate with a main, a side
   and a salad is one meal and approving it three times is three chances to
-  give up half way. Everything else on the card only redraws it: alternatives
-  (`↔`) *replace* the main dish, sides (`✓`/`✗`) are *added to* it. The two are
-  never in the same row — they answer different questions, and a side that is
-  also an alternative resolves by whichever the cook confirms as the main, so
-  the same recipe can never be written down twice for one meal.
+  give up half way. Everything else on the card only redraws it. A dish is
+  corrected on a card of its own — take another reading of it, make it the
+  dish the meal is recorded against, or say it was not there — because those
+  are questions about that one dish, and answering them in rows on the meal's
+  card is what made the buttons unreadable. The main dish is the first one the
+  database actually knows, until the cook says otherwise; a dish that leaves
+  the plate hands that role back, so the meal can never be recorded against
+  something nobody ate.
 - **The photo goes only to the main dish.** The rest get an entry saying
   «Разом з: Гуляш» and no picture: the photograph is of a plate of goulash,
   and attaching it to the mash would both misrepresent it and mark it as
@@ -744,7 +772,8 @@ designed, not a misconfiguration.
   itself, which is needed again after the write for the promote button. A
   restart drops them and the photo is re-sent, the same bargain the
   appointment cards make. The card is claimed once, so a double tap cannot
-  produce two entries.
+  produce two entries, and creating a recipe holds the card busy for the same
+  reason.
 - **Who cooked it comes from `TELEGRAM_PEOPLE`, keyed by user id** — see
   `actor.Roster`. A display name is the person's to change, and when they do,
   every "Я" they write starts resolving to a new string while the rows already

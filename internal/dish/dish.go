@@ -48,48 +48,61 @@ type Input struct {
 	Tags       []string // names a new recipe may claim
 }
 
-type Candidate struct {
-	Recipe     mealie.Recipe
-	Confidence string // "high" | "medium" | "low"
+// Item is one dish of the meal: the goulash, the mash beside it, the salad.
+// A meal is read as a list of these rather than as one dish with variants,
+// because that is what a plate is — and because the two questions the cook
+// then answers ("is this the right recipe?" and "what else was on it?") stop
+// sharing a single row of buttons that answered neither.
+type Item struct {
+	// Name is what the model read off the plate, in Ukrainian. For an item
+	// with no Recipe it is also the name a new recipe would be created with,
+	// so it stays the dish's own name ("Пшоняна каша") and not a description
+	// of its role in the meal.
+	Name       string
+	Recipe     mealie.Recipe // zero when the database has never heard of this dish
+	Confidence string        // "high" | "medium" | "low"
+	// Alts are other recipes this same dish could be, offered when the match
+	// is wrong. They are readings of this one item, never separate dishes.
+	Alts     []mealie.Recipe
+	Category string   // where a new recipe for this item would be filed
+	Tags     []string // what a new recipe for this item would claim
 }
 
-// Guess is what the model made of it. Candidates are ordered most likely
-// first and are always recipes that exist; when it recognised nothing from the
-// catalogue, Candidates is empty and NewName proposes what to call the dish.
+// Known says whether this dish is already a recipe in the database.
+func (i Item) Known() bool { return i.Recipe.Slug != "" }
+
+// Guess is what the model made of the meal: the plate as a list of dishes,
+// the first of them the main one.
 type Guess struct {
-	Candidates []Candidate
-	// Alongside is everything else eaten at this meal that is a recipe in its
-	// own right — a side, a salad, a second dish, a cutlet. They are
-	// additions, not alternatives: the meal is the main dish plus these.
-	//
-	// Deliberately not called "sides": named that way, the prompt described
-	// them as garnish, and a chicken cutlet next to the goulash fitted no
-	// category and was silently dropped.
-	Alongside []Candidate
-	NewName   string
-	Category  string
-	Tags      []string
-	Note      string // what is on the plate, one line, Ukrainian
-	Slot      string // "obid" | "vecheria" | ""
-	Date      string // "YYYY-MM-DD" | ""
+	Items []Item
+	Note  string // what is on the plate, one line, Ukrainian
+	Slot  string // "obid" | "vecheria" | ""
+	Date  string // "YYYY-MM-DD" | ""
 }
 
 const (
-	maxCandidates = 3
-	// A plate holding more than three recognised dishes beside the main one is
-	// the model narrating the table, not reading a meal.
-	maxAlongside = 3
+	// A plate holding more than four recognised dishes is the model narrating
+	// the table, not reading a meal.
+	maxItems = 4
+	// Two alternative readings per dish. A third is never the answer, and the
+	// row of buttons it lands in has to stay readable on a phone.
+	maxAlts = 2
 )
 
 const systemPrompt = `Ти асистент домашньої кулінарної бази. Тобі дають фотографію страви (іноді без фото — лише текст) і список рецептів, які вже є в базі.
 
-Обери до трьох найімовірніших рецептів зі списку, від найімовірнішого до найменш імовірного, і поверни їхні slug.
+Прочитай, що саме їли, і поверни це списком страв — items. Перша страва в списку головна, решта — те, що було поруч з нею.
 
 Правила:
-- Головна страва — та, що на тарілці основна. Тарілка з дерунами, яйцями та помідорами — це деруни, а не сніданок: не описуй тарілку цілком, назви головну страву.
-- alongside — УСІ інші страви з того ж списку, які були в цьому ж прийомі їжі поруч з головною: гарнір, салат, друга страва, котлета, закуска — будь-що, що є окремим рецептом у списку. Не звужуй до гарніру: «гуляш, макарони і куряча котлета» — це головна страва плюс дві інші. Не рахуй лише дрібні додатки, які не є рецептами: сметана, кріп, спеції, соус, шматок хліба. Головну страву не повторюй. Якщо більше нічого не було — порожній список.
-- Якщо жоден рецепт зі списку не підходить, поверни порожній candidates і запропонуй у new_name назву нової страви УКРАЇНСЬКОЮ, навіть якщо підказка була російською.
-- category та tags для нової страви обирай лише зі списків дозволених значень. Якщо нічого не підходить — залиш порожніми.
+- Одна страва — один пункт items. «Гуляш, макарони і куряча котлета» — це три пункти, а не один.
+- Для кожного пункту знайди відповідний рецепт зі списку і поверни його slug. Якщо жоден рецепт не підходить — slug: null; тоді це нова страва, якої ще немає в базі.
+- Зіставляй з рецептом ЛИШЕ тоді, коли це справді та сама страва. Схожа — це не та сама: інший спосіб приготування, інша основа чи інший соус означають іншу страву. «Смажене м'ясо з цибулею» — це не «Відбивні» (відбите паніроване м'ясо) і не «Гуляш» (тушковане в томатному соусі).
+- Якщо певності немає — slug: null, а схожі рецепти зі списку поклади в alternatives. Запропонувати нову страву поруч зі схожими краще, ніж записати обід на чужий рецепт: нову страву легко створити одним дотиком, а помилковий запис доводиться шукати й видаляти руками.
+- confidence — наскільки ти впевнений у зіставленні. "high" — лише коли це очевидно та сама страва.
+- name — назва страви УКРАЇНСЬКОЮ, навіть якщо підказка була російською: для знайденого рецепта його ж назва, для нової — коротка власна назва самої страви («Смажене м'ясо з цибулею», «Пшоняна каша», а не «каша як гарнір»).
+- alternatives — до двох інших slug зі списку: або інші прочитання цього ж пункту, якщо збіг неточний, або схожі рецепти, якщо slug: null. Це завжди про той самий пункт, а не про інші страви з тарілки. Якщо збіг очевидний — порожній список.
+- Не роби окремими пунктами дрібні додатки, які не є рецептами: сметана, кріп, спеції, соус, шматок хліба.
+- category і tags заповнюй лише для пунктів зі slug: null і лише зі списків дозволених значень. Якщо нічого не підходить — залиш порожніми.
 - note — один рядок українською про те, що на тарілці.
 - slot — "obid" чи "vecheria", якщо це видно з підказки або з часу; інакше порожній рядок.
 - date — дата у форматі YYYY-MM-DD, якщо підказка говорить "вчора", "позавчора" чи називає дату; інакше порожній рядок.
@@ -152,15 +165,19 @@ func userPrompt(in Input) string {
 	return sb.String()
 }
 
-var candidateSchema = map[string]any{
+var itemSchema = map[string]any{
 	"type": "array",
 	"items": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"slug":       map[string]any{"type": "string"},
-			"confidence": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
+			"name":         map[string]any{"type": "string"},
+			"slug":         map[string]any{"type": []string{"string", "null"}},
+			"confidence":   map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
+			"alternatives": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"category":     map[string]any{"type": []string{"string", "null"}},
+			"tags":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
-		"required":             []string{"slug", "confidence"},
+		"required":             []string{"name", "slug", "confidence", "alternatives", "category", "tags"},
 		"additionalProperties": false,
 	},
 }
@@ -168,39 +185,37 @@ var candidateSchema = map[string]any{
 var responseSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"candidates": candidateSchema,
-		"alongside":  candidateSchema,
-		"new_name":   map[string]any{"type": []string{"string", "null"}},
-		"category":   map[string]any{"type": []string{"string", "null"}},
-		"tags":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		"note":       map[string]any{"type": "string"},
-		"slot":       map[string]any{"type": "string", "enum": []string{"obid", "vecheria", ""}},
-		"date":       map[string]any{"type": "string"},
+		"items": itemSchema,
+		"note":  map[string]any{"type": "string"},
+		"slot":  map[string]any{"type": "string", "enum": []string{"obid", "vecheria", ""}},
+		"date":  map[string]any{"type": "string"},
 	},
-	"required":             []string{"candidates", "alongside", "new_name", "category", "tags", "note", "slot", "date"},
+	"required":             []string{"items", "note", "slot", "date"},
 	"additionalProperties": false,
 }
 
-type rawCandidate struct {
-	Slug       string `json:"slug"`
-	Confidence string `json:"confidence"`
+type rawItem struct {
+	Name         string   `json:"name"`
+	Slug         *string  `json:"slug"`
+	Confidence   string   `json:"confidence"`
+	Alternatives []string `json:"alternatives"`
+	Category     *string  `json:"category"`
+	Tags         []string `json:"tags"`
 }
 
 type rawGuess struct {
-	Candidates []rawCandidate `json:"candidates"`
-	Alongside  []rawCandidate `json:"alongside"`
-	NewName    *string        `json:"new_name"`
-	Category   *string        `json:"category"`
-	Tags       []string       `json:"tags"`
-	Note       string         `json:"note"`
-	Slot       string         `json:"slot"`
-	Date       string         `json:"date"`
+	Items []rawItem `json:"items"`
+	Note  string    `json:"note"`
+	Slot  string    `json:"slot"`
+	Date  string    `json:"date"`
 }
 
-// parseGuess turns the model's answer into recipes that exist. A slug the
-// catalogue does not have is dropped silently: an invented one is the model
-// being wrong, and the flow it leads to — "nothing matched, shall I create
-// it?" — is exactly the right answer to that.
+// parseGuess turns the model's answer into dishes the caller can act on.
+//
+// A slug the catalogue does not have is not the end of the item: the model
+// invents a slug for a dish it recognised but could not find, and the dish was
+// still eaten. It survives as an item with no recipe — which is exactly the
+// one the card offers to create.
 func parseGuess(raw []byte, catalogue []mealie.Recipe) (Guess, error) {
 	var rg rawGuess
 	if err := json.Unmarshal(raw, &rg); err != nil {
@@ -212,43 +227,47 @@ func parseGuess(raw []byte, catalogue []mealie.Recipe) (Guess, error) {
 	}
 
 	g := Guess{Note: strings.TrimSpace(rg.Note), Slot: rg.Slot, Date: strings.TrimSpace(rg.Date)}
-	if rg.NewName != nil {
-		g.NewName = strings.TrimSpace(*rg.NewName)
-	}
-	if rg.Category != nil {
-		g.Category = strings.TrimSpace(*rg.Category)
-	}
-	g.Tags = rg.Tags
-
 	seen := make(map[string]bool)
-	for _, c := range rg.Candidates {
-		rec, ok := bySlug[c.Slug]
-		if !ok || seen[c.Slug] {
+	for _, ri := range rg.Items {
+		it := Item{Name: strings.TrimSpace(ri.Name), Confidence: ri.Confidence, Tags: ri.Tags}
+		if ri.Category != nil {
+			it.Category = strings.TrimSpace(*ri.Category)
+		}
+		if ri.Slug != nil {
+			if rec, ok := bySlug[*ri.Slug]; ok {
+				it.Recipe = rec
+				if it.Name == "" {
+					it.Name = rec.Name
+				}
+			}
+		}
+		// One dish read twice is one dish: the same recipe, or the same
+		// proposed name, must not turn into two timeline entries.
+		id := "new:" + strings.ToLower(it.Name)
+		if it.Known() {
+			id = it.Recipe.Slug
+		}
+		if it.Name == "" || seen[id] {
 			continue
 		}
-		seen[c.Slug] = true
-		g.Candidates = append(g.Candidates, Candidate{Recipe: rec, Confidence: c.Confidence})
-		if len(g.Candidates) == maxCandidates {
+		seen[id] = true
+
+		for _, alt := range ri.Alternatives {
+			rec, ok := bySlug[alt]
+			if !ok || rec.Slug == it.Recipe.Slug {
+				continue
+			}
+			it.Alts = append(it.Alts, rec)
+			if len(it.Alts) == maxAlts {
+				break
+			}
+		}
+		g.Items = append(g.Items, it)
+		if len(g.Items) == maxItems {
 			break
 		}
 	}
 
-	// Deduplicated only against each other. A dish can legitimately appear in
-	// both lists — the model may offer пюре as an alternative reading of the
-	// plate *and* as the dish beside it — so which one it ends up being is
-	// decided by the main dish the cook confirms, not here.
-	seenSide := make(map[string]bool)
-	for _, c := range rg.Alongside {
-		rec, ok := bySlug[c.Slug]
-		if !ok || seenSide[c.Slug] {
-			continue
-		}
-		seenSide[c.Slug] = true
-		g.Alongside = append(g.Alongside, Candidate{Recipe: rec, Confidence: c.Confidence})
-		if len(g.Alongside) == maxAlongside {
-			break
-		}
-	}
 	if g.Slot != "obid" && g.Slot != "vecheria" {
 		g.Slot = ""
 	}

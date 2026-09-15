@@ -21,51 +21,100 @@ var catalogue = []mealie.Recipe{
 	{ID: "u4", Slug: "borshch", Name: "Борщ"},
 }
 
+// item is how the tests say what they expect of one dish: the name shown, the
+// recipe behind it (empty when the database has none) and its alternatives.
+type item struct {
+	name  string
+	slug  string
+	alts  []string
+	isNew bool
+}
+
+func gotItems(g Guess) []item {
+	var out []item
+	for _, it := range g.Items {
+		got := item{name: it.Name, slug: it.Recipe.Slug, isNew: !it.Known()}
+		for _, a := range it.Alts {
+			got.alts = append(got.alts, a.Slug)
+		}
+		out = append(out, got)
+	}
+	return out
+}
+
+func sameItems(a, b []item) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].name != b[i].name || a[i].slug != b[i].slug || a[i].isNew != b[i].isNew ||
+			strings.Join(a[i].alts, ",") != strings.Join(b[i].alts, ",") {
+			return false
+		}
+	}
+	return true
+}
+
 func TestParseGuess(t *testing.T) {
 	tests := []struct {
 		name     string
 		answer   string
-		wantSlug []string
-		wantNew  string
+		want     []item
 		wantSlot string
 		wantDate string
 	}{
 		{
-			name:     "candidates in order",
-			answer:   `{"candidates":[{"slug":"deruni","confidence":"high"},{"slug":"oladki","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"деруни","slot":"obid","date":"2026-09-09"}`,
-			wantSlug: []string{"deruni", "oladki"},
+			name:     "the plate is a list, main dish first",
+			answer:   `{"items":[{"name":"Борщ","slug":"borshch","confidence":"high","alternatives":[],"category":null,"tags":[]},{"name":"Деруни","slug":"deruni","confidence":"medium","alternatives":[],"category":null,"tags":[]}],"note":"борщ і деруни","slot":"obid","date":"2026-09-09"}`,
+			want:     []item{{name: "Борщ", slug: "borshch"}, {name: "Деруни", slug: "deruni"}},
 			wantSlot: "obid",
 			wantDate: "2026-09-09",
 		},
 		{
-			// A slug outside the catalogue is the model inventing a dish; it
-			// must not survive into a card offering to record it.
-			name:     "invented slug dropped",
-			answer:   `{"candidates":[{"slug":"pizza-hut","confidence":"high"},{"slug":"borshch","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantSlug: []string{"borshch"},
+			// The model invents a slug for a dish it recognised but could not
+			// find. The dish was still eaten, so it survives as one to create.
+			name:   "a slug outside the catalogue leaves a dish to create",
+			answer: `{"items":[{"name":"Пшоняна каша","slug":"pshonyana-kasha","confidence":"high","alternatives":[],"category":"Гарніри","tags":["швидко"]}],"note":"","slot":"","date":""}`,
+			want:   []item{{name: "Пшоняна каша", isNew: true}},
 		},
 		{
-			name:     "every slug invented leaves nothing",
-			answer:   `{"candidates":[{"slug":"nope","confidence":"high"}],"new_name":"Сирники","category":"Сніданки","tags":["швидко"],"note":"","slot":"","date":""}`,
-			wantSlug: nil,
-			wantNew:  "Сирники",
+			name:   "alternatives are other readings of the same dish",
+			answer: `{"items":[{"name":"Деруни","slug":"deruni","confidence":"low","alternatives":["oladki","mlintsi","borshch"],"category":null,"tags":[]}],"note":"","slot":"","date":""}`,
+			want:   []item{{name: "Деруни", slug: "deruni", alts: []string{"oladki", "mlintsi"}}},
 		},
 		{
-			name:     "duplicates collapse",
-			answer:   `{"candidates":[{"slug":"deruni","confidence":"high"},{"slug":"deruni","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantSlug: []string{"deruni"},
+			name:   "an invented alternative, and the dish itself, are not alternatives",
+			answer: `{"items":[{"name":"Деруни","slug":"deruni","confidence":"low","alternatives":["pizza-hut","deruni","oladki"],"category":null,"tags":[]}],"note":"","slot":"","date":""}`,
+			want:   []item{{name: "Деруни", slug: "deruni", alts: []string{"oladki"}}},
 		},
 		{
-			name:     "capped at three",
-			answer:   `{"candidates":[{"slug":"deruni","confidence":"high"},{"slug":"oladki","confidence":"medium"},{"slug":"mlintsi","confidence":"low"},{"slug":"borshch","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantSlug: []string{"deruni", "oladki", "mlintsi"},
+			name:   "one dish read twice is one dish",
+			answer: `{"items":[{"name":"Деруни","slug":"deruni","confidence":"high","alternatives":[],"category":null,"tags":[]},{"name":"Деруни","slug":"deruni","confidence":"low","alternatives":[],"category":null,"tags":[]},{"name":"Сирники","slug":null,"confidence":"low","alternatives":[],"category":null,"tags":[]},{"name":"сирники","slug":null,"confidence":"low","alternatives":[],"category":null,"tags":[]}],"note":"","slot":"","date":""}`,
+			want:   []item{{name: "Деруни", slug: "deruni"}, {name: "Сирники", isNew: true}},
 		},
 		{
-			name:     "nonsense slot and date are cleared",
-			answer:   `{"candidates":[{"slug":"deruni","confidence":"high"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"snidanok","date":"вчора"}`,
-			wantSlug: []string{"deruni"},
-			wantSlot: "",
-			wantDate: "",
+			name:   "capped at four",
+			answer: `{"items":[{"name":"Деруни","slug":"deruni","confidence":"high","alternatives":[],"category":null,"tags":[]},{"name":"Оладки","slug":"oladki","confidence":"low","alternatives":[],"category":null,"tags":[]},{"name":"Млинці","slug":"mlintsi","confidence":"low","alternatives":[],"category":null,"tags":[]},{"name":"Борщ","slug":"borshch","confidence":"low","alternatives":[],"category":null,"tags":[]},{"name":"Сирники","slug":null,"confidence":"low","alternatives":[],"category":null,"tags":[]}],"note":"","slot":"","date":""}`,
+			want: []item{
+				{name: "Деруни", slug: "deruni"}, {name: "Оладки", slug: "oladki"},
+				{name: "Млинці", slug: "mlintsi"}, {name: "Борщ", slug: "borshch"},
+			},
+		},
+		{
+			// A nameless dish can neither be shown nor created.
+			name:   "a dish with no name at all is dropped",
+			answer: `{"items":[{"name":"","slug":null,"confidence":"low","alternatives":[],"category":null,"tags":[]}],"note":"","slot":"","date":""}`,
+			want:   nil,
+		},
+		{
+			name:   "a named recipe answers for a nameless item",
+			answer: `{"items":[{"name":"","slug":"borshch","confidence":"high","alternatives":[],"category":null,"tags":[]}],"note":"","slot":"","date":""}`,
+			want:   []item{{name: "Борщ", slug: "borshch"}},
+		},
+		{
+			name:   "nonsense slot and date are cleared",
+			answer: `{"items":[{"name":"Деруни","slug":"deruni","confidence":"high","alternatives":[],"category":null,"tags":[]}],"note":"","slot":"snidanok","date":"вчора"}`,
+			want:   []item{{name: "Деруни", slug: "deruni"}},
 		},
 	}
 
@@ -75,15 +124,8 @@ func TestParseGuess(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseGuess: %v", err)
 			}
-			var got []string
-			for _, c := range g.Candidates {
-				got = append(got, c.Recipe.Slug)
-			}
-			if strings.Join(got, ",") != strings.Join(tt.wantSlug, ",") {
-				t.Errorf("candidates = %v, want %v", got, tt.wantSlug)
-			}
-			if g.NewName != tt.wantNew {
-				t.Errorf("new_name = %q, want %q", g.NewName, tt.wantNew)
+			if got := gotItems(g); !sameItems(got, tt.want) {
+				t.Errorf("items = %+v, want %+v", got, tt.want)
 			}
 			if g.Slot != tt.wantSlot {
 				t.Errorf("slot = %q, want %q", g.Slot, tt.wantSlot)
@@ -95,21 +137,34 @@ func TestParseGuess(t *testing.T) {
 	}
 }
 
+// A dish to create carries where it would be filed: the card creates it
+// without asking anything more.
+func TestParseGuessKeepsFilingForANewDish(t *testing.T) {
+	g, err := parseGuess([]byte(`{"items":[{"name":"Пшоняна каша","slug":null,"confidence":"high","alternatives":[],"category":"Гарніри","tags":["швидко","дитяче"]}],"note":"","slot":"","date":""}`), catalogue)
+	if err != nil {
+		t.Fatalf("parseGuess: %v", err)
+	}
+	it := g.Items[0]
+	if it.Category != "Гарніри" || strings.Join(it.Tags, ",") != "швидко,дитяче" {
+		t.Fatalf("filing lost: %+v", it)
+	}
+}
+
 func TestParseGuessRejectsNonJSON(t *testing.T) {
 	if _, err := parseGuess([]byte("вибач, не можу"), catalogue); err == nil {
 		t.Fatal("want an error when the model answers prose")
 	}
 }
 
-// A candidate carries the whole recipe, not just its slug: the caller needs
-// the uuid for the timeline and the name for the button.
+// An item carries the whole recipe, not just its slug: the caller needs the
+// uuid for the timeline and the name for the button.
 func TestParseGuessCarriesRecipeIdentity(t *testing.T) {
-	g, err := parseGuess([]byte(`{"candidates":[{"slug":"deruni","confidence":"high"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`), catalogue)
+	g, err := parseGuess([]byte(`{"items":[{"name":"Деруни","slug":"deruni","confidence":"high","alternatives":[],"category":null,"tags":[]}],"note":"","slot":"","date":""}`), catalogue)
 	if err != nil {
 		t.Fatalf("parseGuess: %v", err)
 	}
-	if g.Candidates[0].Recipe.ID != "u1" || g.Candidates[0].Recipe.Name != "Деруни" {
-		t.Fatalf("candidate lost its identity: %+v", g.Candidates[0].Recipe)
+	if g.Items[0].Recipe.ID != "u1" || g.Items[0].Recipe.Name != "Деруни" {
+		t.Fatalf("item lost its identity: %+v", g.Items[0].Recipe)
 	}
 }
 
@@ -122,7 +177,7 @@ func TestIdentifyRequest(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"candidates\":[{\"slug\":\"deruni\",\"confidence\":\"high\"}],\"new_name\":null,\"category\":null,\"tags\":[],\"note\":\"деруни зі сметаною\",\"slot\":\"obid\",\"date\":\"\"}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"items\":[{\"name\":\"Деруни\",\"slug\":\"deruni\",\"confidence\":\"high\",\"alternatives\":[],\"category\":null,\"tags\":[]}],\"note\":\"деруни зі сметаною\",\"slot\":\"obid\",\"date\":\"\"}"}}]}`))
 	}))
 	defer srv.Close()
 
@@ -139,7 +194,7 @@ func TestIdentifyRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if len(g.Candidates) != 1 || g.Candidates[0].Recipe.Slug != "deruni" {
+	if len(g.Items) != 1 || g.Items[0].Recipe.Slug != "deruni" {
 		t.Fatalf("guess = %+v", g)
 	}
 	if g.Note != "деруни зі сметаною" {
@@ -170,7 +225,7 @@ func TestIdentifyWithoutPhoto(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"candidates\":[],\"new_name\":\"Сирники\",\"category\":null,\"tags\":[],\"note\":\"\",\"slot\":\"\",\"date\":\"\"}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"items\":[{\"name\":\"Сирники\",\"slug\":null,\"confidence\":\"high\",\"alternatives\":[],\"category\":null,\"tags\":[]}],\"note\":\"\",\"slot\":\"\",\"date\":\"\"}"}}]}`))
 	}))
 	defer srv.Close()
 
@@ -180,8 +235,8 @@ func TestIdentifyWithoutPhoto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if g.NewName != "Сирники" {
-		t.Fatalf("new_name = %q", g.NewName)
+	if len(g.Items) != 1 || g.Items[0].Known() || g.Items[0].Name != "Сирники" {
+		t.Fatalf("guess = %+v", g)
 	}
 	msgs, _ := json.Marshal(body["messages"])
 	if strings.Contains(string(msgs), "image_url") {
@@ -202,9 +257,52 @@ func TestIdentifySurfacesHTTPError(t *testing.T) {
 	}
 }
 
-// TestIdentifyLive runs the real prompt against the real provider, the way
-// parse's own live test does: skipped unless the key and a photo are given,
-// so `go test ./...` stays offline.
+func logGuess(t *testing.T, g Guess) {
+	t.Helper()
+	for i, it := range g.Items {
+		where := "нова страва"
+		if it.Known() {
+			where = it.Recipe.Slug
+		}
+		var alts []string
+		for _, a := range it.Alts {
+			alts = append(alts, a.Name)
+		}
+		t.Logf("страва %d: %s [%s] (%s) alt: %s", i+1, it.Name, where, it.Confidence, strings.Join(alts, ", "))
+	}
+	t.Logf("slot=%q date=%q note=%q", g.Slot, g.Date, g.Note)
+}
+
+// liveCatalogue is the household's real recipe list when Mealie is reachable.
+// With it the question is the real one; without it the fixture keeps the test
+// runnable, but a dish outside those four can only come back as a new one.
+func liveCatalogue(t *testing.T) []mealie.Recipe {
+	t.Helper()
+	url, tok := os.Getenv("MEALIE_URL"), os.Getenv("MEALIE_TOKEN")
+	if url == "" || tok == "" {
+		return catalogue
+	}
+	live, err := mealie.New(url, tok).Recipes(context.Background())
+	if err != nil {
+		t.Fatalf("catalogue: %v", err)
+	}
+	t.Logf("catalogue: %d recipes", len(live))
+	return live
+}
+
+func liveModel() (base, model string) {
+	base, model = os.Getenv("AI_BASE_URL"), os.Getenv("AI_MODEL")
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	if model == "" {
+		model = "gpt-5.6-luna"
+	}
+	return base, model
+}
+
+// TestIdentifyLive runs the real prompt against the real provider: skipped
+// unless the key and a photo are given, so `go test ./...` stays offline.
 //
 //	AI_API_KEY=… AI_MODEL=gpt-5.6-luna DISH_TEST_PHOTO=plate.jpg go test ./internal/dish -run Live -v
 func TestIdentifyLive(t *testing.T) {
@@ -216,105 +314,21 @@ func TestIdentifyLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read photo: %v", err)
 	}
-	base, model := os.Getenv("AI_BASE_URL"), os.Getenv("AI_MODEL")
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
-	if model == "" {
-		model = "gpt-5.6-luna"
-	}
-
-	// With a Mealie to ask, the question is the real one: the whole catalogue,
-	// which is what makes the answer meaningful. Without it the fixture keeps
-	// the test runnable, but a dish outside those four can only come back as
-	// "not in the database".
-	recipes := catalogue
-	if url, tok := os.Getenv("MEALIE_URL"), os.Getenv("MEALIE_TOKEN"); url != "" && tok != "" {
-		live, err := mealie.New(url, tok).Recipes(context.Background())
-		if err != nil {
-			t.Fatalf("catalogue: %v", err)
-		}
-		recipes = live
-		t.Logf("catalogue: %d recipes", len(recipes))
-	}
+	base, model := liveModel()
 
 	g, err := New(base, key, model).Identify(context.Background(), Input{
 		Photo:   photo,
 		Mime:    "image/jpeg",
 		Caption: os.Getenv("DISH_TEST_CAPTION"),
 		Now:     time.Now(),
-		Recipes: recipes,
+		Recipes: liveCatalogue(t),
 	})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	for i, c := range g.Candidates {
-		t.Logf("candidate %d: %s (%s)", i+1, c.Recipe.Name, c.Confidence)
-	}
-	for _, c := range g.Alongside {
-		t.Logf("side: %s (%s)", c.Recipe.Name, c.Confidence)
-	}
-	t.Logf("new=%q slot=%q date=%q note=%q", g.NewName, g.Slot, g.Date, g.Note)
-	if len(g.Candidates) == 0 {
-		t.Fatal("no candidate from a photo of a known dish")
-	}
-}
-
-func TestParseGuessAlongside(t *testing.T) {
-	tests := []struct {
-		name          string
-		answer        string
-		wantMain      []string
-		wantAlongside []string
-	}{
-		{
-			name:          "main plus its side",
-			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"}],"alongside":[{"slug":"oladki","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:      []string{"borshch"},
-			wantAlongside: []string{"oladki"},
-		},
-		{
-			name:          "invented side dropped",
-			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"}],"alongside":[{"slug":"kimchi","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:      []string{"borshch"},
-			wantAlongside: nil,
-		},
-		{
-			name:          "sides capped at three",
-			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"}],"alongside":[{"slug":"oladki","confidence":"low"},{"slug":"mlintsi","confidence":"low"},{"slug":"deruni","confidence":"low"},{"slug":"oladki","confidence":"low"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:      []string{"borshch"},
-			wantAlongside: []string{"oladki", "mlintsi", "deruni"},
-		},
-		{
-			// The same dish may be both an alternative reading of the plate
-			// and the side it actually is; which one it becomes is settled by
-			// the main dish the cook confirms, not by the parser.
-			name:          "a dish may be both an alternative and a side",
-			answer:        `{"candidates":[{"slug":"borshch","confidence":"high"},{"slug":"oladki","confidence":"low"}],"alongside":[{"slug":"oladki","confidence":"medium"}],"new_name":null,"category":null,"tags":[],"note":"","slot":"","date":""}`,
-			wantMain:      []string{"borshch", "oladki"},
-			wantAlongside: []string{"oladki"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g, err := parseGuess([]byte(tt.answer), catalogue)
-			if err != nil {
-				t.Fatalf("parseGuess: %v", err)
-			}
-			var main, sides []string
-			for _, c := range g.Candidates {
-				main = append(main, c.Recipe.Slug)
-			}
-			for _, c := range g.Alongside {
-				sides = append(sides, c.Recipe.Slug)
-			}
-			if strings.Join(main, ",") != strings.Join(tt.wantMain, ",") {
-				t.Errorf("candidates = %v, want %v", main, tt.wantMain)
-			}
-			if strings.Join(sides, ",") != strings.Join(tt.wantAlongside, ",") {
-				t.Errorf("sides = %v, want %v", sides, tt.wantAlongside)
-			}
-		})
+	logGuess(t, g)
+	if len(g.Items) == 0 {
+		t.Fatal("no dish at all from a photo of a plate")
 	}
 }
 
@@ -328,33 +342,26 @@ func TestIdentifyLiveText(t *testing.T) {
 	if key == "" || text == "" {
 		t.Skip("AI_API_KEY or DISH_TEST_TEXT not set")
 	}
-	recipes := catalogue
-	if url, tok := os.Getenv("MEALIE_URL"), os.Getenv("MEALIE_TOKEN"); url != "" && tok != "" {
-		live, err := mealie.New(url, tok).Recipes(context.Background())
-		if err != nil {
-			t.Fatalf("catalogue: %v", err)
-		}
-		recipes = live
-	}
-	base, model := os.Getenv("AI_BASE_URL"), os.Getenv("AI_MODEL")
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
-	if model == "" {
-		model = "gpt-5.6-luna"
-	}
+	base, model := liveModel()
 
 	g, err := New(base, key, model).Identify(context.Background(), Input{
-		Caption: text, Now: time.Now(), Recipes: recipes,
+		Caption: text, Now: time.Now(), Recipes: liveCatalogue(t),
 	})
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	for i, c := range g.Candidates {
-		t.Logf("candidate %d: %s (%s)", i+1, c.Recipe.Name, c.Confidence)
+	logGuess(t, g)
+}
+
+// The near misses are the point of an unplaceable dish: the cook either
+// creates it or takes the recipe the model was too unsure to pick.
+func TestParseGuessKeepsAlternativesForANewDish(t *testing.T) {
+	g, err := parseGuess([]byte(`{"items":[{"name":"Смажене м'ясо з цибулею","slug":null,"confidence":"low","alternatives":["borshch","deruni"],"category":null,"tags":[]}],"note":"","slot":"","date":""}`), catalogue)
+	if err != nil {
+		t.Fatalf("parseGuess: %v", err)
 	}
-	for _, c := range g.Alongside {
-		t.Logf("alongside: %s (%s)", c.Recipe.Name, c.Confidence)
+	it := g.Items[0]
+	if it.Known() || len(it.Alts) != 2 || it.Alts[0].Slug != "borshch" {
+		t.Fatalf("item = %+v", it)
 	}
-	t.Logf("slot=%q date=%q note=%q", g.Slot, g.Date, g.Note)
 }

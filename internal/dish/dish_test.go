@@ -296,7 +296,7 @@ func liveModel() (base, model string) {
 		base = "https://api.openai.com/v1"
 	}
 	if model == "" {
-		model = "gpt-5.6-luna"
+		model = "gpt-6-luna"
 	}
 	return base, model
 }
@@ -304,7 +304,7 @@ func liveModel() (base, model string) {
 // TestIdentifyLive runs the real prompt against the real provider: skipped
 // unless the key and a photo are given, so `go test ./...` stays offline.
 //
-//	AI_API_KEY=… AI_MODEL=gpt-5.6-luna DISH_TEST_PHOTO=plate.jpg go test ./internal/dish -run Live -v
+//	AI_API_KEY=… AI_MODEL=gpt-6-luna DISH_TEST_PHOTO=plate.jpg go test ./internal/dish -run Live -v
 func TestIdentifyLive(t *testing.T) {
 	key, photoPath := os.Getenv("AI_API_KEY"), os.Getenv("DISH_TEST_PHOTO")
 	if key == "" || photoPath == "" {

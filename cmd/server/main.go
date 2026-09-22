@@ -174,17 +174,18 @@ func main() {
 		// configured" and skips.
 		var recognizer *dish.Recognizer
 		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
-			// Defaults name the model this was measured against: on a plate
-			// holding a main dish plus side salads, the cheaper tiers
-			// consistently answered with the whole plate ("English
-			// breakfast") instead of the dish.
+			// The model tier matters: on a plate holding a main dish plus side
+			// salads, the cheaper tiers consistently answered with the whole
+			// plate ("English breakfast") instead of the dish. The measured
+			// default was gpt-5.6-luna; gpt-6-luna replaced it on price and
+			// has not been through that plate.
 			aiBase := os.Getenv("AI_BASE_URL")
 			if aiBase == "" {
 				aiBase = "https://api.openai.com/v1"
 			}
 			aiModel := os.Getenv("AI_MODEL")
 			if aiModel == "" {
-				aiModel = "gpt-5.6-luna"
+				aiModel = "gpt-6-luna"
 			}
 			recognizer = dish.New(aiBase, aiKey, aiModel)
 		}

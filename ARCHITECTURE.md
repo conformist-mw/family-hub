@@ -731,8 +731,9 @@ designed, not a misconfiguration.
   that actually matters — a real plate holding a main dish plus eggs, salad
   and mushrooms — answering "англійський сніданок" three times out of three:
   it saw the deruny and still described the whole plate. `gpt-5.6-luna` and
-  `gemini-flash-latest` both read the main dish correctly. Hence the default
-  in `main.go`, and `AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY` to move it.
+  `gemini-flash-latest` both read the main dish correctly. The default in
+  `main.go` is now `gpt-6-luna`, chosen on price (half of 5.6 Luna) and not
+  yet measured on that plate; `AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY` move it.
 - **What a confirmation writes** (`internal/cooking`): a timeline entry
   subject-lined `Обід · Олег`, the photo attached to it, and `lastMade` — the
   field the meal-plan rules filter on, and so the one that stops a dish being

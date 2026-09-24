@@ -153,6 +153,9 @@ type Bot struct {
 	// enough to outlast a minute would have a second collect started on top of
 	// the first, and the group would get the week twice.
 	reviewRunning atomic.Bool
+	// suggestRunning guards the weekly dish suggestions the same way: the
+	// model call leaves the ticker's goroutine too.
+	suggestRunning atomic.Bool
 }
 
 // ParseChatIDs parses a comma-separated list of int64 chat ids.
@@ -288,6 +291,11 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		tb.Handle(&tele.Btn{Unique: "ckd_drop"}, bot.onCookedDrop)
 		tb.Handle(&tele.Btn{Unique: "ckd_cancel"}, bot.onCookedCancel)
 		tb.Handle(&tele.Btn{Unique: eveOtherUnique}, bot.onEveningOther)
+		// The suggestions come from the same model, so without one there is
+		// never a card for these buttons to belong to.
+		tb.Handle(&tele.Btn{Unique: suggAddUnique}, bot.onSuggestAdd)
+		tb.Handle(&tele.Btn{Unique: suggMaybeUnique}, bot.onSuggestMaybe)
+		tb.Handle(&tele.Btn{Unique: suggNoUnique}, bot.onSuggestNo)
 	} else {
 		logger.Info("bot: cooking log disabled (AI_API_KEY not set)")
 	}

@@ -451,14 +451,16 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/dish/suggest.go`, `internal/dish/suggest_test.go`
 - Create: `internal/bot/suggest.go`, `internal/bot/suggest_test.go`
 - Modify: `internal/bot/bot.go` (реєстрація `sugg_*` за `cfg.Dish != nil`)
+- ➕ Modify: `internal/bot/digests.go` (прибрано заглушку `sendDishSuggestions`)
 
-- [ ] `Recognizer.Suggest(ctx, SuggestInput)` — промпт зі сталим контекстом родини (два прийоми, свинина/курка, без баранини, домашня українська кухня, старший не їсть рибу) і списками active/proposed/rejected; JSON 3 × `{name, meal, days, note}`
-- [ ] `filterSuggestions(sugg, existing)` — відкинути збіги `NameKey`
-- [ ] `sendDishSuggestions`: асинхронно з атомарним гардом; вижилі → `CreateDish(proposed, note)` → `suggestView` → відправка; помилка / нуль вижилих → лог
-- [ ] `applySuggestTap(unique, data)` — add → `active`, maybe → без змін (✓ на картці), no → `rejected`; картка перемальовується з відповіддю
-- [ ] тести `Suggest`: промпт містить rejected і proposed, розбір відповіді, кривий JSON → помилка
-- [ ] тести бота: `filterSuggestions` відкидає дубль, `applySuggestTap` міняє статуси, `suggestView` round-trip
-- [ ] `go test ./...` — має пройти перед задачею 10
+- [x] `Recognizer.Suggest(ctx, SuggestInput)` — промпт зі сталим контекстом родини (два прийоми, свинина/курка, без баранини, домашня українська кухня, старший не їсть рибу) і списками active/proposed/rejected; JSON 3 × `{name, meal, days, note}`
+- [x] `filterSuggestions(sugg, existing)` — відкинути збіги `NameKey`
+- [x] `sendDishSuggestions`: асинхронно з атомарним гардом; вижилі → `CreateDish(proposed, note)` → `suggestView` → відправка; помилка / нуль вижилих → лог
+- [x] `applySuggestTap(unique, data)` — add → `active`, maybe → без змін (✓ на картці), no → `rejected`; картка перемальовується з відповіддю
+  - ➕ `applySuggestTap` отримує ще й клавіатуру повідомлення: з неї читаються страви картки і «подумаю» (✓ на кнопці), якого немає в БД; рядки кнопок лишаються після відповіді — передумати можна ще одним натиском
+- [x] тести `Suggest`: промпт містить rejected і proposed, розбір відповіді, кривий JSON → помилка
+- [x] тести бота: `filterSuggestions` відкидає дубль, `applySuggestTap` міняє статуси, `suggestView` round-trip
+- [x] `go test ./...` — має пройти перед задачею 10
 
 ### Task 10: Одноразовий імпорт з Mealie
 

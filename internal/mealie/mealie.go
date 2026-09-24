@@ -39,11 +39,15 @@ func New(baseURL, token string) *Client {
 
 // Recipe is the identity of a dish. Both keys travel because the API is
 // inconsistent about which one addresses a resource: the timeline takes the
-// uuid, everything else takes the slug.
+// uuid, everything else takes the slug. Tags and RecipeCategory come with
+// every catalogue listing; the one-off import into the local dish table reads
+// the meal and the weekend flag off them.
 type Recipe struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-	Name string `json:"name"`
+	ID             string      `json:"id"`
+	Slug           string      `json:"slug"`
+	Name           string      `json:"name"`
+	Tags           []Organizer `json:"tags,omitempty"`
+	RecipeCategory []Organizer `json:"recipeCategory,omitempty"`
 }
 
 // Organizer is a tag or a category. Its ID must always come from the live

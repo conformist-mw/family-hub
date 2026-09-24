@@ -63,6 +63,24 @@ func TestRecipes(t *testing.T) {
 	}
 }
 
+// The import reads the meal and the category off the listing itself, so
+// both organizer lists must decode from it without a per-recipe call.
+func TestRecipesCarryTagsAndCategories(t *testing.T) {
+	c, _ := testServer(t, map[string]string{
+		"GET /api/recipes": `{"items":[{"id":"u1","slug":"borshch","name":"Борщ",
+			"tags":[{"id":"t1","slug":"obid","name":"обід"}],
+			"recipeCategory":[{"id":"c1","slug":"supi","name":"Супи"}]}]}`,
+	})
+	got, err := c.Recipes(context.Background())
+	if err != nil {
+		t.Fatalf("Recipes: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Tags) != 1 || got[0].Tags[0].Slug != "obid" ||
+		len(got[0].RecipeCategory) != 1 || got[0].RecipeCategory[0].Name != "Супи" {
+		t.Fatalf("organizers not decoded: %+v", got)
+	}
+}
+
 // The API answers a creation with a bare JSON string, not an object.
 func TestCreateRecipeReturnsBareSlug(t *testing.T) {
 	c, reqs := testServer(t, map[string]string{"POST /api/recipes": `"sirniki"`})

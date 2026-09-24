@@ -469,11 +469,12 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Modify: `internal/mealie/mealie.go` (`Recipe` + `Tags`, `RecipeCategory` — `/api/recipes` уже їх віддає)
 - Modify: `Dockerfile` (збирати й копіювати `/out/import-mealie`)
 
-- [ ] чиста функція `mapRecipe(r) (model.Dish, skip string)`: `meal` з `obid`/`vecheria` (обидва/жодного → `any`), `days=weekend` для `dostavka`/`pokupne`; категорії гарніри / заготовки / соуси / напої → skip з причиною
-- [ ] за замовчуванням dry-run: друкує, що буде імпортовано, і окремо пропущене; `-apply` пише через `CreateDish` (ідемпотентно за `name_key`)
-- [ ] `Dockerfile`: третій бінар поруч із `server` і `migrate`
-- [ ] тести `mapRecipe`: кожне правило тегів, кожна skip-категорія, салат без тегу прийому → `any`
-- [ ] `go test ./...` і `docker build .` — мають пройти перед задачею 11
+- [x] чиста функція `mapRecipe(r) (model.Dish, skip string)`: `meal` з `obid`/`vecheria` (обидва/жодного → `any`), `days=weekend` для `dostavka`/`pokupne`; категорії гарніри / заготовки / соуси / напої → skip з причиною
+- [x] за замовчуванням dry-run: друкує, що буде імпортовано, і окремо пропущене; `-apply` пише через `CreateDish` (ідемпотентно за `name_key`)
+- [x] `Dockerfile`: третій бінар поруч із `server` і `migrate`
+- [x] тести `mapRecipe`: кожне правило тегів, кожна skip-категорія, салат без тегу прийому → `any`
+- [x] `go test ./...` і `docker build .` — мають пройти перед задачею 11
+  - ➕ `Recipe.Tags`/`RecipeCategory` покрито тестом декодування в `internal/mealie/mealie_test.go`; `importDishes` — тестом ідемпотентності на SQLite (повторний запуск не дублює і не чіпає `rejected`)
 
 ### Task 11: Прибрати Mealie з сервера
 

@@ -412,15 +412,17 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Modify: `internal/bot/bot.go`
 - Modify: `cmd/server/main.go`
 
-- [ ] `dish.Input.Recipes` → `Dishes []DishRef{ID int64, Name string}`; прибрати `Categories`/`Tags`; `Item.Recipe`/`Alts` → `DishRef`, `Known()` за `ID != 0`; `Item.Category`/`Tags` → `Meal`, `Days`
-- [ ] промпт: каталог рядками `- 17 | Борщ`, у схемі `id: integer|null`; прибрати category/tags; «комбінація, яку подають разом (пюре зі скумбрією), — одна страва, якщо вона є такою в списку»; для нової страви — `meal`, `days`; `Guess.Slot` enum → `lunch`/`dinner`
-- [ ] `parseGuess`: id поза каталогом відкидається, як вигаданий slug зараз
-- [ ] `cooked.go`: каталог — `store.Dishes("active","proposed")`; підтвердження → `RecordEaten` на кожну страву тарілки (закриває `planned`); «створити» → `EnsureDish(meal, days)` без запису їжі; прибрати фото-промоут, посилання на Mealie, `organizerNames`; `cooking.Slot` → `menu.Meal`
-- [ ] `bot.go`: прибрати `Config.Cooking`, гейт журналу — `cfg.Dish != nil`, прибрати реєстрацію `ckd_promote`, виправити лог «MEALIE_TOKEN or AI_API_KEY not set»
-- [ ] `main.go`: прибрати `Cooking: cookingSvc` з `bot.Config` (сам `cooking.NewService`/планувальник поки лишаються — див. задачу 11)
-- [ ] тести `dish`: оновити під нові типи; id поза каталогом, комбінація як одна страва, meal/days нової страви, slot `lunch`/`dinner`
-- [ ] тести картки: оновити під нові типи; запис кількох страв, закриття `planned`, дубль «вже було записано», створення нової страви, реактивація `rejected`
-- [ ] `go test ./...` — має пройти перед задачею 8
+- [x] `dish.Input.Recipes` → `Dishes []DishRef{ID int64, Name string}`; прибрати `Categories`/`Tags`; `Item.Recipe`/`Alts` → `DishRef`, `Known()` за `ID != 0`; `Item.Category`/`Tags` → `Meal`, `Days`
+- [x] промпт: каталог рядками `- 17 | Борщ`, у схемі `id: integer|null`; прибрати category/tags; «комбінація, яку подають разом (пюре зі скумбрією), — одна страва, якщо вона є такою в списку»; для нової страви — `meal`, `days`; `Guess.Slot` enum → `lunch`/`dinner`
+- [x] `parseGuess`: id поза каталогом відкидається, як вигаданий slug зараз
+- [x] `cooked.go`: каталог — `store.Dishes("active","proposed")`; підтвердження → `RecordEaten` на кожну страву тарілки (закриває `planned`); «створити» → `EnsureDish(meal, days)` без запису їжі; прибрати фото-промоут, посилання на Mealie, `organizerNames`; `cooking.Slot` → `menu.Meal`
+  - ➕ прибрано й «головну страву» (`ckd_main`, ⭐): кожна страва тарілки пишеться окремим `eaten`, тож головна ні на що не впливала; `cookedAt` теж зник (канонічна година була потрібна лише таймлайну Mealie)
+- [x] `bot.go`: прибрати `Config.Cooking`, гейт журналу — `cfg.Dish != nil`, прибрати реєстрацію `ckd_promote`, виправити лог «MEALIE_TOKEN or AI_API_KEY not set»
+- [x] `main.go`: прибрати `Cooking: cookingSvc` з `bot.Config` (сам `cooking.NewService`/планувальник поки лишаються — див. задачу 11)
+  - ➕ `cooking.NewService` і `MEALIE_PUBLIC_URL` прибрано вже тут: без `Cooking:` змінна `cookingSvc` не використовується і не компілюється; планувальник лишається до задачі 11
+- [x] тести `dish`: оновити під нові типи; id поза каталогом, комбінація як одна страва, meal/days нової страви, slot `lunch`/`dinner`
+- [x] тести картки: оновити під нові типи; запис кількох страв, закриття `planned`, дубль «вже було записано», створення нової страви, реактивація `rejected`
+- [x] `go test ./...` — має пройти перед задачею 8
 
 ### Task 8: Вечірній перепит
 

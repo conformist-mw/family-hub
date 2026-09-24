@@ -104,19 +104,11 @@ func main() {
 		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
 	}
 
-	// The recipe database. Two addresses on purpose: the API is spoken to
-	// inside the docker network, while a link in a Telegram message has to be
-	// one a phone can open. A deploy that sets only the first gets links to
-	// it, which is right for a single host where they are the same.
-	var cookingSvc *cooking.Service
+	// The recipe database. The cooking log keeps dishes and meals in the
+	// local store; only the meal-plan filler below still talks to Mealie.
 	mealieURL := os.Getenv("MEALIE_URL")
-	mealiePublicURL := os.Getenv("MEALIE_PUBLIC_URL")
-	if mealiePublicURL == "" {
-		mealiePublicURL = mealieURL
-	}
 	if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
 		mealieClient := mealie.New(mealieURL, mealieToken)
-		cookingSvc = cooking.NewService(mealieClient, mealiePublicURL)
 
 		// Filling the meal plan is data, like the reminder materialiser, so
 		// it runs from here rather than from the bot: hanging it off the
@@ -168,10 +160,9 @@ func main() {
 			}
 		}
 
-		// The cooking log needs a model on top of the recipe database: one to
-		// look at the photograph, the other to write the result down. A
-		// missing key leaves the recognizer nil, which the bot reads as "not
-		// configured" and skips.
+		// The cooking log needs a model to look at the photograph; what it
+		// sees is written to the local store. A missing key leaves the
+		// recognizer nil, which the bot reads as "not configured" and skips.
 		var recognizer *dish.Recognizer
 		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
 			// The model tier matters: on a plate holding a main dish plus side
@@ -218,7 +209,6 @@ func main() {
 			Reminders:            remindersSvc,
 			School:               schoolSvc,
 			People:               people,
-			Cooking:              cookingSvc,
 			Dish:                 recognizer,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()

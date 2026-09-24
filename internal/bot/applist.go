@@ -139,7 +139,7 @@ func (b *Bot) onArm(c tele.Context) error {
 		_ = c.Respond()
 		return b.editToList(c, 0)
 	}
-	b.awaiting.set(senderID(c), id, field, b.now())
+	b.awaiting.setEdit(senderID(c), id, field, b.now())
 	_ = c.Respond()
 	return c.Send(armPrompt(field, a))
 }

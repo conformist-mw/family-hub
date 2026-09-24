@@ -170,10 +170,17 @@ func (p *cookedPending) end(key string) {
 // onPhoto is the main path. A caption is a hint, never a command: it may be in
 // Russian while the dishes are in Ukrainian, so it is handed to the model as
 // context rather than matched against anything here.
+//
+// A photo from someone who just tapped "Інше" on the evening check is the
+// answer to it, and is taken before the /cooked gate: they were asked for a
+// picture, so in the group it needs no command either.
 func (b *Bot) onPhoto(c tele.Context) error {
 	caption := strings.TrimSpace(c.Message().Caption)
 	cmd, rest := splitCommand(caption)
-	if !isPrivate(c) && cmd != "/cooked" {
+	var pinned *plateFor
+	if e, ok := b.awaiting.takeMealOther(senderID(c), b.now()); ok {
+		pinned = &plateFor{date: e.date, meal: e.meal}
+	} else if !isPrivate(c) && cmd != "/cooked" {
 		return nil
 	}
 	if cmd == "/cooked" {
@@ -183,9 +190,12 @@ func (b *Bot) onPhoto(c tele.Context) error {
 	photo, err := b.downloadPhoto(c.Message().Photo)
 	if err != nil {
 		b.logger.Error("bot: download photo", "err", err)
+		if pinned != nil {
+			b.awaiting.setMealOther(senderID(c), pinned.date, pinned.meal, b.now())
+		}
 		return c.Send("Не вдалося завантажити фото 😕")
 	}
-	return b.recognise(c, photo, "image/jpeg", caption)
+	return b.recognise(c, photo, "image/jpeg", caption, pinned)
 }
 
 // cmdCooked is the text-only path: no picture, just "we had deruny for lunch".
@@ -195,17 +205,38 @@ func (b *Bot) cmdCooked(c tele.Context) error {
 	if text == "" {
 		return c.Send("Що приготували? Напиши, наприклад: /cooked драники на обед\nАбо просто надішли фото тарілки.")
 	}
-	return b.recognise(c, nil, "", text)
+	return b.recognise(c, nil, "", text, nil)
 }
 
-func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string) error {
+// plateFor pins a recognition to the meal the evening check asked about: the
+// family already said which day and meal it was by tapping "Інше" under it,
+// so neither the model's reading of the hint nor the clock gets a say.
+type plateFor struct {
+	date time.Time // local midnight
+	meal menu.Meal
+}
+
+// recognise asks the model about the plate and shows the card. pinned is nil
+// for the cooking log's own entry points.
+//
+// An answer to the evening check that the model could not read is asked
+// again rather than dropped: take() already cleared the question, and the
+// buttons under the check are still there for whoever would rather tap.
+func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string, pinned *plateFor) error {
 	now := b.now()
+	retry := func() error {
+		b.awaiting.setMealOther(senderID(c), pinned.date, pinned.meal, now)
+		return c.Send("Не розпізнав 😕 Оберіть кнопкою або спробуйте пізніше — напишіть чи надішліть фото ще раз.")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	catalogue, err := b.plateCatalogue()
 	if err != nil {
 		b.logger.Error("bot: dish catalogue", "err", err)
+		if pinned != nil {
+			return retry()
+		}
 		return c.Send("Не дістав список страв 😕")
 	}
 
@@ -218,9 +249,15 @@ func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string) erro
 	})
 	if err != nil {
 		b.logger.Error("bot: identify dish", "err", err)
+		if pinned != nil {
+			return retry()
+		}
 		return c.Send("Не вдалося розпізнати страву 😕 Спробуй ще раз або підкажи назву.")
 	}
 	if len(guess.Items) == 0 {
+		if pinned != nil {
+			return retry()
+		}
 		return c.Send("Не зрозумів, що це за страва. Спробуй підказати назву: /cooked <назва>")
 	}
 
@@ -230,6 +267,9 @@ func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string) erro
 		focus: -1,
 		meal:  mealFrom(guess.Slot, now),
 		date:  dateFrom(guess.Date, now, b.cfg.Loc),
+	}
+	if pinned != nil {
+		e.meal, e.date = pinned.meal, pinned.date
 	}
 	for _, it := range guess.Items {
 		e.items = append(e.items, plateItem{Item: it})

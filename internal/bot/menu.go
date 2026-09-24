@@ -509,3 +509,396 @@ func (b *Bot) onMenuTap(c tele.Context, unique string) error {
 	}
 	return nil
 }
+
+// The evening check: for each meal nothing has been reported eaten for, ask
+// what it was. A planned dish is asked about by name; with no plan, what was
+// eaten yesterday is offered, since the pot most often lasts a second day.
+//
+// Split the same way as the morning menu: eveningView renders, buildEvening
+// and applyEveningTap work against the store, the handlers glue. The answers
+// that are rows in the store are read back from it; the one that is not —
+// "not at home" writes nothing — is kept in the keyboard, by the meal's
+// buttons being gone.
+
+const (
+	eveYesUnique   = "eve_yes"
+	evePickUnique  = "eve_pick"
+	eveHomeUnique  = "eve_home"
+	eveRejUnique   = "eve_rej"
+	eveOtherUnique = "eve_other"
+)
+
+var eveUniques = []string{eveYesUnique, evePickUnique, eveHomeUnique, eveRejUnique, eveOtherUnique}
+
+// eveningState is one day's evening check as it stands.
+type eveningState struct {
+	date string
+	// open are the meals still being asked about. A meal eaten according to
+	// the store is closed whatever this says.
+	open map[menu.Meal]bool
+	// meals is every row of the day, planned and eaten.
+	meals []model.MealEntry
+	// yesterday is what was eaten the day before, each dish once — the
+	// answers offered for a meal nobody planned.
+	yesterday []menuDish
+	// other offers "Інше", which hands the answer to the recognizer and so
+	// exists only with one.
+	other bool
+}
+
+func (s eveningState) eaten(meal menu.Meal) []model.MealEntry {
+	var out []model.MealEntry
+	for _, m := range s.meals {
+		if m.Meal == string(meal) && m.Status == model.MealEaten {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func (s eveningState) planned(meal menu.Meal) (model.MealEntry, bool) {
+	for _, m := range s.meals {
+		if m.Meal == string(meal) && m.Status == model.MealPlanned {
+			return m, true
+		}
+	}
+	return model.MealEntry{}, false
+}
+
+// eveningView renders the check. ok is false when no meal is left to ask
+// about — nothing to send in the evening, and a redraw with no buttons once
+// the last meal is answered.
+//
+// Every button names its meal: the two meals' rows sit one under the other,
+// and a bare "Не вдома" would not say which.
+func eveningView(s eveningState) (string, *tele.ReplyMarkup, bool) {
+	var sb strings.Builder
+	sb.WriteString("🍽 <b>Що їли сьогодні?</b>\n")
+
+	mk := &tele.ReplyMarkup{}
+	var rows []tele.Row
+	asking := false
+	for _, meal := range menuMeals {
+		lower := strings.ToLower(meal.Title())
+		if eaten := s.eaten(meal); len(eaten) > 0 {
+			names := make([]string, 0, len(eaten))
+			for _, m := range eaten {
+				names = append(names, html.EscapeString(m.Dish))
+			}
+			fmt.Fprintf(&sb, "\n✅ %s: %s", meal.Title(), strings.Join(names, " · "))
+			continue
+		}
+		if !s.open[meal] {
+			fmt.Fprintf(&sb, "\n%s: не їли вдома", meal.Title())
+			continue
+		}
+		asking = true
+		id := func(dishID int64) string { return strconv.FormatInt(dishID, 10) }
+
+		if p, ok := s.planned(meal); ok {
+			proposed := p.DishStatus == model.DishProposed
+			mark := ""
+			if proposed {
+				mark = "🆕 "
+			}
+			fmt.Fprintf(&sb, "\n%s: %s<b>%s</b> — так?", meal.Title(), mark, html.EscapeString(p.Dish))
+			first := tele.Row{mk.Data("✓ Так · "+lower, eveYesUnique, s.date, string(meal), id(p.DishID))}
+			if s.other {
+				first = append(first, mk.Data("Інше · "+lower, eveOtherUnique, s.date, string(meal)))
+			}
+			second := tele.Row{mk.Data("Не вдома · "+lower, eveHomeUnique, s.date, string(meal))}
+			if proposed {
+				second = append(second, mk.Data("✖ Ні, не наше", eveRejUnique, s.date, string(meal), id(p.DishID)))
+			}
+			rows = append(rows, first, second)
+			continue
+		}
+
+		fmt.Fprintf(&sb, "\n%s: що їли?", meal.Title())
+		var picks tele.Row
+		for _, d := range s.yesterday {
+			picks = append(picks, mk.Data("↩ "+shorten(d.name, menuButtonName), evePickUnique, s.date, string(meal), id(d.id)))
+			if len(picks) == menuOptions {
+				rows = append(rows, picks)
+				picks = nil
+			}
+		}
+		if len(picks) > 0 {
+			rows = append(rows, picks)
+		}
+		var last tele.Row
+		if s.other {
+			last = append(last, mk.Data("Інше · "+lower, eveOtherUnique, s.date, string(meal)))
+		}
+		rows = append(rows, append(last, mk.Data("Не вдома · "+lower, eveHomeUnique, s.date, string(meal))))
+	}
+	mk.Inline(rows...)
+	return sb.String(), mk, asking
+}
+
+// eveningOpenFromMarkup reads back which meals a check still asks about: the
+// meals that have buttons.
+func eveningOpenFromMarkup(m *tele.ReplyMarkup) map[menu.Meal]bool {
+	open := map[menu.Meal]bool{}
+	if m == nil {
+		return open
+	}
+	for _, row := range m.InlineKeyboard {
+		for _, btn := range row {
+			payload, ok := eveningCallbackPayload(btn)
+			if !ok {
+				continue
+			}
+			if parts := strings.Split(payload, "|"); len(parts) >= 2 && model.ValidMeal(parts[1]) {
+				open[menu.Meal(parts[1])] = true
+			}
+		}
+	}
+	return open
+}
+
+func eveningCallbackPayload(btn tele.InlineButton) (string, bool) {
+	for _, u := range eveUniques {
+		if btn.Unique == u {
+			return btn.Data, true
+		}
+		if rest, found := strings.CutPrefix(btn.Data, "\f"+u+"|"); found {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+// parseEveningData checks one button's data: "date|meal" for eve_home and
+// eve_other, "date|meal|dishID" for the rest. A date after today is refused;
+// an earlier one is not — an answer tapped after midnight is still about the
+// evening it was asked.
+func parseEveningData(now time.Time, unique, data string) (date string, meal menu.Meal, dishID int64, ok bool) {
+	parts := strings.Split(data, "|")
+	want := 3
+	if unique == eveHomeUnique || unique == eveOtherUnique {
+		want = 2
+	}
+	if len(parts) != want || !model.ValidMeal(parts[1]) {
+		return "", "", 0, false
+	}
+	if _, err := model.ParseDate(parts[0]); err != nil || parts[0] > now.Format(time.DateOnly) {
+		return "", "", 0, false
+	}
+	if want == 3 {
+		id, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return "", "", 0, false
+		}
+		dishID = id
+	}
+	return parts[0], menu.Meal(parts[1]), dishID, true
+}
+
+// buildEvening decides tonight's check: every meal without an eaten row is
+// asked about. ok is false when both are already answered — the photo of the
+// plate got there first — and the check stays silent.
+func (b *Bot) buildEvening(now time.Time) (eveningState, bool, error) {
+	st, err := b.eveningStateFrom(now.Format(time.DateOnly), nil)
+	if err != nil {
+		return eveningState{}, false, err
+	}
+	for _, meal := range menuMeals {
+		st.open[meal] = len(st.eaten(meal)) == 0
+	}
+	_, _, ok := eveningView(st)
+	return st, ok, nil
+}
+
+// applyEveningTap carries out one answer and returns the state to redraw.
+// current is the tapped message's keyboard: it holds which meals are still
+// asked about, the "not at home" answers being nowhere else.
+//
+// eve_other is not handled here: it only arms a reply, see onEveningOther.
+func (b *Bot) applyEveningTap(now time.Time, unique, data, who string, current *tele.ReplyMarkup) (eveningState, string, bool, error) {
+	date, meal, dishID, ok := parseEveningData(now, unique, data)
+	if !ok || unique == eveOtherUnique {
+		return eveningState{}, "Невірні дані", false, nil
+	}
+	open := eveningOpenFromMarkup(current)
+
+	var toast string
+	switch unique {
+	case eveYesUnique, evePickUnique:
+		// A dish from yesterday eaten again today is yesterday's pot, which is
+		// what the morning's "Доїдаємо" means too.
+		row, already, err := b.store.RecordEaten(dishID, date, string(meal), who, unique == evePickUnique)
+		if store.IsNotFound(err) {
+			return eveningState{}, "Цієї страви вже немає", false, nil
+		}
+		if err != nil {
+			return eveningState{}, "", false, err
+		}
+		toast = fmt.Sprintf("%s: %s ✓", meal.Title(), row.Dish)
+		if already {
+			toast = "Вже записано"
+		}
+
+	case eveHomeUnique:
+		if err := b.dropPlans(date, meal, 0); err != nil {
+			return eveningState{}, "", false, err
+		}
+		open[meal] = false
+		toast = fmt.Sprintf("%s: не вдома", meal.Title())
+
+	case eveRejUnique:
+		// The plan goes, the dish goes out of the menu for good — but the
+		// meal is still unanswered, so it stays asked, now without a plan.
+		d, err := b.store.Dish(dishID)
+		if store.IsNotFound(err) {
+			return eveningState{}, "Цієї страви вже немає", false, nil
+		}
+		if err != nil {
+			return eveningState{}, "", false, err
+		}
+		if err := b.dropPlans(date, meal, dishID); err != nil {
+			return eveningState{}, "", false, err
+		}
+		// Only a proposal is turned down: a dish that has been eaten since
+		// is the family's own, whatever a stale button says.
+		if d.Status == model.DishProposed {
+			if err := b.store.SetDishStatus(dishID, model.DishRejected); err != nil {
+				return eveningState{}, "", false, err
+			}
+		}
+		open[meal] = true
+		toast = "Більше не пропонуватиму"
+
+	default:
+		return eveningState{}, "Невірні дані", false, nil
+	}
+
+	st, err := b.eveningStateFrom(date, open)
+	if err != nil {
+		return eveningState{}, "", false, err
+	}
+	return st, toast, true, nil
+}
+
+// dropPlans deletes the planned rows of one meal — of one dish, or of any
+// with dishID 0. Eaten rows are never touched: a photo that came in after the
+// check went out still stands.
+func (b *Bot) dropPlans(date string, meal menu.Meal, dishID int64) error {
+	rows, err := b.store.MealsOn(date)
+	if err != nil {
+		return err
+	}
+	for _, m := range rows {
+		if m.Meal != string(meal) || m.Status != model.MealPlanned || (dishID != 0 && m.DishID != dishID) {
+			continue
+		}
+		if err := b.store.DeleteMeal(m.ID); err != nil && !store.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Bot) eveningStateFrom(date string, open map[menu.Meal]bool) (eveningState, error) {
+	if open == nil {
+		open = map[menu.Meal]bool{}
+	}
+	st := eveningState{date: date, open: open, other: b.cfg.Dish != nil}
+	var err error
+	if st.meals, err = b.store.MealsOn(date); err != nil {
+		return eveningState{}, err
+	}
+	day, err := model.ParseDate(date)
+	if err != nil {
+		return eveningState{}, err
+	}
+	eaten, err := b.store.EatenOn(day.AddDate(0, 0, -1).Format(time.DateOnly))
+	if err != nil {
+		return eveningState{}, err
+	}
+	seen := map[int64]bool{}
+	for _, m := range eaten {
+		if !seen[m.DishID] {
+			seen[m.DishID] = true
+			st.yesterday = append(st.yesterday, menuDish{id: m.DishID, name: m.Dish})
+		}
+	}
+	return st, nil
+}
+
+// sendEveningCheck posts tonight's check, or nothing when every meal is
+// already answered.
+func (b *Bot) sendEveningCheck(now time.Time) {
+	st, ok, err := b.buildEvening(now)
+	if err != nil {
+		b.logger.Error("bot: build evening check", "err", err)
+		return
+	}
+	if !ok {
+		b.logger.Info("bot: no evening check to send (every meal answered)", "date", st.date)
+		return
+	}
+	text, markup, _ := eveningView(st)
+	if _, err := b.sendToGroup(text, markup, tele.ModeHTML); err != nil {
+		b.logger.Error("bot: send evening check", "err", err)
+	}
+}
+
+func (b *Bot) onEveningYes(c tele.Context) error  { return b.onEveningTap(c, eveYesUnique) }
+func (b *Bot) onEveningPick(c tele.Context) error { return b.onEveningTap(c, evePickUnique) }
+func (b *Bot) onEveningHome(c tele.Context) error { return b.onEveningTap(c, eveHomeUnique) }
+func (b *Bot) onEveningRej(c tele.Context) error  { return b.onEveningTap(c, eveRejUnique) }
+
+func (b *Bot) onEveningTap(c tele.Context, unique string) error {
+	var current *tele.ReplyMarkup
+	if msg := c.Message(); msg != nil {
+		current = msg.ReplyMarkup
+	}
+	st, toast, redraw, err := b.applyEveningTap(b.now(), unique, c.Data(), b.senderName(c), current)
+	if err != nil {
+		b.logger.Error("bot: evening tap", "unique", unique, "data", c.Data(), "err", err)
+		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
+		return nil
+	}
+	_ = c.Respond(&tele.CallbackResponse{Text: toast})
+	if !redraw {
+		return nil
+	}
+	text, markup, _ := eveningView(st)
+	if err := c.Edit(text, b.withAppButton([]any{markup, tele.ModeHTML})...); err != nil &&
+		!errors.Is(err, tele.ErrSameMessageContent) {
+		return err
+	}
+	return nil
+}
+
+// onEveningOther arms the tapper's next message — text or a photo — as the
+// answer for that meal; the recognizer then shows the usual plate card, with
+// the day and meal already set.
+func (b *Bot) onEveningOther(c tele.Context) error {
+	now := b.now()
+	date, meal, _, ok := parseEveningData(now, eveOtherUnique, c.Data())
+	if !ok {
+		return c.Respond(&tele.CallbackResponse{Text: "Невірні дані"})
+	}
+	day, err := time.ParseInLocation(time.DateOnly, date, b.cfg.Loc)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Невірні дані"})
+	}
+	b.awaiting.setMealOther(senderID(c), day, meal, now)
+	_ = c.Respond()
+	// In the group the question is addressed: only the tapper's reply counts.
+	ask := fmt.Sprintf("Що їли на %s? Напишіть або надішліть фото.", mealAccusative(meal))
+	if name := b.senderName(c); name != "" {
+		ask = fmt.Sprintf("%s, що їли на %s? Напишіть або надішліть фото.", html.EscapeString(name), mealAccusative(meal))
+	}
+	return c.Send(ask, tele.ModeHTML)
+}
+
+// mealAccusative is the meal as it reads after "на": "на обід", "на вечерю".
+func mealAccusative(m menu.Meal) string {
+	if m == menu.Dinner {
+		return "вечерю"
+	}
+	return "обід"
+}

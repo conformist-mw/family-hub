@@ -192,14 +192,10 @@ func (c Config) dueThisMinute(now time.Time, last lastFired) due {
 	}
 }
 
-// sendEveningCheck and sendDishSuggestions are placeholders until their
-// messages land: the clocks are wired first so their gating can be tested on
-// its own, and a deploy that sets the times early only gets a log line
-// instead of a half-built message in the group. sendMenu lives in menu.go.
-func (b *Bot) sendEveningCheck(now time.Time) {
-	b.logger.Info("bot: evening meal check due (not implemented yet)", "date", now.Format("2006-01-02"))
-}
-
+// sendDishSuggestions is a placeholder until its message lands: the clock is
+// wired first so its gating can be tested on its own, and a deploy that sets
+// the time early only gets a log line instead of a half-built message in the
+// group. sendMenu and sendEveningCheck live in menu.go.
 func (b *Bot) sendDishSuggestions(_ context.Context, now time.Time) {
 	b.logger.Info("bot: dish suggestions due (not implemented yet)", "date", now.Format("2006-01-02"))
 }

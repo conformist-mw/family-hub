@@ -432,16 +432,18 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Modify: `internal/bot/appointments.go` (`onText` диспетчеризує за видом очікування)
 - Modify: `internal/bot/cooked.go` (`onPhoto` перевіряє очікування до гейту `/cooked`; `recognise` з зафіксованими датою/прийомом)
 - Modify: `internal/bot/bot.go` (реєстрація `eve_*`)
+- ➕ Modify: `internal/bot/applist.go` (`awaiting.set` → `setEdit`), `internal/bot/digests.go` (прибрано заглушку `sendEveningCheck`)
+- ➕ Create: `internal/bot/awaiting_test.go`
 
-- [ ] `eveningView(now, meals) (text, markup, ok)` — за правилами з Technical Details; обидва прийоми закриті → `ok=false`
-- [ ] `applyEveningTap(now, unique, data, who)` — `eve_yes`, `eve_pick`, `eve_home`, `eve_rej`
-- [ ] `awaitingEntry` з видом `appt_edit` / `meal_other{date, meal}`; `eve_other` ставить `meal_other`; помилка моделі → повідомлення + повторний `set`
-- [ ] `onText` і `onPhoto` віддають `meal_other` у `recognise` з зафіксованими датою/прийомом
-- [ ] тонкий `sendEveningCheck`
-- [ ] тести `eveningView`: план, без плану (учорашні страви), `proposed` дає «Ні, не наше», усе закрито → тиша
-- [ ] тести `applyEveningTap` на SQLite: Так → `eaten`, `proposed` + Так → `active`, Ні, не наше → `rejected` і план видалено, Не їли вдома → нічого в `meals`
-- [ ] тести очікування: вид `meal_other` не потрапляє в `applyEdit`; наявні тести редагування записів зелені
-- [ ] `go test ./...` — має пройти перед задачею 9
+- [x] `eveningView(now, meals) (text, markup, ok)` — за правилами з Technical Details; обидва прийоми закриті → `ok=false`
+- [x] `applyEveningTap(now, unique, data, who)` — `eve_yes`, `eve_pick`, `eve_home`, `eve_rej`
+- [x] `awaitingEntry` з видом `appt_edit` / `meal_other{date, meal}`; `eve_other` ставить `meal_other`; помилка моделі → повідомлення + повторний `set`
+- [x] `onText` і `onPhoto` віддають `meal_other` у `recognise` з зафіксованими датою/прийомом
+- [x] тонкий `sendEveningCheck`
+- [x] тести `eveningView`: план, без плану (учорашні страви), `proposed` дає «Ні, не наше», усе закрито → тиша
+- [x] тести `applyEveningTap` на SQLite: Так → `eaten`, `proposed` + Так → `active`, Ні, не наше → `rejected` і план видалено, Не їли вдома → нічого в `meals`
+- [x] тести очікування: вид `meal_other` не потрапляє в `applyEdit`; наявні тести редагування записів зелені
+- [x] `go test ./...` — має пройти перед задачею 9
 
 ### Task 9: Суботні пропозиції нових страв
 

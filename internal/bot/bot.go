@@ -239,6 +239,13 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: menuPickUnique}, bot.onMenuPick)
 	tb.Handle(&tele.Btn{Unique: menuShufUnique}, bot.onMenuShuf)
 	tb.Handle(&tele.Btn{Unique: menuLeftUnique}, bot.onMenuLeft)
+	// The evening check's answers only write rows, so they are live on every
+	// deploy as well; "Інше" is the exception, registered with the cooking
+	// log below, because its answer goes to the recognizer.
+	tb.Handle(&tele.Btn{Unique: eveYesUnique}, bot.onEveningYes)
+	tb.Handle(&tele.Btn{Unique: evePickUnique}, bot.onEveningPick)
+	tb.Handle(&tele.Btn{Unique: eveHomeUnique}, bot.onEveningHome)
+	tb.Handle(&tele.Btn{Unique: eveRejUnique}, bot.onEveningRej)
 
 	// Appointments. /list, /week and their callbacks only read and edit stored
 	// rows, so they work with or without a parser. OnText is registered
@@ -280,6 +287,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		tb.Handle(&tele.Btn{Unique: "ckd_pick"}, bot.onCookedPick)
 		tb.Handle(&tele.Btn{Unique: "ckd_drop"}, bot.onCookedDrop)
 		tb.Handle(&tele.Btn{Unique: "ckd_cancel"}, bot.onCookedCancel)
+		tb.Handle(&tele.Btn{Unique: eveOtherUnique}, bot.onEveningOther)
 	} else {
 		logger.Info("bot: cooking log disabled (AI_API_KEY not set)")
 	}

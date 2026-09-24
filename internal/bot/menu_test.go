@@ -461,3 +461,301 @@ func TestMenuTapWithBadData(t *testing.T) {
 		t.Errorf("missing dish: toast=%q redraw=%v err=%v", toast, redraw, err)
 	}
 }
+
+// The evening check.
+
+var menuEvening = time.Date(2026, 9, 24, 20, 0, 0, 0, time.UTC)
+
+func eveningSample() eveningState {
+	return eveningState{
+		date: menuToday,
+		open: map[menu.Meal]bool{menu.Lunch: true, menu.Dinner: true},
+		meals: []model.MealEntry{
+			{ID: 1, DishID: 10, Dish: "Борщ", DishStatus: model.DishActive, Date: menuToday,
+				Meal: model.MealLunch, Status: model.MealPlanned},
+		},
+		yesterday: []menuDish{{id: 20, name: "Плов"}, {id: 21, name: "Деруни"}},
+		other:     true,
+	}
+}
+
+func TestEveningViewAsksAboutThePlan(t *testing.T) {
+	text, markup, ok := eveningView(eveningSample())
+	if !ok {
+		t.Fatal("two open meals, but nothing to ask")
+	}
+	for _, want := range []string{"Обід: <b>Борщ</b> — так?", "Вечеря: що їли?"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+	want := [][]string{
+		{"✓ Так · обід", "Інше · обід"},
+		{"Не вдома · обід"},
+		{"↩ Плов", "↩ Деруни"},
+		{"Інше · вечеря", "Не вдома · вечеря"},
+	}
+	if got := buttonTexts(markup); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("keyboard = %v\nwant       %v", got, want)
+	}
+	if strings.Contains(text, "не наше") || hasLabel(markup, "✖ Ні, не наше") {
+		t.Error("an active dish offered for rejection")
+	}
+}
+
+func TestEveningViewOffersToTurnDownAProposal(t *testing.T) {
+	s := eveningSample()
+	s.meals[0].DishStatus = model.DishProposed
+	text, markup, _ := eveningView(s)
+	if !strings.Contains(text, "🆕 <b>Борщ</b>") {
+		t.Errorf("proposal not marked:\n%s", text)
+	}
+	if !hasLabel(markup, "✖ Ні, не наше") {
+		t.Fatalf("no rejection button: %v", buttonTexts(markup))
+	}
+}
+
+func TestEveningViewWithoutTheRecognizerHasNoOther(t *testing.T) {
+	s := eveningSample()
+	s.other = false
+	_, markup, _ := eveningView(s)
+	for _, l := range labels(markup) {
+		if strings.HasPrefix(l, "Інше") {
+			t.Fatalf("%q offered without a recognizer", l)
+		}
+	}
+}
+
+func TestEveningViewIsSilentWhenEverythingIsAnswered(t *testing.T) {
+	s := eveningSample()
+	s.meals = []model.MealEntry{
+		{DishID: 10, Dish: "Борщ", Meal: model.MealLunch, Status: model.MealEaten},
+		{DishID: 11, Dish: "Вареники", Meal: model.MealDinner, Status: model.MealEaten},
+	}
+	text, markup, ok := eveningView(s)
+	if ok || len(markup.InlineKeyboard) != 0 {
+		t.Fatalf("ok=%v keyboard=%v with both meals eaten", ok, buttonTexts(markup))
+	}
+	if !strings.Contains(text, "✅ Обід: Борщ") || !strings.Contains(text, "✅ Вечеря: Вареники") {
+		t.Errorf("summary lacks the meals:\n%s", text)
+	}
+
+	// "Not at home" closes a meal just as well, with nothing eaten.
+	s.meals = s.meals[:1]
+	s.open[menu.Dinner] = false
+	text, _, ok = eveningView(s)
+	if ok || !strings.Contains(text, "Вечеря: не їли вдома") {
+		t.Fatalf("ok=%v:\n%s", ok, text)
+	}
+}
+
+func TestEveningKeyboardRoundTrips(t *testing.T) {
+	s := eveningSample()
+	s.meals = append(s.meals, model.MealEntry{DishID: 11, Dish: "Вареники", Meal: model.MealDinner, Status: model.MealEaten})
+	_, markup, _ := eveningView(s)
+	back := asTelegramSentIt(markup)
+	back.InlineKeyboard = append(back.InlineKeyboard,
+		[]tele.InlineButton{{Text: appButtonLabel, URL: "https://example.test"}})
+
+	open := eveningOpenFromMarkup(back)
+	if !open[menu.Lunch] || open[menu.Dinner] {
+		t.Fatalf("open = %v, want lunch only", open)
+	}
+	for _, row := range back.InlineKeyboard {
+		for _, btn := range row {
+			if len(btn.Data) > 64 {
+				t.Errorf("callback data %q is over Telegram's 64 bytes", btn.Data)
+			}
+		}
+	}
+}
+
+func TestBuildEvening(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 3)
+	if _, err := b.store.PlanMeal(dishes[0].ID, menuToday, model.MealLunch, "Олег", false); err != nil {
+		t.Fatal(err)
+	}
+	st, ok, err := b.buildEvening(menuEvening)
+	if err != nil || !ok {
+		t.Fatalf("build: ok=%v err=%v", ok, err)
+	}
+	if !st.open[menu.Lunch] || !st.open[menu.Dinner] {
+		t.Errorf("open = %v, want both", st.open)
+	}
+
+	for i, meal := range []string{model.MealLunch, model.MealDinner} {
+		if _, _, err := b.store.RecordEaten(dishes[i+1].ID, menuToday, meal, "", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok, err := b.buildEvening(menuEvening); ok || err != nil {
+		t.Fatalf("both meals eaten: ok=%v err=%v, want silence", ok, err)
+	}
+}
+
+// sentEvening builds tonight's check and returns its keyboard as it comes
+// back from Telegram.
+func sentEvening(t *testing.T, b *Bot) *tele.ReplyMarkup {
+	t.Helper()
+	st, ok, err := b.buildEvening(menuEvening)
+	if err != nil || !ok {
+		t.Fatalf("build: ok=%v err=%v", ok, err)
+	}
+	_, markup, _ := eveningView(st)
+	return asTelegramSentIt(markup)
+}
+
+func TestEveningYesRecordsThePlan(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 2)
+	if _, err := b.store.PlanMeal(dishes[0].ID, menuToday, model.MealLunch, "Олег", false); err != nil {
+		t.Fatal(err)
+	}
+	kb := sentEvening(t, b)
+
+	st, toast, redraw, err := b.applyEveningTap(menuEvening, eveYesUnique,
+		tapData(menuToday, menu.Lunch, dishes[0].ID), "Аня", kb)
+	if err != nil || !redraw {
+		t.Fatalf("yes: redraw=%v err=%v", redraw, err)
+	}
+	if toast != "Обід: "+dishes[0].Name+" ✓" {
+		t.Errorf("toast = %q", toast)
+	}
+	if got := mealRows(t, b, menuToday); got != "lunch:"+dishes[0].Name+":eaten" {
+		t.Fatalf("meals = %s", got)
+	}
+	// Dinner is still asked about; lunch is now a line of the summary.
+	text, _, ok := eveningView(st)
+	if !ok || !strings.Contains(text, "✅ Обід: "+dishes[0].Name) || !strings.Contains(text, "Вечеря: що їли?") {
+		t.Fatalf("redraw ok=%v:\n%s", ok, text)
+	}
+
+	_, toast, _, _ = b.applyEveningTap(menuEvening, eveYesUnique,
+		tapData(menuToday, menu.Lunch, dishes[0].ID), "Аня", kb)
+	if toast != "Вже записано" {
+		t.Errorf("second yes: toast = %q", toast)
+	}
+}
+
+func TestEveningYesAcceptsAProposal(t *testing.T) {
+	b := menuBot(t)
+	d, _, err := b.store.CreateDish(model.Dish{Name: "Солянка", Status: model.DishProposed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.store.PlanMeal(d.ID, menuToday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := b.applyEveningTap(menuEvening, eveYesUnique,
+		tapData(menuToday, menu.Dinner, d.ID), "Олег", sentEvening(t, b)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := b.store.Dish(d.ID)
+	if got.Status != model.DishActive {
+		t.Fatalf("status = %q, want the eaten proposal active", got.Status)
+	}
+}
+
+func TestEveningRejectTurnsDownAProposal(t *testing.T) {
+	b := menuBot(t)
+	d, _, err := b.store.CreateDish(model.Dish{Name: "Солянка", Status: model.DishProposed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.store.PlanMeal(d.ID, menuToday, model.MealLunch, "", false); err != nil {
+		t.Fatal(err)
+	}
+	st, _, redraw, err := b.applyEveningTap(menuEvening, eveRejUnique,
+		tapData(menuToday, menu.Lunch, d.ID), "Олег", sentEvening(t, b))
+	if err != nil || !redraw {
+		t.Fatalf("reject: redraw=%v err=%v", redraw, err)
+	}
+	if got, _ := b.store.Dish(d.ID); got.Status != model.DishRejected {
+		t.Errorf("status = %q, want rejected", got.Status)
+	}
+	if got := mealRows(t, b, menuToday); got != "" {
+		t.Errorf("meals = %s, want the plan gone", got)
+	}
+	// What they ate instead is still a question.
+	text, _, ok := eveningView(st)
+	if !ok || !strings.Contains(text, "Обід: що їли?") {
+		t.Fatalf("redraw ok=%v:\n%s", ok, text)
+	}
+}
+
+func TestEveningNotAtHomeWritesNothing(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 2)
+	if _, err := b.store.PlanMeal(dishes[0].ID, menuToday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
+	kb := sentEvening(t, b)
+	st, _, redraw, err := b.applyEveningTap(menuEvening, eveHomeUnique, menuToday+"|dinner", "Олег", kb)
+	if err != nil || !redraw {
+		t.Fatalf("home: redraw=%v err=%v", redraw, err)
+	}
+	if got := mealRows(t, b, menuToday); got != "" {
+		t.Fatalf("meals = %s, want nothing", got)
+	}
+	text, markup, ok := eveningView(st)
+	if !ok || !strings.Contains(text, "Вечеря: не їли вдома") {
+		t.Fatalf("redraw ok=%v:\n%s", ok, text)
+	}
+
+	// The answer lives in the keyboard: the next tap, on lunch, keeps it.
+	st, _, _, err = b.applyEveningTap(menuEvening, eveHomeUnique, menuToday+"|lunch", "Олег", asTelegramSentIt(markup))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, markup, ok = eveningView(st)
+	if ok || len(markup.InlineKeyboard) != 0 || !strings.Contains(text, "Вечеря: не їли вдома") ||
+		!strings.Contains(text, "Обід: не їли вдома") {
+		t.Fatalf("after both: ok=%v keyboard=%v\n%s", ok, buttonTexts(markup), text)
+	}
+}
+
+func TestEveningPickRecordsYesterdaysDishAsLeftover(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 2)
+	if _, _, err := b.store.RecordEaten(dishes[1].ID, menuYesterday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
+	kb := sentEvening(t, b)
+	if _, _, redraw, err := b.applyEveningTap(menuEvening, evePickUnique,
+		tapData(menuToday, menu.Lunch, dishes[1].ID), "Олег", kb); err != nil || !redraw {
+		t.Fatalf("pick: redraw=%v err=%v", redraw, err)
+	}
+	rows, _ := b.store.MealsOn(menuToday)
+	if len(rows) != 1 || rows[0].Status != model.MealEaten || !rows[0].Leftover || rows[0].Meal != model.MealLunch {
+		t.Fatalf("meals = %+v, want an eaten leftover lunch", rows)
+	}
+}
+
+func TestEveningTapWithBadData(t *testing.T) {
+	b := menuBot(t)
+	for _, tc := range []struct{ unique, data string }{
+		{eveYesUnique, menuToday + "|lunch"},
+		{eveYesUnique, menuToday + "|breakfast|1"},
+		{eveYesUnique, menuToday + "|lunch|x"},
+		{eveHomeUnique, menuToday + "|lunch|1"},
+		{eveHomeUnique, "2026-09-25|lunch"},
+		{eveOtherUnique, menuToday + "|lunch"},
+	} {
+		_, toast, redraw, err := b.applyEveningTap(menuEvening, tc.unique, tc.data, "", nil)
+		if err != nil || redraw || toast != "Невірні дані" {
+			t.Errorf("%s %q: toast=%q redraw=%v err=%v", tc.unique, tc.data, toast, redraw, err)
+		}
+	}
+	_, toast, redraw, err := b.applyEveningTap(menuEvening, eveYesUnique,
+		tapData(menuToday, menu.Lunch, 999), "", nil)
+	if err != nil || redraw || toast != "Цієї страви вже немає" {
+		t.Errorf("missing dish: toast=%q redraw=%v err=%v", toast, redraw, err)
+	}
+	// An answer tapped after midnight is about the evening it was asked.
+	dishes := seedMenuDishes(t, b, 1)
+	if _, _, redraw, err := b.applyEveningTap(menuEvening.Add(5*time.Hour), eveYesUnique,
+		tapData(menuToday, menu.Dinner, dishes[0].ID), "", nil); err != nil || !redraw {
+		t.Fatalf("after midnight: redraw=%v err=%v", redraw, err)
+	}
+}

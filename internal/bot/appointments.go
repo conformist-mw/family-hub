@@ -55,10 +55,21 @@ func (b *Bot) onText(c tele.Context) error {
 		return err
 	}
 
-	// If this user just tapped a field-edit button, their next message is the new
-	// value for that visit (time/title/who) — handled in any chat type.
-	if apptID, field, ok := b.awaiting.take(senderID(c), now); ok {
-		return b.applyEdit(c, apptID, field, text, now)
+	// If this user just tapped a button that asks for a reply, their next
+	// message is that reply — handled in any chat type. Routed strictly by
+	// kind: a field-edit tap wants the new value for that visit
+	// (time/title/who), the evening check's "Інше" wants what was eaten.
+	if e, ok := b.awaiting.take(senderID(c), now); ok {
+		switch e.kind {
+		case awaitApptEdit:
+			return b.applyEdit(c, e.apptID, e.field, text, now)
+		case awaitMealOther:
+			if b.cfg.Dish == nil {
+				return nil
+			}
+			return b.recognise(c, nil, "", text, &plateFor{date: e.date, meal: e.meal})
+		}
+		return nil
 	}
 
 	// In groups the bot must not run every message through Gemini — capture is
@@ -264,7 +275,7 @@ func (b *Bot) applyReschedule(c tele.Context, apptID int64, text string, now tim
 	when, _, err := b.parser.ParseWhen(ctx, text, now)
 	if err != nil {
 		b.logger.Error("bot: parse when", "err", err)
-		b.awaiting.set(senderID(c), apptID, "time", now) // keep it, let the user retry
+		b.awaiting.setEdit(senderID(c), apptID, "time", now) // keep it, let the user retry
 		return c.Send("Не зрозумів дату. Напиши, наприклад: у п’ятницю 17:00")
 	}
 	if err := b.store.RescheduleAppointment(apptID, when.Format(model.LocalDatetime)); err != nil {

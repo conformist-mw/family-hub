@@ -483,11 +483,12 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Delete: `internal/cooking/` (`cooking.go`, `planner.go` і їхні тести)
 - Modify: `.env.example`
 
-- [ ] прибрати `mealie.New` / `cooking.NewService` / `NewPlanner` і змінні `MEALIE_*` / `MEALPLAN_*` з сервера
-- [ ] прокинути `MENU_TIME`, `MENU_EVENING_TIME`, `DISH_SUGGEST_DOW`, `DISH_SUGGEST_TIME` у `bot.Config`
-- [ ] `.env.example`: додати нові змінні (старих там немає)
-- [ ] `go vet ./... && go test ./...`; `grep -r internal/mealie` — лише `cmd/import-mealie`
-- [ ] наявні тести зелені; нових тестів тут немає — логіка реєстрації вже покрита гейтами в задачах 5 і 7
+- [x] прибрати `mealie.New` / `cooking.NewService` / `NewPlanner` і змінні `MEALIE_*` / `MEALPLAN_*` з сервера
+- [x] прокинути `MENU_TIME`, `MENU_EVENING_TIME`, `DISH_SUGGEST_DOW`, `DISH_SUGGEST_TIME` у `bot.Config`
+- [x] `.env.example`: додати нові змінні (старих там немає)
+- [x] `go vet ./... && go test ./...`; `grep -r internal/mealie` — лише `cmd/import-mealie`
+- [x] наявні тести зелені; нових тестів тут немає — логіка реєстрації вже покрита гейтами в задачах 5 і 7
+  - ➕ додано `cmd/server/main_test.go` з тестом `parseDOW`: незаданий `DISH_SUGGEST_DOW` = `-1` (вимкнено), а не неділя; прибрано невикористаний `atoiOr`
 
 ### Task 12: Verify acceptance criteria
 - [ ] ранкове меню: сьогодні, обід + вечеря, 🔀 по кожному, «Доїдаємо» з учорашнього, вихідні страви лише пт-вечір/сб/нд

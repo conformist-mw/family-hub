@@ -17,10 +17,8 @@ import (
 
 	"familyhub/internal/actor"
 	"familyhub/internal/bot"
-	"familyhub/internal/cooking"
 	"familyhub/internal/db"
 	"familyhub/internal/dish"
-	"familyhub/internal/mealie"
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
@@ -102,26 +100,6 @@ func main() {
 		}
 	} else {
 		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
-	}
-
-	// The recipe database. The cooking log keeps dishes and meals in the
-	// local store; only the meal-plan filler below still talks to Mealie.
-	mealieURL := os.Getenv("MEALIE_URL")
-	if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
-		mealieClient := mealie.New(mealieURL, mealieToken)
-
-		// Filling the meal plan is data, like the reminder materialiser, so
-		// it runs from here rather than from the bot: hanging it off the
-		// bot's gates would stop the plan being written whenever messages
-		// are switched off. Empty MEALPLAN_FILL_TIME disables it.
-		go cooking.NewPlanner(mealieClient, cooking.PlannerConfig{
-			At:       os.Getenv("MEALPLAN_FILL_TIME"),
-			Slots:    splitCSV(os.Getenv("MEALPLAN_SLOTS")),
-			Horizon:  atoiOr(os.Getenv("MEALPLAN_HORIZON_DAYS"), 0),
-			RestDays: atoiOr(os.Getenv("MEALPLAN_REST_DAYS"), 0),
-			Loc:      time.Local,
-			Logger:   logger,
-		}).RunDaily(ctx)
 	}
 
 	var lessonsBot *bot.Bot
@@ -206,10 +184,17 @@ func main() {
 			// the portal directly rather than the mirror the syncer fills.
 			SchoolWeekReviewDOW:  parseDOW(os.Getenv("SCHOOL_WEEK_REVIEW_DOW")),
 			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
-			Reminders:            remindersSvc,
-			School:               schoolSvc,
-			People:               people,
-			Dish:                 recognizer,
+			// The menu is exempt too: HA has no part in it, the taps on its
+			// buttons come back to the bot. An unset DISH_SUGGEST_DOW parses
+			// to -1, so the suggestions stay off rather than landing on Sunday.
+			MenuTime:        os.Getenv("MENU_TIME"),
+			MenuEveningTime: os.Getenv("MENU_EVENING_TIME"),
+			DishSuggestDOW:  parseDOW(os.Getenv("DISH_SUGGEST_DOW")),
+			DishSuggestTime: os.Getenv("DISH_SUGGEST_TIME"),
+			Reminders:       remindersSvc,
+			School:          schoolSvc,
+			People:          people,
+			Dish:            recognizer,
 		}
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already
@@ -366,15 +351,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-// atoiOr reads a positive integer from the environment, falling back to def
-// for anything unset or unparseable. Zero means "the package default", which
-// is where the actual numbers live.
-func atoiOr(s string, def int) int {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil || n < 0 {
-		return def
-	}
-	return n
 }

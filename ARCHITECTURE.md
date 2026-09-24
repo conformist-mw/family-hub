@@ -834,7 +834,9 @@ the bot. The choice is `internal/menu` (pure), the messages are
   per plate, never a lone side.
 - **Plan and fact are two statuses of one row.** A morning tap writes a
   `planned` row (`PlanMeal`, which replaces any other plan for that meal and
-  never touches what was already eaten). The evening answer or a photo turns
+  never touches what was already eaten — a tap on a meal already reported
+  eaten writes nothing and says what was eaten, because a plan next to an
+  eaten row would never be closed). The evening answer or a photo turns
   it `eaten`, replaces it with the dish that really was eaten, or — "not at
   home" — deletes it. History reads only `eaten`; rotation reads both, or
   yesterday's unanswered borscht would come back tomorrow as "not had in a
@@ -850,31 +852,37 @@ the bot. The choice is `internal/menu` (pure), the messages are
   for that meal or for either; weekend-only dishes — delivery, bought
   ready-made — only on Friday dinner, Saturday and Sunday, because Friday
   evening is when the family actually orders in. The pool is shuffled and
-  *then* stably sorted by the day each dish was last planned or eaten, and
+  *then* stably sorted by the day each dish was last planned, eaten or
+  offered (see below), and
   three are drawn at random from the oldest `max(2n, n+3)`. Without the
   shuffle, every dish on the first day has the same zero date and they would
   come out in id order, the same three every morning; without the random
-  draw, the top of the list is fixed until somebody eats it. Dinner is picked
-  with lunch's row kept out, so a dish good for either meal is not offered
-  twice in one message unless nothing else is left. The random source is
-  passed in, so the tests are deterministic.
+  draw, the top of the list is fixed until somebody eats it. The second meal
+  is picked with the first's row kept out, so a dish good for either meal is
+  not offered twice in one message unless nothing else is left, and
+  yesterday's pot is kept out of both, being on the message already. The
+  random source is passed in, so the tests are deterministic.
 - **What was shown ages too.** A dish offered every morning and never picked
   would otherwise never age, and would sit in the window for good.
   `menu_messages.shown` records everything the day offered, shuffles
-  included, and what was shown yesterday is not offered today. When that
-  empties the pool, yesterday's are let back first, then today's — the
-  shuffle has gone round the circle. This is the whole reason the table keeps
-  `shown`; which dishes are on screen right now is read from the message.
+  included, and it is used twice. What was shown yesterday, at either meal,
+  is not offered today; when that empties the pool, yesterday's are let back
+  first, then today's — the shuffle has gone round the circle. And a dish
+  ranks by the later of the day it was last planned or eaten and the day it
+  was last offered, or a dish passed over every time would keep the rank of
+  "never seen" and come back every other morning. This is the whole reason
+  the table keeps `shown`; which dishes are on screen right now is read from
+  the message.
 - **🆕 is exactly `proposed`.** New dishes live in the same table with a
-  status: `active`, `proposed`, `rejected`. A proposal takes the last slot of
-  a meal on roughly one draw in three, and the message shows at most one:
-  `Pick` only caps it per meal, so the bot picks dinner, and any shuffle,
-  without proposals when the other row already carries one. With the chance applied
-  per meal, a 🆕 turns up on a little over half the mornings rather than a
-  third; the cap is the promise, `newChance` is the dial if it proves too
-  often. A planned proposal that is then eaten becomes `active` by itself; a
-  plan alone does not. Dishes imported from Mealie arrive as ordinary
-  `active` ones, not 🆕.
+  status: `active`, `proposed`, `rejected`. The 🆕 is drawn once per message
+  (`menu.RollNew`, one morning in three — `newChance` is the dial) and
+  offered to one meal picked at random, taking its last slot; the other meal
+  gets it only when no proposal fits the first. A shuffle never draws again:
+  it keeps a 🆕 slot only on a row that already had one, so the message
+  carries at most one and a few taps of 🔀 do not turn the menu into the
+  suggestion channel. A planned proposal that is then eaten becomes `active`
+  by itself; a plan alone does not. Dishes imported from Mealie arrive as
+  ordinary `active` ones, not 🆕.
 - **The state is in the database, not in memory** — the opposite of the plate
   card, on purpose. The plate card is one cook's draft for a minute; the menu
   is a message several people tap over a whole day, and deploys happen in the
@@ -888,12 +896,14 @@ the bot. The choice is `internal/menu` (pure), the messages are
   clock skips. The menu buttons are registered unconditionally, so a menu
   already sent stays live on a deploy without a model or with `MENU_TIME`
   switched off. An empty catalogue for both meals sends nothing and logs it.
-- **🔀 per meal** offers a fresh row: nothing shown today, nothing on the
-  other row, nothing shown yesterday, and the new row is appended to the
-  day's `shown` so the next shuffle moves on again. The append takes SQLite's
-  write lock before reading, so two people shuffling at once do not lose each
-  other's rows. The row that did not change is taken from the keyboard as it
-  is.
+- **🔀 per meal** offers a fresh row: nothing shown today at either meal,
+  nothing on screen, nothing shown yesterday, and the new row is appended to
+  the day's `shown` so the next shuffle moves on again. Every store
+  transaction takes SQLite's write lock at `BEGIN` (`_txlock=immediate` in
+  the DSN): a deferred one that reads and then writes fails at once with
+  `SQLITE_BUSY` when another writer committed in between, and the handlers
+  run concurrently — two people shuffling at once would lose each other's
+  rows. The row that did not change is taken from the keyboard as it is.
 - **The evening check** asks about every meal of the day without an `eaten`
   row. With a plan: «Обід: Борщ — так?» and `Так` / `Інше` / `Не вдома`, plus
   `Ні, не наше` when the planned dish is a proposal, which drops the plan,
@@ -901,7 +911,15 @@ the bot. The choice is `internal/menu` (pure), the messages are
   yesterday's dishes as buttons, since the pot most often lasts a second day,
   then `Інше` and `Не вдома`. Every button names its meal, because the two
   rows sit one under the other. When every meal is already answered — the
-  photo got there first — nothing is sent. "Not at home" writes nothing, so
+  photo got there first — nothing is sent, and nothing either when no meal
+  has an answer besides `Не вдома` (no plan, nothing from yesterday, no
+  model behind `Інше`): a check that can only be answered "not at home"
+  would arrive every evening the menu went unused. `Ні, не наше` drops the
+  plan and rejects the dish in one transaction (`TurnDown`), and rejects only
+  a dish still proposed — one eaten since is the family's, whatever the
+  button says. A `Так` or a dish button left on screen after the meal was
+  answered with another dish (through `Інше` or a photo) only redraws: it
+  would otherwise add the planned dish as a second lunch. "Not at home" writes nothing, so
   that answer is kept the way the menu keeps its rows: a meal with no buttons
   left and no eaten row reads «не їли вдома». An answer tapped after midnight
   is still about the evening it was asked, so earlier dates are accepted and
@@ -913,12 +931,16 @@ the bot. The choice is `internal/menu` (pure), the messages are
   The reply goes to the recognizer and comes back as the usual plate card
   with the day and meal already set by the question rather than read from
   the hint or the clock. A reply the model could not read re-arms the
-  question: `take()` already cleared it, and the buttons under the check are
-  still there for whoever would rather tap.
+  question once (`take()` already cleared it), and only once: while it is
+  armed, whatever that person writes in the group goes to the model, so
+  re-arming on every miss would answer their ordinary chat with a paid call
+  and a "could not read" each. After the second miss the buttons under the
+  check are still there for whoever would rather tap.
 - **The weekly suggestions** (`dish.Recognizer.Suggest`) ask for three dishes
   the family does not cook yet. The system prompt carries the household's
   standing tastes — two meals a day at home, pork and chicken, no lamb, the
-  older child does not eat fish — which change too rarely to be
+  older child does not eat fish (context, not a ban: the rest of the family
+  does, and the catalogue has fish dishes) — which change too rarely to be
   configuration; the user prompt lists the active, proposed and rejected
   dishes, the rejected list being the one that matters, or a dish turned down
   last week comes back this week. The model repeats itself anyway, so every
@@ -926,8 +948,9 @@ the bot. The choice is `internal/menu` (pure), the messages are
   `NameKey`. The survivors are written as `proposed` **before** the card goes
   out, which makes an ignored card mean "maybe" with no code at all. Each row
   answers `➕ <name>` / `🤔 Подумаю` / `✖ Ні`: add and no set the status
-  whatever it was, so a changed mind is one more tap; maybe writes nothing and
-  is kept as the ✓ on its button. The call runs in its own goroutine behind an
+  whatever it was, so a changed mind is one more tap — except that no leaves
+  alone a dish the family has eaten since, which is its own by then; maybe
+  writes nothing and is kept as the ✓ on its button. The call runs in its own goroutine behind an
   atomic guard, like the school week review, because the model can take a
   minute and the ticker drops the ticks it waits through. A failed call, or
   nothing new left after the filter, is logged and sends nothing.
@@ -945,9 +968,17 @@ the bot. The choice is `internal/menu` (pure), the messages are
   themselves (Гарніри, Заготовки, Соуси та заправки, Напої) are skipped, with
   the reason printed. It is a dry run unless given `-apply`, because the
   skipped list is meant to be read by a person first: a side always served
-  with the same main is better re-added by hand as a combination. It writes
-  through `CreateDish`, so a second run changes nothing. It and
-  `internal/mealie` go once Mealie itself is gone.
+  with the same main is better re-added as a combination, with
+  `import-mealie -add "<name>" -meal … -days …`. It writes through
+  `CreateDish`, so a second run changes nothing. It and `internal/mealie` go
+  once Mealie itself is gone.
+- **The catalogue has no screen of its own.** Dishes arrive from the import,
+  from `-add`, from the plate card's «Створити» and from the suggestions;
+  there is no UI to rename a dish, fix its meal or days, or delete it. A
+  mis-tagged import is fixed in SQL (the python-in-a-container recipe under
+  the home-meters cutover in `DEPLOY.md`), never by inserting rows by hand:
+  `name_key` is computed in Go, because SQLite's `lower()` does not fold
+  Cyrillic.
 
 ## Reminders
 
@@ -1143,8 +1174,9 @@ Not yet built; will be picked off as the project is used.
 - **SOPS migration of the other roles.** Move homepage / segments /
   pihole / traefik / commeilfaut off Bitwarden Secrets Manager. No
   rush — planned with the k3s move.
-- **SQLite backup.** No scheduled backup yet. The file lives only on
-  the VPS volume.
+- ~~**SQLite backup.**~~ Done: a nightly snapshot at 03:20 through
+  SQLite's backup API, mirrored to Backblaze, plus one before every
+  migration (see "Migrations" in `DEPLOY.md`).
 - ~~**Pauses vs archive.**~~ Solved by trainer absences: a date-range
   absence mutes reminders while the course stays active. A course-level
   pause independent of the trainer hasn't been needed so far.

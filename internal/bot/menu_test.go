@@ -14,6 +14,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"familyhub/internal/db"
+	"familyhub/internal/dish"
 	"familyhub/internal/menu"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -252,22 +253,62 @@ func TestBuildMenuLeftoversAndYesterdaysShown(t *testing.T) {
 			t.Fatalf("eaten: %v", err)
 		}
 	}
-	shownYesterday := []int64{dishes[1].ID, dishes[2].ID, dishes[3].ID}
+	// Every dish is good for either meal, so what yesterday showed at lunch
+	// has been seen by dinner as well, and the other way round.
+	shownYesterday := []int64{dishes[1].ID, dishes[2].ID, dishes[3].ID, dishes[4].ID, dishes[5].ID}
 	if err := b.store.SaveMenuMessage(model.MenuMessage{Date: menuYesterday, ChatID: -100, MessageID: 1,
-		Shown: map[string][]int64{model.MealLunch: shownYesterday}}); err != nil {
+		Shown: map[string][]int64{
+			model.MealLunch:  shownYesterday[:3],
+			model.MealDinner: shownYesterday[3:],
+		}}); err != nil {
 		t.Fatalf("save yesterday: %v", err)
 	}
 
-	st, ok, err := b.buildMenu(menuMorning, fixedRand())
-	if err != nil || !ok {
-		t.Fatalf("build: ok=%v err=%v", ok, err)
+	for seed := range uint64(50) {
+		st, ok, err := b.buildMenu(menuMorning, rand.New(rand.NewPCG(seed, 13)))
+		if err != nil || !ok {
+			t.Fatalf("seed %d: build: ok=%v err=%v", seed, ok, err)
+		}
+		if len(st.leftovers) != 1 || st.leftovers[0].id != borshch.ID {
+			t.Fatalf("seed %d: leftovers = %v, want the borshch once", seed, st.leftovers)
+		}
+		for _, meal := range menuMeals {
+			for _, d := range st.offered[meal] {
+				if slices.Contains(shownYesterday, d.id) {
+					t.Errorf("seed %d: %s was shown yesterday and offered again for %s", seed, d.name, meal)
+				}
+				// Yesterday's pot is on the message already, as a leftover.
+				if d.id == borshch.ID {
+					t.Errorf("seed %d: the leftover is also offered fresh for %s", seed, meal)
+				}
+			}
+		}
 	}
-	if len(st.leftovers) != 1 || st.leftovers[0].id != borshch.ID {
-		t.Fatalf("leftovers = %v, want the borshch once", st.leftovers)
+}
+
+// A dish offered and passed over has been looked at: two days on, it does
+// not outrank the dishes the menu has never offered.
+func TestBuildMenuRanksAShownDishAsSeen(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 12)
+	passedOver := []int64{dishes[0].ID, dishes[1].ID, dishes[2].ID}
+	if err := b.store.SaveMenuMessage(model.MenuMessage{Date: "2026-09-22", ChatID: -100, MessageID: 1,
+		Shown: map[string][]int64{model.MealLunch: passedOver}}); err != nil {
+		t.Fatalf("save: %v", err)
 	}
-	for _, d := range st.offered[menu.Lunch] {
-		if slices.Contains(shownYesterday, d.id) {
-			t.Errorf("%s was offered for lunch yesterday and again today", d.name)
+	// Nine dishes never offered fill both meals' windows, so neither meal
+	// should reach for the three passed over.
+	for seed := range uint64(50) {
+		st, ok, err := b.buildMenu(menuMorning, rand.New(rand.NewPCG(seed, 17)))
+		if err != nil || !ok {
+			t.Fatalf("seed %d: build: ok=%v err=%v", seed, ok, err)
+		}
+		for _, meal := range menuMeals {
+			for _, d := range st.offered[meal] {
+				if slices.Contains(passedOver, d.id) {
+					t.Fatalf("seed %d: %s offers %s, passed over two days ago, ahead of dishes never offered", seed, meal, d.name)
+				}
+			}
 		}
 	}
 }
@@ -305,13 +346,7 @@ func sentMenu(t *testing.T, b *Bot) (menuState, *tele.ReplyMarkup) {
 	if err != nil || !ok {
 		t.Fatalf("build: ok=%v err=%v", ok, err)
 	}
-	shown := map[string][]int64{}
-	for _, meal := range menuMeals {
-		for _, d := range st.offered[meal] {
-			shown[string(meal)] = append(shown[string(meal)], d.id)
-		}
-	}
-	if err := b.store.SaveMenuMessage(model.MenuMessage{Date: menuToday, ChatID: -100, MessageID: 1, Shown: shown}); err != nil {
+	if err := b.store.SaveMenuMessage(model.MenuMessage{Date: menuToday, ChatID: -100, MessageID: 1, Shown: menuShown(st)}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	_, markup := menuView(st)
@@ -336,7 +371,7 @@ func TestMenuPickPlansAndReplaces(t *testing.T) {
 	if toast != "Обід: "+first.name {
 		t.Errorf("toast = %q", toast)
 	}
-	rows, _ := b.store.MealsOn(menuToday)
+	rows := dayMeals(t, b, menuToday)
 	if len(rows) != 1 || rows[0].DishID != first.id || rows[0].Status != model.MealPlanned ||
 		rows[0].Who != "Олег" || rows[0].Leftover {
 		t.Fatalf("meals after pick = %+v", rows)
@@ -353,7 +388,7 @@ func TestMenuPickPlansAndReplaces(t *testing.T) {
 		tapData(menuToday, menu.Lunch, second.id), "Аня", kb, fixedRand()); err != nil {
 		t.Fatalf("second pick: %v", err)
 	}
-	rows, _ = b.store.MealsOn(menuToday)
+	rows = dayMeals(t, b, menuToday)
 	if len(rows) != 1 || rows[0].DishID != second.id || rows[0].Who != "Аня" {
 		t.Fatalf("meals after a second pick = %+v, want it to replace the first", rows)
 	}
@@ -372,7 +407,7 @@ func TestMenuLeftoverTapPlansALeftover(t *testing.T) {
 	if err != nil || !redraw {
 		t.Fatalf("leftover tap: redraw=%v err=%v", redraw, err)
 	}
-	rows, _ := b.store.MealsOn(menuToday)
+	rows := dayMeals(t, b, menuToday)
 	if len(rows) != 1 || !rows[0].Leftover || rows[0].Meal != model.MealDinner {
 		t.Fatalf("meals = %+v, want a leftover dinner", rows)
 	}
@@ -422,7 +457,7 @@ func TestMenuShuffleDoesNotRepeatWhatWasShown(t *testing.T) {
 	if n := len(msg.Shown[model.MealLunch]); n != 3*menuOptions {
 		t.Fatalf("lunch shown = %v, want the first row and both shuffles", msg.Shown[model.MealLunch])
 	}
-	if rows, _ := b.store.MealsOn(menuToday); len(rows) != 0 {
+	if rows := dayMeals(t, b, menuToday); len(rows) != 0 {
 		t.Fatalf("a shuffle wrote meals: %+v", rows)
 	}
 }
@@ -446,14 +481,16 @@ func proposedIn(dishes []menuDish) int {
 	return n
 }
 
-// Pick allows one 🆕 per meal; the message as a whole carries at most one.
+// The message carries at most one 🆕, on about a third of the mornings, at
+// either meal.
 func TestBuildMenuOffersAtMostOneNew(t *testing.T) {
 	b := menuBot(t)
 	seedMenuDishes(t, b, 12)
 	seedProposed(t, b, 6)
 
-	sawLunch, sawDinner := false, false
-	for seed := range uint64(300) {
+	const mornings = 300
+	sawLunch, sawDinner, withNew := false, false, 0
+	for seed := range uint64(mornings) {
 		st, ok, err := b.buildMenu(menuMorning, rand.New(rand.NewPCG(seed, 3)))
 		if err != nil || !ok {
 			t.Fatalf("seed %d: ok=%v err=%v", seed, ok, err)
@@ -464,12 +501,20 @@ func TestBuildMenuOffersAtMostOneNew(t *testing.T) {
 		}
 		sawLunch = sawLunch || lunch == 1
 		sawDinner = sawDinner || dinner == 1
+		withNew += lunch + dinner
 	}
 	if !sawLunch || !sawDinner {
 		t.Errorf("new dish at lunch %v, at dinner %v — want either meal to carry it on some mornings", sawLunch, sawDinner)
 	}
+	// One draw per message: a draw per meal would land near five mornings
+	// in nine.
+	if withNew < mornings/5 || withNew > mornings*2/5 {
+		t.Errorf("🆕 on %d of %d mornings, want roughly a third", withNew, mornings)
+	}
 }
 
+// A shuffle keeps the row's 🆕 slot if it had one and never adds one: the
+// message's one draw was made in the morning.
 func TestMenuShuffleKeepsOneNewPerMessage(t *testing.T) {
 	b := menuBot(t)
 	active := seedMenuDishes(t, b, 12)
@@ -479,10 +524,9 @@ func TestMenuShuffleKeepsOneNewPerMessage(t *testing.T) {
 		t.Fatalf("proposed: %v %v", fresh, err)
 	}
 
-	keyboard := func(lunch ...int64) *tele.ReplyMarkup {
+	keyboard := func(lunch, dinner []int64) *tele.ReplyMarkup {
 		st, err := b.menuStateFrom(menuRefs{date: menuToday, offered: map[menu.Meal][]int64{
-			menu.Lunch:  lunch,
-			menu.Dinner: {active[3].ID, active[4].ID, active[5].ID},
+			menu.Lunch: lunch, menu.Dinner: dinner,
 		}})
 		if err != nil {
 			t.Fatal(err)
@@ -499,17 +543,106 @@ func TestMenuShuffleKeepsOneNewPerMessage(t *testing.T) {
 		return proposedIn(got.offered[menu.Dinner])
 	}
 
-	withNew := keyboard(active[0].ID, active[1].ID, fresh[0].ID)
-	withoutNew := keyboard(active[0].ID, active[1].ID, active[2].ID)
-	sawNew := false
-	for seed := range uint64(100) {
-		if n := shuffleDinner(withNew, seed); n != 0 {
+	plain := []int64{active[3].ID, active[4].ID, active[5].ID}
+	nextToLunchsNew := keyboard([]int64{active[0].ID, active[1].ID, fresh[0].ID}, plain)
+	noNewAnywhere := keyboard([]int64{active[0].ID, active[1].ID, active[2].ID}, plain)
+	dinnersOwnNew := keyboard([]int64{active[0].ID, active[1].ID, active[2].ID},
+		[]int64{active[3].ID, active[4].ID, fresh[1].ID})
+	for seed := range uint64(50) {
+		if n := shuffleDinner(nextToLunchsNew, seed); n != 0 {
 			t.Fatalf("seed %d: a dinner shuffle added a second 🆕 next to lunch's", seed)
 		}
-		sawNew = sawNew || shuffleDinner(withoutNew, seed) > 0
+		if n := shuffleDinner(noNewAnywhere, seed); n != 0 {
+			t.Fatalf("seed %d: a shuffle drew a 🆕 the morning did not", seed)
+		}
+		if n := shuffleDinner(dinnersOwnNew, seed); n != 1 {
+			t.Fatalf("seed %d: the dinner row lost its 🆕 slot on a shuffle (%d)", seed, n)
+		}
 	}
-	if !sawNew {
-		t.Error("a dinner shuffle never offered a new dish, even with none on lunch's row")
+}
+
+// A catalogue smaller than a few rows goes round the circle rather than
+// running dry, and a meal nothing fits any more says so.
+func TestMenuShuffleOnASmallCatalogue(t *testing.T) {
+	b := menuBot(t)
+	var lunch []model.Dish
+	for _, name := range []string{"Борщ", "Солянка", "Юшка", "Розсольник"} {
+		d, _, err := b.store.CreateDish(model.Dish{Name: name, Meal: model.MealLunch})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lunch = append(lunch, d)
+	}
+	if _, _, err := b.store.CreateDish(model.Dish{Name: "Вареники", Meal: model.MealDinner}); err != nil {
+		t.Fatal(err)
+	}
+	_, kb := sentMenu(t, b)
+
+	for round := range 4 {
+		got, toast, redraw, err := b.applyMenuTap(menuMorning, menuShufUnique, menuToday+"|lunch", "",
+			kb, rand.New(rand.NewPCG(uint64(round), 21)))
+		if err != nil || !redraw {
+			t.Fatalf("shuffle %d: toast=%q redraw=%v err=%v", round, toast, redraw, err)
+		}
+		if n := len(got.offered[menu.Lunch]); n == 0 || n > menuOptions {
+			t.Fatalf("shuffle %d offered %d lunch dishes", round, n)
+		}
+		if n := len(got.offered[menu.Dinner]); n != 1 {
+			t.Fatalf("shuffle %d: dinner row = %v, want it kept", round, got.offered[menu.Dinner])
+		}
+		_, markup := menuView(got)
+		kb = asTelegramSentIt(markup)
+	}
+	msg, err := b.store.MenuMessage(menuToday)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shown := msg.Shown[model.MealLunch]; len(shown) != len(lunch) {
+		t.Errorf("lunch shown = %v, want all four once each", shown)
+	}
+
+	for _, d := range lunch {
+		if err := b.store.SetDishStatus(d.ID, model.DishRejected); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, toast, redraw, err := b.applyMenuTap(menuMorning, menuShufUnique, menuToday+"|lunch", "", kb, fixedRand())
+	if err != nil || redraw || toast != "Більше нічого немає" {
+		t.Fatalf("empty pool: toast=%q redraw=%v err=%v", toast, redraw, err)
+	}
+}
+
+// A pick on a meal already reported eaten plans nothing: the plan would
+// never be closed, and the menu would show two lunches for good.
+func TestMenuPickAfterTheMealWasEaten(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 8)
+	st, kb := sentMenu(t, b)
+	pick := st.offered[menu.Lunch][0]
+	var eaten model.Dish
+	for _, d := range dishes {
+		if !slices.ContainsFunc(st.offered[menu.Lunch], func(o menuDish) bool { return o.id == d.ID }) {
+			eaten = d
+			break
+		}
+	}
+	if _, _, err := b.store.RecordEaten(eaten.ID, menuToday, model.MealLunch, "Аня", false); err != nil {
+		t.Fatal(err)
+	}
+
+	got, toast, redraw, err := b.applyMenuTap(menuMorning, menuPickUnique,
+		tapData(menuToday, menu.Lunch, pick.id), "Олег", kb, fixedRand())
+	if err != nil || !redraw {
+		t.Fatalf("pick: redraw=%v err=%v", redraw, err)
+	}
+	if toast != "Обід вже записано: "+eaten.Name {
+		t.Errorf("toast = %q", toast)
+	}
+	if rows := mealRows(t, b, menuToday); rows != "lunch:"+eaten.Name+":eaten" {
+		t.Fatalf("meals = %s, want only the eaten lunch", rows)
+	}
+	if got.isChosen(menu.Lunch, pick.id) {
+		t.Error("the redraw marks a pick that was not written")
 	}
 }
 
@@ -569,7 +702,7 @@ func TestBuildMenuAfterAnUnansweredEvening(t *testing.T) {
 			}
 		}
 	}
-	rows, _ := b.store.MealsOn(menuYesterday)
+	rows := dayMeals(t, b, menuYesterday)
 	if len(rows) != 1 || rows[0].Status != model.MealPlanned {
 		t.Fatalf("yesterday = %+v, want the plan left as it was", rows)
 	}
@@ -627,7 +760,7 @@ func TestMenuTapOnAnOldMenuWritesNothing(t *testing.T) {
 		}
 	}
 	for _, date := range []string{menuToday, menuYesterday} {
-		if rows, _ := b.store.MealsOn(date); len(rows) != 0 {
+		if rows := dayMeals(t, b, date); len(rows) != 0 {
 			t.Fatalf("an old menu wrote %s: %+v", date, rows)
 		}
 	}
@@ -763,6 +896,63 @@ func TestEveningKeyboardRoundTrips(t *testing.T) {
 	}
 }
 
+// Without a plan the check offers what was eaten yesterday, once each even
+// when it was eaten at both meals, three buttons to a row.
+func TestBuildEveningOffersYesterdaysDishes(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 4)
+	for _, meal := range []string{model.MealLunch, model.MealDinner} {
+		if _, _, err := b.store.RecordEaten(dishes[0].ID, menuYesterday, meal, "", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, d := range dishes[1:] {
+		if _, _, err := b.store.RecordEaten(d.ID, menuYesterday, model.MealDinner, "", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, ok, err := b.buildEvening(menuEvening)
+	if err != nil || !ok {
+		t.Fatalf("build: ok=%v err=%v", ok, err)
+	}
+	if len(st.yesterday) != 4 || st.yesterday[0].id != dishes[0].ID {
+		t.Fatalf("yesterday = %v, want four dishes, the one eaten twice once", st.yesterday)
+	}
+	_, markup, _ := eveningView(st)
+	rows := buttonTexts(markup)
+	want := [][]string{
+		{"↩ Страва 01", "↩ Страва 02", "↩ Страва 03"},
+		{"↩ Страва 04"},
+		{"Не вдома · обід"},
+	}
+	if fmt.Sprint(rows[:3]) != fmt.Sprint(want) {
+		t.Fatalf("lunch rows = %v\nwant        %v", rows[:3], want)
+	}
+}
+
+// A check that could only be answered "not at home" is not sent: no plan,
+// nothing from yesterday, and no recognizer behind "Інше".
+func TestBuildEveningWithNothingToAnswerIsSilent(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 1)
+	if _, ok, err := b.buildEvening(menuEvening); ok || err != nil {
+		t.Fatalf("nothing to ask: ok=%v err=%v, want silence", ok, err)
+	}
+	// "Інше" is an answer.
+	b.cfg.Dish = dish.New("http://127.0.0.1:0", "k", "m")
+	if _, ok, err := b.buildEvening(menuEvening); !ok || err != nil {
+		t.Fatalf("with a recognizer: ok=%v err=%v, want the check", ok, err)
+	}
+	b.cfg.Dish = nil
+	// So is a plan, for either meal.
+	if _, err := b.store.PlanMeal(dishes[0].ID, menuToday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := b.buildEvening(menuEvening); !ok || err != nil {
+		t.Fatalf("with a plan: ok=%v err=%v, want the check", ok, err)
+	}
+}
+
 func TestBuildEvening(t *testing.T) {
 	b := menuBot(t)
 	dishes := seedMenuDishes(t, b, 3)
@@ -844,9 +1034,8 @@ func TestEveningYesAcceptsAProposal(t *testing.T) {
 		tapData(menuToday, menu.Dinner, d.ID), "Олег", sentEvening(t, b)); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := b.store.Dish(d.ID)
-	if got.Status != model.DishActive {
-		t.Fatalf("status = %q, want the eaten proposal active", got.Status)
+	if got := dishStatus(t, b, d.ID); got != model.DishActive {
+		t.Fatalf("status = %q, want the eaten proposal active", got)
 	}
 }
 
@@ -859,21 +1048,114 @@ func TestEveningRejectTurnsDownAProposal(t *testing.T) {
 	if _, err := b.store.PlanMeal(d.ID, menuToday, model.MealLunch, "", false); err != nil {
 		t.Fatal(err)
 	}
+	other := ensureDish(t, b, "Плов")
+	if _, err := b.store.PlanMeal(other.ID, menuToday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
 	st, _, redraw, err := b.applyEveningTap(menuEvening, eveRejUnique,
 		tapData(menuToday, menu.Lunch, d.ID), "Олег", sentEvening(t, b))
 	if err != nil || !redraw {
 		t.Fatalf("reject: redraw=%v err=%v", redraw, err)
 	}
-	if got, _ := b.store.Dish(d.ID); got.Status != model.DishRejected {
-		t.Errorf("status = %q, want rejected", got.Status)
+	if got := dishStatus(t, b, d.ID); got != model.DishRejected {
+		t.Errorf("status = %q, want rejected", got)
 	}
-	if got := mealRows(t, b, menuToday); got != "" {
-		t.Errorf("meals = %s, want the plan gone", got)
+	if got := mealRows(t, b, menuToday); got != "dinner:Плов:planned" {
+		t.Errorf("meals = %s, want the lunch plan gone and dinner's kept", got)
 	}
 	// What they ate instead is still a question.
 	text, _, ok := eveningView(st)
 	if !ok || !strings.Contains(text, "Обід: що їли?") {
 		t.Fatalf("redraw ok=%v:\n%s", ok, text)
+	}
+}
+
+// A stale "✖ Ні" on a dish the family has eaten since does not reject it;
+// the plan it was asked about still goes.
+func TestEveningRejectLeavesAnEatenDishActive(t *testing.T) {
+	b := menuBot(t)
+	d, _, err := b.store.CreateDish(model.Dish{Name: "Солянка", Status: model.DishProposed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.store.PlanMeal(d.ID, menuToday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
+	kb := sentEvening(t, b)
+	// Eaten at lunch in the meantime: the proposal is the family's now.
+	if _, _, err := b.store.RecordEaten(d.ID, menuToday, model.MealLunch, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, redraw, err := b.applyEveningTap(menuEvening, eveRejUnique,
+		tapData(menuToday, menu.Dinner, d.ID), "Олег", kb); err != nil || !redraw {
+		t.Fatalf("reject: redraw=%v err=%v", redraw, err)
+	}
+	if got := dishStatus(t, b, d.ID); got != model.DishActive {
+		t.Errorf("status = %q, want the eaten dish left active", got)
+	}
+	if got := mealRows(t, b, menuToday); got != "lunch:Солянка:eaten" {
+		t.Errorf("meals = %s, want the dinner plan gone and lunch kept", got)
+	}
+}
+
+// A "✓ Так" left on screen after the meal was answered with another dish —
+// through "Інше" or a photo — must not add the planned dish as a second one.
+func TestEveningYesAfterAnotherDishWasRecorded(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 2)
+	planned, instead := dishes[0], dishes[1]
+	if _, err := b.store.PlanMeal(planned.ID, menuToday, model.MealLunch, "", false); err != nil {
+		t.Fatal(err)
+	}
+	kb := sentEvening(t, b)
+	if _, _, err := b.store.RecordEaten(instead.ID, menuToday, model.MealLunch, "Аня", false); err != nil {
+		t.Fatal(err)
+	}
+
+	st, toast, redraw, err := b.applyEveningTap(menuEvening, eveYesUnique,
+		tapData(menuToday, menu.Lunch, planned.ID), "Олег", kb)
+	if err != nil || !redraw {
+		t.Fatalf("stale yes: redraw=%v err=%v", redraw, err)
+	}
+	if toast != "Вже записано" {
+		t.Errorf("toast = %q", toast)
+	}
+	if got := mealRows(t, b, menuToday); got != "lunch:"+instead.Name+":eaten" {
+		t.Fatalf("meals = %s, want only what was reported", got)
+	}
+	if text, _, _ := eveningView(st); !strings.Contains(text, "✅ Обід: "+instead.Name) {
+		t.Errorf("redraw does not show the answer:\n%s", text)
+	}
+}
+
+// "Not at home" at one meal drops that meal's plan and nothing else: the
+// other meal's plan and anything eaten stay.
+func TestEveningNotAtHomeTouchesOnlyItsMeal(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 3)
+	if _, err := b.store.PlanMeal(dishes[0].ID, menuToday, model.MealLunch, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.store.PlanMeal(dishes[1].ID, menuToday, model.MealDinner, "", false); err != nil {
+		t.Fatal(err)
+	}
+	kb := sentEvening(t, b)
+	if _, _, redraw, err := b.applyEveningTap(menuEvening, eveHomeUnique, menuToday+"|dinner", "Олег", kb); err != nil || !redraw {
+		t.Fatalf("home: redraw=%v err=%v", redraw, err)
+	}
+	if got := mealRows(t, b, menuToday); got != "lunch:"+dishes[0].Name+":planned" {
+		t.Fatalf("meals = %s, want the lunch plan kept", got)
+	}
+
+	// An eaten row at the meal is not touched either.
+	if _, _, err := b.store.RecordEaten(dishes[2].ID, menuToday, model.MealLunch, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := b.applyEveningTap(menuEvening, eveHomeUnique, menuToday+"|lunch", "Олег", kb); err != nil {
+		t.Fatal(err)
+	}
+	if got := mealRows(t, b, menuToday); got != "lunch:"+dishes[2].Name+":eaten" {
+		t.Fatalf("meals = %s, want the eaten lunch kept", got)
 	}
 }
 
@@ -919,7 +1201,7 @@ func TestEveningPickRecordsYesterdaysDishAsLeftover(t *testing.T) {
 		tapData(menuToday, menu.Lunch, dishes[1].ID), "Олег", kb); err != nil || !redraw {
 		t.Fatalf("pick: redraw=%v err=%v", redraw, err)
 	}
-	rows, _ := b.store.MealsOn(menuToday)
+	rows := dayMeals(t, b, menuToday)
 	if len(rows) != 1 || rows[0].Status != model.MealEaten || !rows[0].Leftover || rows[0].Meal != model.MealLunch {
 		t.Fatalf("meals = %+v, want an eaten leftover lunch", rows)
 	}
@@ -950,5 +1232,11 @@ func TestEveningTapWithBadData(t *testing.T) {
 	if _, _, redraw, err := b.applyEveningTap(menuEvening.Add(5*time.Hour), eveYesUnique,
 		tapData(menuToday, menu.Dinner, dishes[0].ID), "", nil); err != nil || !redraw {
 		t.Fatalf("after midnight: redraw=%v err=%v", redraw, err)
+	}
+	if got := mealRows(t, b, menuToday); got != "dinner:"+dishes[0].Name+":eaten" {
+		t.Errorf("the evening it was asked = %q, want the dinner there", got)
+	}
+	if got := mealRows(t, b, "2026-09-25"); got != "" {
+		t.Errorf("the day it was tapped = %q, want nothing", got)
 	}
 }

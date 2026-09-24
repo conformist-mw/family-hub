@@ -43,7 +43,10 @@ func ValidMeal(m string) bool {
 // the message on purpose — what was offered yesterday is kept out of today's
 // menu, so a dish nobody picks does not sit in the window for ever.
 type MenuMessage struct {
-	Date      string // YYYY-MM-DD, local
+	Date string // YYYY-MM-DD, local
+	// ChatID and MessageID are written and never read by the code: a tap
+	// carries its own message. They are kept so that a menu can be found in
+	// the chat by hand when something about it needs looking into.
 	ChatID    int64
 	MessageID int64
 	// Shown maps MealLunch/MealDinner to dish ids in the order they were

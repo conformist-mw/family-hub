@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"familyhub/internal/db"
@@ -131,7 +133,10 @@ func TestImportDishesIsIdempotent(t *testing.T) {
 		t.Fatalf("first run: created=%d existed=%d err=%v", created, existed, err)
 	}
 
-	all, _ := st.Dishes()
+	all, err := st.Dishes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var plov model.Dish
 	for _, d := range all {
 		if d.Name == "Плов" {
@@ -146,16 +151,80 @@ func TestImportDishesIsIdempotent(t *testing.T) {
 	if err != nil || created != 0 || existed != 2 {
 		t.Fatalf("second run: created=%d existed=%d err=%v", created, existed, err)
 	}
-	all, _ = st.Dishes()
+	all, err = st.Dishes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(all) != 2 {
 		t.Fatalf("dishes after two runs = %d, want 2", len(all))
 	}
-	if got, _ := st.Dish(plov.ID); got.Status != model.DishRejected {
-		t.Errorf("re-import changed a rejected dish to %s", got.Status)
+	if got, err := st.Dish(plov.ID); err != nil || got.Status != model.DishRejected {
+		t.Errorf("re-import changed a rejected dish to %s (%v)", got.Status, err)
 	}
 	for _, d := range all {
 		if d.Name == "Борщ" && d.Meal != model.MealLunch {
 			t.Errorf("Борщ meal = %s, want lunch", d.Meal)
+		}
+	}
+}
+
+// The dry run is read by a person before anything is written, so its shape is
+// the interface: both lists, their counts, and the reason next to each skip.
+func TestReportListsBothSides(t *testing.T) {
+	dishes, skipped := plan([]mealie.Recipe{
+		{Name: "Піца", Tags: []mealie.Organizer{dostavka, vecheria}},
+		{Name: "Гречка", RecipeCategory: []mealie.Organizer{cat("Гарніри")}},
+		{Name: "Борщ", Tags: []mealie.Organizer{obid}},
+	})
+	var out bytes.Buffer
+	report(&out, dishes, skipped)
+	want := strings.Join([]string{
+		"import (2):",
+		"  Борщ                                     meal=lunch  days=any",
+		"  Піца                                     meal=dinner days=weekend",
+		"",
+		"skip (1):",
+		`  Гречка                                   category "Гарніри"`,
+		"",
+	}, "\n")
+	if out.String() != want {
+		t.Fatalf("report =\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
+func TestAddDish(t *testing.T) {
+	st := testStore(t)
+	var out bytes.Buffer
+	if err := addDish(st, " Пюре  зі скумбрією ", model.MealLunch, model.DishDaysAny, &out); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	all, err := st.Dishes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Name != "Пюре зі скумбрією" || all[0].Meal != model.MealLunch ||
+		all[0].Status != model.DishActive {
+		t.Fatalf("dishes = %+v", all)
+	}
+	if !strings.HasPrefix(out.String(), "created Пюре зі скумбрією") {
+		t.Errorf("output = %q", out.String())
+	}
+
+	// The same name in another case is the same dish, reported and left alone.
+	out.Reset()
+	if err := addDish(st, "пюре зі скумбрією", model.MealDinner, model.DishDaysWeekend, &out); err != nil {
+		t.Fatalf("second add: %v", err)
+	}
+	if all, err := st.Dishes(); err != nil || len(all) != 1 || all[0].Meal != model.MealLunch {
+		t.Fatalf("dishes after a repeat = %+v, %v", all, err)
+	}
+	if !strings.HasPrefix(out.String(), "exists") {
+		t.Errorf("output = %q", out.String())
+	}
+
+	for _, tc := range []struct{ meal, days string }{{"breakfast", model.DishDaysAny}, {model.MealLunch, "weekday"}} {
+		if err := addDish(st, "Інше", tc.meal, tc.days, io.Discard); err == nil {
+			t.Errorf("meal %q days %q accepted", tc.meal, tc.days)
 		}
 	}
 }

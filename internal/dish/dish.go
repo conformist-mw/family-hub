@@ -79,8 +79,7 @@ type Item struct {
 // Known says whether this dish is already in the catalogue.
 func (i Item) Known() bool { return i.Dish.ID != 0 }
 
-// Guess is what the model made of the meal: the plate as a list of dishes,
-// the first of them the main one.
+// Guess is what the model made of the meal: the plate as a list of dishes.
 type Guess struct {
 	Items []Item
 	Note  string // what is on the plate, one line, Ukrainian
@@ -99,7 +98,7 @@ const (
 
 const systemPrompt = `Ти асистент домашнього журналу їжі. Тобі дають фотографію страви (іноді без фото — лише текст) і список страв, які родина вже готує, у форматі «id | назва».
 
-Прочитай, що саме їли, і поверни це списком страв — items. Перша страва в списку головна, решта — те, що було поруч з нею.
+Прочитай, що саме їли, і поверни це списком страв — items.
 
 Правила:
 - Одна страва — один пункт items. «Гуляш, макарони і куряча котлета» — це три пункти, а не один.

@@ -197,12 +197,18 @@ CREATE TABLE menu_messages (
 
 - `PlanMeal(dish, date, meal, who, leftover)` — у транзакції видаляє інші `planned`
   цього `(date, meal)` і вставляє `planned`; наявний `eaten` не чіпає.
+  ➕ (рев'ю) якщо `(date, meal)` уже має `eaten`, нічого не пише й повертає той
+  `eaten` — інакше лишався б план, який ніщо не закриє.
 - `RecordEaten(dish, date, meal, who, leftover)` — у транзакції:
   `INSERT ... ON CONFLICT(dish_id,date,meal) DO UPDATE SET status='eaten' WHERE status='planned'`;
   «вже записано» — лише коли рядок уже був `eaten`; видаляє інші `planned` того ж
   `(date, meal)`; страву `proposed` переводить в `active`. Це закриває і «план →
   фото тієї ж страви», і «план → фото іншої страви».
-- `ConfirmMeal(id)` = `RecordEaten` для рядка плану.
+- ~~`ConfirmMeal(id)` = `RecordEaten` для рядка плану.~~ ➖ (рев'ю) прибрано: вечірнє
+  «Так» кличе `RecordEaten` напряму, `ConfirmMeal` лишався мертвим кодом.
+- ➕ (рев'ю) `DropPlans(date, meal, dishID)` одним `DELETE` замість `DeleteMeal(id)`
+  по рядку; `TurnDown(dishID, date, meal)` — «Ні, не наше» (план геть + `rejected`,
+  лише для `proposed`) однією транзакцією.
 
 ### Вибір варіантів (`internal/menu`, чиста функція)
 
@@ -220,6 +226,11 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
   Далі випадкова вибірка `n` з перших `max(2n, n+3)`.
 - 🆕: окремо, з імовірністю (1 з 3 ранків), одна `proposed` замість останньої
   звичайної — не більше однієї на повідомлення.
+  ➕ (рев'ю) жереб тягнеться раз на повідомлення (`menu.RollNew`), `Pick` отримує
+  `withNew bool`; 🔀 не тягне знову, а лише зберігає слот 🆕 у рядку, який його мав.
+  Показане вчора виключається для обох прийомів; `LastSeen` кандидата — пізніше з
+  `LastSeen` і `LastShown`, щоб страва, яку щоразу пропускають, не лишалась
+  «найдавнішою» назавжди.
 - `rnd` передається — тести детерміновані.
 
 ### Ранкове повідомлення
@@ -344,8 +355,8 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/store/meals.go`
 - Create: `internal/store/meals_test.go`
 
-- [x] `PlanMeal`, `RecordEaten`, `ConfirmMeal` за «Семантикою записів у `meals`»
-- [x] `DeleteMeal(id)`, `MealsOn(date) []model.MealEntry`, `EatenOn(date)`
+- [x] `PlanMeal`, `RecordEaten`, `ConfirmMeal` за «Семантикою записів у `meals`» (➖ `ConfirmMeal` прибрано на рев'ю)
+- [x] `DeleteMeal(id)`, `MealsOn(date) []model.MealEntry`, `EatenOn(date)` (➖ `DeleteMeal` замінено на `DropPlans`/`TurnDown` на рев'ю)
 - [x] `LastSeen() map[dishID]date` (planned + eaten)
 - [x] тести: план замінює план, план не чіпає `eaten`, план → фото тієї ж страви = `eaten`, план → фото іншої = інша `eaten` + план видалено, повторний `RecordEaten` = «вже записано», `proposed` → `active`, LastSeen враховує planned
 - [x] тести: підтвердження неіснуючого, видалення не зачіпає інші дні

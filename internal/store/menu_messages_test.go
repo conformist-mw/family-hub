@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -139,5 +140,31 @@ func TestAppendShownWithoutAMenu(t *testing.T) {
 	}
 	if err := st.AppendShown(today, "breakfast", []int64{1}); err == nil {
 		t.Fatal("appended to a meal the menu does not have")
+	}
+}
+
+func TestLastShownKeepsTheLatestDay(t *testing.T) {
+	st := testStore(t)
+	for _, m := range []model.MenuMessage{
+		{Date: "2026-09-22", Shown: map[string][]int64{model.MealLunch: {1, 2}, model.MealDinner: {3}}},
+		{Date: "2026-09-23", Shown: map[string][]int64{model.MealDinner: {2}}},
+		{Date: "2026-09-24"},
+	} {
+		if err := st.SaveMenuMessage(m); err != nil {
+			t.Fatalf("save %s: %v", m.Date, err)
+		}
+	}
+	got, err := st.LastShown()
+	if err != nil {
+		t.Fatalf("last shown: %v", err)
+	}
+	want := map[int64]string{1: "2026-09-22", 2: "2026-09-23", 3: "2026-09-22"}
+	if len(got) != len(want) {
+		t.Fatalf("last shown = %v, want %v", got, want)
+	}
+	for id, date := range want {
+		if got[id].Format(time.DateOnly) != date {
+			t.Errorf("dish %d last shown %v, want %s", id, got[id], date)
+		}
 	}
 }

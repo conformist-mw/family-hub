@@ -83,7 +83,7 @@ func TestParseGuess(t *testing.T) {
 		wantDate string
 	}{
 		{
-			name:     "the plate is a list, main dish first",
+			name:     "the plate is a list, in the order read",
 			answer:   answer("lunch", "2026-09-09", known("Борщ", 4), known("Деруни", 1)),
 			want:     []item{{name: "Борщ", id: 4}, {name: "Деруни", id: 1}},
 			wantSlot: "lunch",

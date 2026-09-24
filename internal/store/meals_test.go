@@ -72,8 +72,14 @@ func TestPlanMealLeavesEaten(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record: %v", err)
 	}
-	if _, err := st.PlanMeal(plov.ID, today, model.MealLunch, "Оля", false); err != nil {
+	// A plan tapped after the photo of the plate writes nothing — it would
+	// be a plan nobody ever closes — and says what was eaten instead.
+	other, err := st.PlanMeal(plov.ID, today, model.MealLunch, "Оля", false)
+	if err != nil {
 		t.Fatalf("plan: %v", err)
+	}
+	if other.ID != eaten.ID || other.Status != model.MealEaten {
+		t.Errorf("plan over an eaten meal = %+v, want the eaten Борщ back", other)
 	}
 	// Planning the dish that was already eaten does not demote it.
 	same, err := st.PlanMeal(borshch.ID, today, model.MealLunch, "Оля", false)
@@ -86,7 +92,11 @@ func TestPlanMealLeavesEaten(t *testing.T) {
 
 	got := mealsOn(t, st, today)
 	if len(got) != 1 || got[0].ID != eaten.ID || got[0].Status != model.MealEaten {
-		t.Errorf("meals = %+v, want only the eaten Борщ (re-planning it dropped Плов)", got)
+		t.Errorf("meals = %+v, want only the eaten Борщ", got)
+	}
+	// The other meal of the day is still free to plan.
+	if dinner, err := st.PlanMeal(plov.ID, today, model.MealDinner, "Оля", false); err != nil || dinner.Status != model.MealPlanned {
+		t.Errorf("dinner plan = %+v, %v", dinner, err)
 	}
 }
 
@@ -188,6 +198,16 @@ func TestRecordEatenActivatesProposed(t *testing.T) {
 		t.Errorf("dish status = %q, want active", d.Status)
 	}
 
+	// A rejected dish eaten anyway stays rejected: only the cooking log's
+	// "create" (EnsureDish) overrules a "no", not a row in the journal.
+	liver := seedDish(t, st, "Печінка", model.DishRejected)
+	if _, _, err := st.RecordEaten(liver.ID, today, model.MealDinner, "Олег", false); err != nil {
+		t.Fatalf("record rejected: %v", err)
+	}
+	if d, _ := st.Dish(liver.ID); d.Status != model.DishRejected {
+		t.Errorf("eaten rejected dish status = %q, want rejected", d.Status)
+	}
+
 	// A plan alone is not eating it: the dish stays a proposal.
 	udon := seedDish(t, st, "Удон", model.DishProposed)
 	if _, err := st.PlanMeal(udon.ID, today, model.MealDinner, "Олег", false); err != nil {
@@ -198,52 +218,110 @@ func TestRecordEatenActivatesProposed(t *testing.T) {
 	}
 }
 
-func TestConfirmMeal(t *testing.T) {
-	st := testStore(t)
-	plov := seedDish(t, st, "Плов", model.DishProposed)
-	plan, err := st.PlanMeal(plov.ID, today, model.MealDinner, "Оля", false)
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
-	got, already, err := st.ConfirmMeal(plan.ID, "Олег")
-	if err != nil || already {
-		t.Fatalf("confirm: already=%v err=%v", already, err)
-	}
-	if got.ID != plan.ID || got.Status != model.MealEaten || got.Who != "Олег" || got.DishStatus != model.DishActive {
-		t.Errorf("confirm = %+v", got)
-	}
-	if _, already, err := st.ConfirmMeal(plan.ID, "Олег"); err != nil || !already {
-		t.Errorf("repeat confirm: already=%v err=%v", already, err)
-	}
-	if _, _, err := st.ConfirmMeal(999, "Олег"); !store.IsNotFound(err) {
-		t.Errorf("confirm missing err = %v, want not found", err)
-	}
-}
-
-func TestDeleteMealKeepsOtherDays(t *testing.T) {
+func TestDropPlans(t *testing.T) {
 	st := testStore(t)
 	borshch := seedDish(t, st, "Борщ", model.DishActive)
+	plov := seedDish(t, st, "Плов", model.DishActive)
 	const yesterday = "2026-09-23"
 
-	old, _, err := st.RecordEaten(borshch.ID, yesterday, model.MealLunch, "Олег", false)
+	old, err := st.PlanMeal(borshch.ID, yesterday, model.MealLunch, "Олег", false)
+	if err != nil {
+		t.Fatalf("plan yesterday: %v", err)
+	}
+	if _, err := st.PlanMeal(borshch.ID, today, model.MealLunch, "Олег", true); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	eaten, _, err := st.RecordEaten(plov.ID, today, model.MealDinner, "Олег", false)
 	if err != nil {
 		t.Fatalf("record: %v", err)
 	}
-	plan, err := st.PlanMeal(borshch.ID, today, model.MealLunch, "Олег", true)
-	if err != nil {
-		t.Fatalf("plan: %v", err)
+
+	// A dish that is not the planned one drops nothing.
+	if err := st.DropPlans(today, model.MealLunch, plov.ID); err != nil {
+		t.Fatalf("drop other dish: %v", err)
 	}
-	if err := st.DeleteMeal(plan.ID); err != nil {
-		t.Fatalf("delete: %v", err)
+	if got := mealsOn(t, st, today); len(got) != 2 {
+		t.Fatalf("today = %+v, want the lunch plan and the eaten dinner", got)
 	}
-	if got := mealsOn(t, st, today); len(got) != 0 {
-		t.Errorf("today = %+v, want empty", got)
+	// Any dish of the meal: the lunch plan goes, the eaten dinner and
+	// yesterday's plan stay.
+	if err := st.DropPlans(today, model.MealLunch, 0); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if got := mealsOn(t, st, today); len(got) != 1 || got[0].ID != eaten.ID {
+		t.Errorf("today = %+v, want only the eaten dinner", got)
+	}
+	if err := st.DropPlans(today, model.MealDinner, 0); err != nil {
+		t.Fatalf("drop dinner: %v", err)
+	}
+	if got := mealsOn(t, st, today); len(got) != 1 || got[0].ID != eaten.ID {
+		t.Errorf("today = %+v, an eaten row must never be dropped", got)
 	}
 	if got := mealsOn(t, st, yesterday); len(got) != 1 || got[0].ID != old.ID {
-		t.Errorf("yesterday = %+v, want the eaten row kept", got)
+		t.Errorf("yesterday = %+v, want its plan kept", got)
 	}
-	if err := st.DeleteMeal(plan.ID); !store.IsNotFound(err) {
-		t.Errorf("repeat delete err = %v, want not found", err)
+	if err := st.DropPlans(today, "breakfast", 0); err == nil {
+		t.Error("DropPlans accepted an unknown meal")
+	}
+}
+
+func TestTurnDown(t *testing.T) {
+	st := testStore(t)
+	solianka := seedDish(t, st, "Солянка", model.DishProposed)
+	plov := seedDish(t, st, "Плов", model.DishActive)
+
+	if _, err := st.PlanMeal(solianka.ID, today, model.MealLunch, "Оля", false); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := st.PlanMeal(plov.ID, today, model.MealDinner, "Оля", false); err != nil {
+		t.Fatalf("plan dinner: %v", err)
+	}
+	d, err := st.TurnDown(solianka.ID, today, model.MealLunch)
+	if err != nil {
+		t.Fatalf("turn down: %v", err)
+	}
+	if d.Status != model.DishRejected {
+		t.Errorf("returned status = %q, want rejected", d.Status)
+	}
+	if got, _ := st.Dish(solianka.ID); got.Status != model.DishRejected {
+		t.Errorf("stored status = %q, want rejected", got.Status)
+	}
+	if got := mealsOn(t, st, today); len(got) != 1 || got[0].DishID != plov.ID {
+		t.Errorf("today = %+v, want only the dinner plan", got)
+	}
+
+	// A dish that is the family's own by now keeps its status; its plan
+	// still goes.
+	if _, err := st.PlanMeal(plov.ID, today, model.MealLunch, "Оля", false); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if d, err := st.TurnDown(plov.ID, today, model.MealLunch); err != nil || d.Status != model.DishActive {
+		t.Errorf("turn down active = %+v, %v; want it left active", d, err)
+	}
+	if got := mealsOn(t, st, today); len(got) != 1 || got[0].Meal != model.MealDinner {
+		t.Errorf("today = %+v, want the lunch plan gone and dinner kept", got)
+	}
+
+	if _, err := st.TurnDown(999, today, model.MealLunch); !store.IsNotFound(err) {
+		t.Errorf("missing dish err = %v, want not found", err)
+	}
+}
+
+func TestDishEaten(t *testing.T) {
+	st := testStore(t)
+	plov := seedDish(t, st, "Плов", model.DishActive)
+
+	if _, err := st.PlanMeal(plov.ID, today, model.MealLunch, "", false); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if eaten, err := st.DishEaten(plov.ID); err != nil || eaten {
+		t.Errorf("planned only: eaten=%v err=%v, want false", eaten, err)
+	}
+	if _, _, err := st.RecordEaten(plov.ID, today, model.MealLunch, "", false); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if eaten, err := st.DishEaten(plov.ID); err != nil || !eaten {
+		t.Errorf("after eating: eaten=%v err=%v, want true", eaten, err)
 	}
 }
 

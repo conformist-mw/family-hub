@@ -20,7 +20,14 @@ func Open(path string) (*sql.DB, error) {
 			return nil, fmt.Errorf("create db dir: %w", err)
 		}
 	}
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
+	// _txlock=immediate: a transaction takes the write lock at BEGIN. A
+	// deferred one that reads and then writes can find, at the write, that
+	// another writer committed in between; under WAL SQLite then fails it with
+	// SQLITE_BUSY at once, because its snapshot is stale, and busy_timeout
+	// never gets a say. Taking the lock up front is where busy_timeout does
+	// make the second writer wait its turn — and the bot's handlers run
+	// concurrently, so two taps at once are ordinary.
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

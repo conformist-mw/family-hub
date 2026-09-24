@@ -184,18 +184,12 @@ func main() {
 			// the portal directly rather than the mirror the syncer fills.
 			SchoolWeekReviewDOW:  parseDOW(os.Getenv("SCHOOL_WEEK_REVIEW_DOW")),
 			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
-			// The menu is exempt too: HA has no part in it, the taps on its
-			// buttons come back to the bot. An unset DISH_SUGGEST_DOW parses
-			// to -1, so the suggestions stay off rather than landing on Sunday.
-			MenuTime:        os.Getenv("MENU_TIME"),
-			MenuEveningTime: os.Getenv("MENU_EVENING_TIME"),
-			DishSuggestDOW:  parseDOW(os.Getenv("DISH_SUGGEST_DOW")),
-			DishSuggestTime: os.Getenv("DISH_SUGGEST_TIME"),
-			Reminders:       remindersSvc,
-			School:          schoolSvc,
-			People:          people,
-			Dish:            recognizer,
+			Reminders:            remindersSvc,
+			School:               schoolSvc,
+			People:               people,
+			Dish:                 recognizer,
 		}
+		cfg = withMenuEnv(cfg, os.Getenv)
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already
 		// stopped via ctx by the time defers fire — either way it deadlocks
@@ -300,6 +294,18 @@ func buildHandler(webHandler, miniHandler http.Handler) http.Handler {
 }
 
 // parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.
+// withMenuEnv sets the menu's three clocks. The menu is exempt from
+// NOTIFICATIONS_ENABLED too: HA has no part in it, the taps on its buttons
+// come back to the bot. An unset DISH_SUGGEST_DOW parses to -1, so the
+// suggestions stay off rather than landing on Sunday.
+func withMenuEnv(cfg bot.Config, getenv func(string) string) bot.Config {
+	cfg.MenuTime = getenv("MENU_TIME")
+	cfg.MenuEveningTime = getenv("MENU_EVENING_TIME")
+	cfg.DishSuggestDOW = parseDOW(getenv("DISH_SUGGEST_DOW"))
+	cfg.DishSuggestTime = getenv("DISH_SUGGEST_TIME")
+	return cfg
+}
+
 func parseDOW(s string) int {
 	s = strings.TrimSpace(s)
 	if s == "" {

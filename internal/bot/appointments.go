@@ -64,10 +64,9 @@ func (b *Bot) onText(c tele.Context) error {
 		case awaitApptEdit:
 			return b.applyEdit(c, e.apptID, e.field, text, now)
 		case awaitMealOther:
-			if b.cfg.Dish == nil {
-				return nil
-			}
-			return b.recognise(c, nil, "", text, &plateFor{date: e.date, meal: e.meal})
+			// Only armed by the "Інше" button, which is registered only with
+			// a recognizer, so cfg.Dish is set here.
+			return b.recognise(c, nil, "", text, e.plateFor())
 		}
 		return nil
 	}

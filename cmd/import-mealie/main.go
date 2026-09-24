@@ -11,6 +11,12 @@
 // before anything is written, since some of it (a side dish that is always
 // served with the same main) is better re-added by hand as a combination.
 // With -apply it writes through CreateDish, so a second run changes nothing.
+//
+// -add "name" writes one dish and nothing else, without Mealie: it is how a
+// combination the import skipped ("Пюре зі скумбрією") gets into the
+// catalogue, which has no screen of its own. Hand-written SQL would not do —
+// the dedup key is computed in Go, because SQLite's lower() does not fold
+// Cyrillic.
 package main
 
 import (
@@ -33,9 +39,26 @@ import (
 func main() {
 	dbPath := flag.String("db", "data/family-hub.db", "SQLite database path")
 	apply := flag.Bool("apply", false, "write the dishes; without it only print what would be imported")
+	add := flag.String("add", "", "add this one dish instead of importing; needs no Mealie")
+	meal := flag.String("meal", model.DishMealAny, "with -add: lunch, dinner or any")
+	days := flag.String("days", model.DishDaysAny, "with -add: any or weekend")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	if *add != "" {
+		database, err := db.Open(*dbPath)
+		if err != nil {
+			logger.Error("open db", "err", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+		if err := addDish(store.New(database), *add, *meal, *days, os.Stdout); err != nil {
+			logger.Error("add", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	url, token := os.Getenv("MEALIE_URL"), os.Getenv("MEALIE_TOKEN")
 	if url == "" || token == "" {
@@ -191,4 +214,28 @@ func importDishes(st *store.Store, dishes []model.Dish, w io.Writer) (created, e
 		fmt.Fprintf(w, "created %s\n", got.Name)
 	}
 	return created, existed, nil
+}
+
+// addDish writes one active dish through CreateDish, so a name already in the
+// catalogue — in any spelling NameKey folds together — is reported, not
+// doubled or changed.
+func addDish(st *store.Store, name, meal, days string, w io.Writer) error {
+	switch meal {
+	case model.MealLunch, model.MealDinner, model.DishMealAny:
+	default:
+		return fmt.Errorf("-meal %q: want lunch, dinner or any", meal)
+	}
+	if days != model.DishDaysAny && days != model.DishDaysWeekend {
+		return fmt.Errorf("-days %q: want any or weekend", days)
+	}
+	got, existed, err := st.CreateDish(model.Dish{Name: name, Meal: meal, Days: days, Status: model.DishActive})
+	if err != nil {
+		return err
+	}
+	if existed {
+		fmt.Fprintf(w, "exists  %s (%s, meal=%s days=%s) — left as it is\n", got.Name, got.Status, got.Meal, got.Days)
+		return nil
+	}
+	fmt.Fprintf(w, "created %s (meal=%s days=%s)\n", got.Name, got.Meal, got.Days)
+	return nil
 }

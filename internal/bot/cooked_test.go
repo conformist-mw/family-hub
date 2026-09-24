@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -417,15 +418,21 @@ func ensureDish(t *testing.T, b *Bot, name string) model.Dish {
 	return d
 }
 
-// mealRows flattens a day of the journal to "meal:dish:status" for comparing.
-func mealRows(t *testing.T, b *Bot, date string) string {
+// dayMeals is every row of one day of the journal.
+func dayMeals(t *testing.T, b *Bot, date string) []model.MealEntry {
 	t.Helper()
 	rows, err := b.store.MealsOn(date)
 	if err != nil {
 		t.Fatalf("meals on %s: %v", date, err)
 	}
+	return rows
+}
+
+// mealRows flattens a day of the journal to "meal:dish:status" for comparing.
+func mealRows(t *testing.T, b *Bot, date string) string {
+	t.Helper()
 	var out []string
-	for _, m := range rows {
+	for _, m := range dayMeals(t, b, date) {
 		out = append(out, m.Meal+":"+m.Dish+":"+m.Status)
 	}
 	return strings.Join(out, ",")
@@ -449,7 +456,7 @@ func TestRecordPlateWritesEveryDish(t *testing.T) {
 	if got := mealRows(t, b, plateDate); got != "lunch:Гуляш:eaten,lunch:Пюре:eaten" {
 		t.Fatalf("journal = %q", got)
 	}
-	rows, _ := b.store.MealsOn(plateDate)
+	rows := dayMeals(t, b, plateDate)
 	if rows[0].Who != "Олег" {
 		t.Errorf("who = %q, want the cook", rows[0].Who)
 	}
@@ -479,7 +486,7 @@ func TestRecordPlateClosesThePlan(t *testing.T) {
 		if got := mealRows(t, b, plateDate); got != "lunch:Гуляш:eaten,lunch:Пюре:eaten" {
 			t.Fatalf("journal = %q", got)
 		}
-		rows, _ := b.store.MealsOn(plateDate)
+		rows := dayMeals(t, b, plateDate)
 		if rows[0].ID != planned.ID {
 			t.Errorf("the plan row should turn eaten in place, got a new row")
 		}
@@ -565,7 +572,7 @@ func TestCreatePlateDishAddsToTheCatalogueOnly(t *testing.T) {
 	if err := b.createPlateDish(e, 0); err != nil {
 		t.Fatalf("second create: %v", err)
 	}
-	if all, _ := b.store.Dishes(); len(all) != 1 {
+	if all, err := b.store.Dishes(); err != nil || len(all) != 1 {
 		t.Errorf("dishes = %d, want 1", len(all))
 	}
 }
@@ -598,7 +605,154 @@ func TestCreatePlateDishRevivesARejectedDish(t *testing.T) {
 	if e.items[0].Dish.ID != rejected.ID {
 		t.Fatalf("got dish %d, want the rejected row %d back", e.items[0].Dish.ID, rejected.ID)
 	}
-	if d, _ := b.store.Dish(rejected.ID); d.Status != model.DishActive {
-		t.Errorf("status = %q, want active", d.Status)
+	if got := dishStatus(t, b, rejected.ID); got != model.DishActive {
+		t.Errorf("status = %q, want active", got)
+	}
+}
+
+// A write that stops half-way names the dish it stopped at; the dishes before
+// it did land, and the retry reports them as already there rather than twice.
+func TestRecordPlateFailureIsSafeToRetry(t *testing.T) {
+	b := menuBot(t)
+	e := storedPlate(t, b, plateDay, menu.Lunch, "Гуляш")
+	e.items = append(e.items, plateItem{Item: dish.Item{Name: "Привид", Dish: dish.DishRef{ID: 999, Name: "Привид"}}})
+
+	w, err := b.recordPlate(e)
+	if err == nil || w.failed != "Привид" || strings.Join(w.written, ",") != "Гуляш" {
+		t.Fatalf("write = %+v, err = %v; want Гуляш written and the stop at Привид", w, err)
+	}
+	if got := mealRows(t, b, plateDate); got != "lunch:Гуляш:eaten" {
+		t.Fatalf("journal = %q", got)
+	}
+
+	e.items[1].dropped = true
+	w, err = b.recordPlate(e)
+	if err != nil || len(w.written) != 0 || strings.Join(w.already, ",") != "Гуляш" {
+		t.Fatalf("retry = %+v, %v; want Гуляш under already", w, err)
+	}
+	if got := mealRows(t, b, plateDate); got != "lunch:Гуляш:eaten" {
+		t.Fatalf("journal after retry = %q", got)
+	}
+}
+
+func TestPlateEntry(t *testing.T) {
+	now := time.Date(2026, 9, 24, 10, 0, 0, 0, kyiv)
+	today := midnight(now, kyiv)
+	guess := dish.Guess{
+		Items: []dish.Item{{Name: "Борщ", Dish: dish.DishRef{ID: 4, Name: "Борщ"}}, {Name: "Пампушки"}},
+		Note:  "борщ з пампушками",
+		Slot:  model.MealDinner,
+		Date:  "2026-09-23",
+	}
+	cases := []struct {
+		name   string
+		guess  dish.Guess
+		pinned *plateFor
+		meal   menu.Meal
+		date   time.Time
+	}{
+		{"the model's reading of the hint", guess, nil, menu.Dinner, today.AddDate(0, 0, -1)},
+		{"no hint: the clock", dish.Guess{Items: guess.Items}, nil, menu.Lunch, today},
+		// The evening check's question outranks what the model read.
+		{"an answer to the evening check", guess,
+			&plateFor{date: today.AddDate(0, 0, -2), meal: menu.Lunch}, menu.Lunch, today.AddDate(0, 0, -2)},
+	}
+	for _, tc := range cases {
+		e := plateEntry(tc.guess, "Олег", now, kyiv, tc.pinned)
+		if e.meal != tc.meal || !e.date.Equal(tc.date) {
+			t.Errorf("%s: %s %s, want %s %s", tc.name, e.meal, e.date.Format(time.DateOnly), tc.meal, tc.date.Format(time.DateOnly))
+		}
+		if e.cook != "Олег" || e.focus != -1 || namesOf(e.items) != "Борщ,Пампушки" {
+			t.Errorf("%s: entry = %+v", tc.name, e)
+		}
+	}
+}
+
+// fakeCtx is the slice of a Telegram context the text path reads: who wrote,
+// where, what, and what the bot sent back.
+type fakeCtx struct {
+	tele.Context
+	user *tele.User
+	chat *tele.Chat
+	text string
+	sent []string
+}
+
+func (f *fakeCtx) Sender() *tele.User { return f.user }
+func (f *fakeCtx) Chat() *tele.Chat   { return f.chat }
+func (f *fakeCtx) Text() string       { return f.text }
+func (f *fakeCtx) Message() *tele.Message {
+	return &tele.Message{Text: f.text, Chat: f.chat, Sender: f.user}
+}
+func (f *fakeCtx) Send(what any, _ ...any) error {
+	f.sent = append(f.sent, fmt.Sprint(what))
+	return nil
+}
+
+func groupSay(b *Bot, text string) *fakeCtx {
+	c := &fakeCtx{
+		user: &tele.User{ID: 7, FirstName: "Аня"},
+		chat: &tele.Chat{ID: -100, Type: tele.ChatGroup},
+		text: text,
+	}
+	_ = b.onText(c)
+	return c
+}
+
+func otherBot(t *testing.T, modelAnswer string) *Bot {
+	t.Helper()
+	b := menuBot(t)
+	b.cfg.Dish = modelServer(t, modelAnswer, nil, nil)
+	b.awaiting = newAwaitingStore()
+	b.cookedCards = newCookedPending()
+	return b
+}
+
+// The reply to "Інше" in the group needs no command, goes to the model, and
+// comes back as a plate card for the day and meal the check asked about —
+// whatever the model read off the text.
+func TestEveningOtherAnswerInTheGroup(t *testing.T) {
+	b := menuBot(t)
+	borshch := ensureDish(t, b, "Борщ")
+	answer := fmt.Sprintf(`{"items":[{"name":"Борщ","id":%d,"confidence":"high","alternatives":[],"meal":"any","days":"any"}],`+
+		`"note":"","slot":"lunch","date":""}`, borshch.ID)
+	b.cfg.Dish = modelServer(t, answer, nil, nil)
+	b.awaiting = newAwaitingStore()
+	b.cookedCards = newCookedPending()
+
+	// Ordinary chat in the group, with nothing armed, is none of the bot's
+	// business.
+	if c := groupSay(b, "борщ"); len(c.sent) != 0 {
+		t.Fatalf("unarmed group chat answered: %v", c.sent)
+	}
+
+	yesterday := midnight(b.now(), b.cfg.Loc).AddDate(0, 0, -1)
+	b.awaiting.setMealOther(7, plateFor{date: yesterday, meal: menu.Dinner}, b.now())
+	c := groupSay(b, "борщ на обід")
+	if len(c.sent) != 1 || !strings.HasPrefix(c.sent[0], "🍽 вчора · вечеря") || !strings.Contains(c.sent[0], "Борщ") {
+		t.Fatalf("sent = %q, want the plate card for yesterday's dinner", c.sent)
+	}
+	// The question is answered: the next message is ordinary chat again.
+	if c := groupSay(b, "дякую"); len(c.sent) != 0 {
+		t.Fatalf("the answered question took another message: %v", c.sent)
+	}
+}
+
+// An answer the model could not read asks once more, and only once: after
+// that, the person's ordinary chat is theirs again.
+func TestEveningOtherUnreadableAnswerAsksOnceMore(t *testing.T) {
+	b := otherBot(t, "")
+	b.awaiting.setMealOther(7, plateFor{date: midnight(b.now(), b.cfg.Loc), meal: menu.Lunch}, b.now())
+
+	c := groupSay(b, "щось смачне")
+	if len(c.sent) != 1 || !strings.Contains(c.sent[0], "ще раз") {
+		t.Fatalf("first miss sent %q, want to be asked again", c.sent)
+	}
+	c = groupSay(b, "ну той суп")
+	if len(c.sent) != 1 || strings.Contains(c.sent[0], "ще раз") || !strings.Contains(c.sent[0], "кнопкою") {
+		t.Fatalf("second miss sent %q, want a pointer to the buttons and no new question", c.sent)
+	}
+	if c := groupSay(b, "а що на вечерю?"); len(c.sent) != 0 {
+		t.Fatalf("a third message still went to the model: %v", c.sent)
 	}
 }

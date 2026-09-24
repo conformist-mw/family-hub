@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html"
 	"slices"
@@ -46,12 +45,7 @@ var suggUniques = []string{suggAddUnique, suggMaybeUnique, suggNoUnique}
 
 // suggestDish is one dish of the card as it stands.
 type suggestDish struct {
-	id     int64
-	name   string
-	note   string
-	meal   string
-	days   string
-	status string
+	model.Dish
 	// maybe is "think about it" tapped. It means something only while the
 	// dish is still proposed — the store's add or no outranks it.
 	maybe bool
@@ -64,14 +58,14 @@ func suggestView(dishes []suggestDish) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	sb.WriteString("💡 <b>Може, спробуємо нове?</b>\n")
 	for _, d := range dishes {
-		fmt.Fprintf(&sb, "\n<b>%s</b> · %s\n", html.EscapeString(d.name), suggestWhen(d.meal, d.days))
-		if d.note != "" {
-			sb.WriteString(html.EscapeString(d.note) + "\n")
+		fmt.Fprintf(&sb, "\n<b>%s</b> · %s\n", html.EscapeString(d.Name), suggestWhen(d.Meal, d.Days))
+		if d.Note != "" {
+			sb.WriteString(html.EscapeString(d.Note) + "\n")
 		}
 		switch {
-		case d.status == model.DishActive:
+		case d.Status == model.DishActive:
 			sb.WriteString("➕ Додано в меню\n")
-		case d.status == model.DishRejected:
+		case d.Status == model.DishRejected:
 			sb.WriteString("✖ Не пропонуватиму\n")
 		case d.maybe:
 			sb.WriteString("🤔 Подумаємо\n")
@@ -81,18 +75,18 @@ func suggestView(dishes []suggestDish) (string, *tele.ReplyMarkup) {
 	mk := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0, len(dishes))
 	for _, d := range dishes {
-		id := strconv.FormatInt(d.id, 10)
+		id := strconv.FormatInt(d.ID, 10)
 		mark := func(on bool, label string) string {
 			if on {
 				return chosenPrefix + label
 			}
 			return label
 		}
-		proposed := d.status == model.DishProposed
+		proposed := d.Status == model.DishProposed
 		rows = append(rows, tele.Row{
-			mk.Data(mark(d.status == model.DishActive, "➕ "+shorten(d.name, menuButtonName)), suggAddUnique, id),
+			mk.Data(mark(d.Status == model.DishActive, "➕ "+shorten(d.Name, menuButtonName)), suggAddUnique, id),
 			mk.Data(mark(proposed && d.maybe, "🤔 Подумаю"), suggMaybeUnique, id),
-			mk.Data(mark(d.status == model.DishRejected, "✖ Ні"), suggNoUnique, id),
+			mk.Data(mark(d.Status == model.DishRejected, "✖ Ні"), suggNoUnique, id),
 		})
 	}
 	mk.Inline(rows...)
@@ -124,7 +118,7 @@ type suggestRefs struct {
 }
 
 // suggestRefsFromMarkup reads back what suggestView wrote, from either shape a
-// keyboard comes in (see choreCallbackPayload); the app row is skipped.
+// keyboard comes in (see callbackPayload); the app row is skipped.
 func suggestRefsFromMarkup(m *tele.ReplyMarkup) suggestRefs {
 	refs := suggestRefs{maybe: map[int64]bool{}}
 	if m == nil {
@@ -132,7 +126,7 @@ func suggestRefsFromMarkup(m *tele.ReplyMarkup) suggestRefs {
 	}
 	for _, row := range m.InlineKeyboard {
 		for _, btn := range row {
-			unique, payload, ok := suggestCallbackPayload(btn)
+			unique, payload, ok := callbackPayload(btn, suggUniques...)
 			if !ok {
 				continue
 			}
@@ -149,18 +143,6 @@ func suggestRefsFromMarkup(m *tele.ReplyMarkup) suggestRefs {
 		}
 	}
 	return refs
-}
-
-func suggestCallbackPayload(btn tele.InlineButton) (unique, payload string, ok bool) {
-	for _, u := range suggUniques {
-		if btn.Unique == u {
-			return u, btn.Data, true
-		}
-		if rest, found := strings.CutPrefix(btn.Data, "\f"+u+"|"); found {
-			return u, rest, true
-		}
-	}
-	return "", "", false
 }
 
 // filterSuggestions drops every suggestion whose name the catalogue already
@@ -217,7 +199,7 @@ func (b *Bot) proposeDishes(sugg []dish.Suggestion, existing []model.Dish) ([]su
 		if existed {
 			continue
 		}
-		out = append(out, suggestDish{id: d.ID, name: d.Name, note: d.Note, meal: d.Meal, days: d.Days, status: d.Status})
+		out = append(out, suggestDish{Dish: d})
 	}
 	return out, nil
 }
@@ -227,7 +209,9 @@ func (b *Bot) proposeDishes(sugg []dish.Suggestion, existing []model.Dish) ([]su
 // holds and which were answered "maybe", that answer being nowhere else.
 //
 // The add and the no set the status whatever it was, so a changed mind is
-// one more tap. The maybe writes nothing: the dish is proposed already.
+// one more tap — with one exception: a dish the family has eaten since is its
+// own, and a stale card's no does not reject it. The maybe writes nothing:
+// the dish is proposed already.
 func (b *Bot) applySuggestTap(unique, data string, current *tele.ReplyMarkup) ([]suggestDish, string, bool, error) {
 	id, err := strconv.ParseInt(data, 10, 64)
 	if err != nil || !slices.Contains(suggUniques, unique) {
@@ -261,6 +245,16 @@ func (b *Bot) applySuggestTap(unique, data string, current *tele.ReplyMarkup) ([
 			toast = "Вже вирішено"
 		}
 	case suggNoUnique:
+		eaten := false
+		if d.Status == model.DishActive {
+			if eaten, err = b.store.DishEaten(id); err != nil {
+				return nil, "", false, err
+			}
+		}
+		if eaten {
+			toast = "Вже вирішено"
+			break
+		}
 		if err := b.store.SetDishStatus(id, model.DishRejected); err != nil {
 			return nil, "", false, err
 		}
@@ -278,24 +272,15 @@ func (b *Bot) applySuggestTap(unique, data string, current *tele.ReplyMarkup) ([
 // suggestDishesFrom fills the card's ids from the store. A dish deleted since
 // the card was sent drops out of the redraw.
 func (b *Bot) suggestDishesFrom(refs suggestRefs) ([]suggestDish, error) {
-	all, err := b.store.Dishes()
+	byID, err := b.dishesByID()
 	if err != nil {
 		return nil, err
 	}
-	byID := make(map[int64]model.Dish, len(all))
-	for _, d := range all {
-		byID[d.ID] = d
-	}
 	out := make([]suggestDish, 0, len(refs.ids))
 	for _, id := range refs.ids {
-		d, ok := byID[id]
-		if !ok {
-			continue
+		if d, ok := byID[id]; ok {
+			out = append(out, suggestDish{Dish: d, maybe: refs.maybe[id]})
 		}
-		out = append(out, suggestDish{
-			id: d.ID, name: d.Name, note: d.Note, meal: d.Meal, days: d.Days,
-			status: d.Status, maybe: refs.maybe[id],
-		})
 	}
 	return out, nil
 }
@@ -305,8 +290,11 @@ func (b *Bot) suggestDishesFrom(refs suggestRefs) ([]suggestDish, error) {
 // The call runs in its own goroutine for the reason sendSchoolWeekReview's
 // collect does: the model can take up to a minute, and time.Ticker drops the
 // ticks RunDigests spends waiting — whatever else was due in them would be
-// lost. A failed call or nothing new to offer is logged and sends nothing.
+// lost.
 func (b *Bot) sendDishSuggestions(ctx context.Context, now time.Time) {
+	// RunDigests only calls this when dishSuggestEnabled, which requires a
+	// recognizer; the check stays because a nil one reached from that
+	// goroutine would take the whole server down.
 	if b.cfg.Dish == nil {
 		return
 	}
@@ -322,24 +310,8 @@ func (b *Bot) sendDishSuggestions(ctx context.Context, now time.Time) {
 		ctx, cancel := context.WithTimeout(ctx, suggestTimeout)
 		defer cancel()
 
-		existing, err := b.store.Dishes()
-		if err != nil {
-			b.logger.Error("bot: dish suggestions catalogue", "err", err)
-			return
-		}
-		sugg, err := b.cfg.Dish.Suggest(ctx, suggestInput(existing))
-		if err != nil {
-			b.logger.Error("bot: dish suggestions model", "err", err)
-			return
-		}
-		dishes, err := b.proposeDishes(sugg, existing)
-		if err != nil {
-			// Whatever was written before the failure is proposed already and
-			// will turn up in the menu; the card for it is only a nicety.
-			b.logger.Error("bot: dish suggestions write", "err", err)
-		}
+		dishes := b.collectSuggestions(ctx, now)
 		if len(dishes) == 0 {
-			b.logger.Info("bot: no new dishes to suggest", "date", now.Format(time.DateOnly), "from_model", len(sugg))
 			return
 		}
 		text, markup := suggestView(dishes)
@@ -349,16 +321,39 @@ func (b *Bot) sendDishSuggestions(ctx context.Context, now time.Time) {
 	}()
 }
 
+// collectSuggestions asks the model and writes what survives the filter as
+// proposed, returning the card's dishes. A failed call, or nothing new to
+// offer, is logged and comes back empty: there is no card to send.
+func (b *Bot) collectSuggestions(ctx context.Context, now time.Time) []suggestDish {
+	existing, err := b.store.Dishes()
+	if err != nil {
+		b.logger.Error("bot: dish suggestions catalogue", "err", err)
+		return nil
+	}
+	sugg, err := b.cfg.Dish.Suggest(ctx, suggestInput(existing))
+	if err != nil {
+		b.logger.Error("bot: dish suggestions model", "err", err)
+		return nil
+	}
+	dishes, err := b.proposeDishes(sugg, existing)
+	if err != nil {
+		// Whatever was written before the failure is proposed already and
+		// will turn up in the menu; the card for it is only a nicety, so it
+		// still goes out with what there is.
+		b.logger.Error("bot: dish suggestions write", "err", err)
+	}
+	if len(dishes) == 0 {
+		b.logger.Info("bot: no new dishes to suggest", "date", now.Format(time.DateOnly), "from_model", len(sugg))
+	}
+	return dishes
+}
+
 func (b *Bot) onSuggestAdd(c tele.Context) error   { return b.onSuggestTap(c, suggAddUnique) }
 func (b *Bot) onSuggestMaybe(c tele.Context) error { return b.onSuggestTap(c, suggMaybeUnique) }
 func (b *Bot) onSuggestNo(c tele.Context) error    { return b.onSuggestTap(c, suggNoUnique) }
 
 func (b *Bot) onSuggestTap(c tele.Context, unique string) error {
-	var current *tele.ReplyMarkup
-	if msg := c.Message(); msg != nil {
-		current = msg.ReplyMarkup
-	}
-	dishes, toast, redraw, err := b.applySuggestTap(unique, c.Data(), current)
+	dishes, toast, redraw, err := b.applySuggestTap(unique, c.Data(), currentMarkup(c))
 	if err != nil {
 		b.logger.Error("bot: suggestion tap", "unique", unique, "data", c.Data(), "err", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
@@ -368,12 +363,6 @@ func (b *Bot) onSuggestTap(c tele.Context, unique string) error {
 	if !redraw {
 		return nil
 	}
-	// The same answer tapped twice redraws the same card, which Telegram
-	// answers with an error; the tap did what it said, so it is not one.
 	text, markup := suggestView(dishes)
-	if err := c.Edit(text, b.withAppButton([]any{markup, tele.ModeHTML})...); err != nil &&
-		!errors.Is(err, tele.ErrSameMessageContent) {
-		return err
-	}
-	return nil
+	return editIgnoringSame(c, text, b.withAppButton([]any{markup, tele.ModeHTML})...)
 }

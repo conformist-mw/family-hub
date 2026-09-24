@@ -33,9 +33,11 @@ type awaitingEntry struct {
 	field  string // "time" | "title" | "who"
 
 	// awaitMealOther: the meal the evening check asked about, local midnight
-	// of its day.
-	date time.Time
-	meal menu.Meal
+	// of its day, and whether this is the question asked again after an
+	// answer the model could not read.
+	date    time.Time
+	meal    menu.Meal
+	retried bool
 
 	created time.Time
 }
@@ -54,8 +56,8 @@ func (a *awaitingStore) setEdit(senderID, apptID int64, field string, now time.T
 }
 
 // setMealOther arms the "Інше" answer of the evening check for the sender.
-func (a *awaitingStore) setMealOther(senderID int64, date time.Time, meal menu.Meal, now time.Time) {
-	a.put(senderID, awaitingEntry{kind: awaitMealOther, date: date, meal: meal}, now)
+func (a *awaitingStore) setMealOther(senderID int64, p plateFor, now time.Time) {
+	a.put(senderID, awaitingEntry{kind: awaitMealOther, date: p.date, meal: p.meal, retried: p.retried}, now)
 }
 
 func (a *awaitingStore) put(senderID int64, e awaitingEntry, now time.Time) {

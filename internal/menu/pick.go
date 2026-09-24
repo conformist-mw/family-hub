@@ -21,19 +21,13 @@ const (
 	Dinner Meal = model.MealDinner
 )
 
-var mealTitles = map[Meal]string{
-	Lunch:  "Обід",
-	Dinner: "Вечеря",
-}
-
 // Title is the human label of a meal, shared by the menu, the evening check
-// and the plate card so the three cannot disagree. An empty meal is normal on
-// a plate card — nobody said which — and reads as plain "cooked".
+// and the plate card so the three cannot disagree.
 func (m Meal) Title() string {
-	if t, ok := mealTitles[m]; ok {
-		return t
+	if m == Dinner {
+		return "Вечеря"
 	}
-	return "Приготовано"
+	return "Обід"
 }
 
 // IsWeekend reports whether weekend-only dishes (delivery, bought ready-made)
@@ -61,6 +55,14 @@ type Candidate struct {
 // channel; less and nobody ever gets to try what they said "maybe" to.
 const newChance = 3
 
+// RollNew is the morning's one draw for a 🆕. It is made once per message by
+// the caller rather than inside Pick: a draw per meal would put a proposal on
+// well over a third of the mornings, and a shuffle that drew again would add
+// one on every few taps.
+func RollNew(rnd *rand.Rand) bool {
+	return rnd.IntN(newChance) == 0
+}
+
 // Pick chooses up to n dishes for one meal on date. shownToday and
 // shownYesterday are the dishes the morning message already offered; they are
 // kept out so a shuffle brings something new and a dish nobody picks
@@ -73,9 +75,9 @@ const newChance = 3
 // (on the first day, all of them) do not come out in id order every morning,
 // and n are drawn at random from the oldest few rather than taken off the top.
 //
-// At most one proposed dish (the menu's 🆕) replaces the last regular one,
-// and only on some mornings.
-func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterday map[int64]bool, n int, rnd *rand.Rand) []model.Dish {
+// With withNew, one proposed dish (the menu's 🆕) replaces the last regular
+// one, if a proposal fits; without it proposals are never offered.
+func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterday map[int64]bool, n int, withNew bool, rnd *rand.Rand) []model.Dish {
 	if n <= 0 {
 		return nil
 	}
@@ -103,9 +105,7 @@ func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterd
 		out = append(out, c.Dish)
 	}
 
-	// The draw happens before looking at the proposed pool so the regular
-	// choice does not depend on whether any suggestions are pending.
-	if rnd.IntN(newChance) != 0 {
+	if !withNew {
 		return out
 	}
 	newPool := without(proposed, shownToday, shownYesterday)

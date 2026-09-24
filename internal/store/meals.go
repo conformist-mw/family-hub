@@ -19,9 +19,12 @@ const mealOrder = ` ORDER BY m.date, CASE m.meal WHEN 'lunch' THEN 0 ELSE 1 END,
 
 // PlanMeal records the morning pick: dishID is what the family means to cook
 // for this meal. A meal has one plan, so any other planned dish for the same
-// (date, meal) is dropped. An eaten row is left alone — a plan tapped after a
-// photo of the plate does not undo what was already eaten; if the eaten dish
-// is dishID itself, that row comes back unchanged.
+// (date, meal) is dropped.
+//
+// A meal already eaten is not planned: its eaten row comes back — the tapped
+// dish's own if that was eaten, otherwise the first — and nothing is written.
+// A plan next to an eaten row would never be closed: the evening check skips
+// a meal that has one, and RecordEaten only settles plans when it writes.
 func (s *Store) PlanMeal(dishID int64, date, meal, who string, leftover bool) (model.MealEntry, error) {
 	if err := checkMealKey(date, meal); err != nil {
 		return model.MealEntry{}, err
@@ -35,6 +38,16 @@ func (s *Store) PlanMeal(dishID int64, date, meal, who string, leftover bool) (m
 	if _, err := dishStatusTx(tx, dishID); err != nil {
 		return model.MealEntry{}, err
 	}
+	eaten, err := scanMeal(tx.QueryRow(mealCols+`
+		WHERE m.date = ? AND m.meal = ? AND m.status = 'eaten'
+		ORDER BY m.dish_id = ? DESC, m.id LIMIT 1`, date, meal, dishID))
+	switch {
+	case err == nil:
+		return eaten, nil
+	case !IsNotFound(err):
+		return model.MealEntry{}, err
+	}
+
 	if _, err := tx.Exec(`
 		DELETE FROM meals
 		WHERE date = ? AND meal = ? AND status = 'planned' AND dish_id <> ?`,
@@ -76,26 +89,6 @@ func (s *Store) RecordEaten(dishID int64, date, meal, who string, leftover bool)
 	defer tx.Rollback()
 
 	got, already, err := recordEatenTx(tx, dishID, date, meal, who, leftover)
-	if err != nil {
-		return model.MealEntry{}, false, err
-	}
-	return got, already, tx.Commit()
-}
-
-// ConfirmMeal is RecordEaten for an existing row — "yes, we had the planned
-// dish". A missing id is sql.ErrNoRows (IsNotFound).
-func (s *Store) ConfirmMeal(id int64, who string) (model.MealEntry, bool, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return model.MealEntry{}, false, err
-	}
-	defer tx.Rollback()
-
-	row, err := scanMeal(tx.QueryRow(mealCols+` WHERE m.id = ?`, id))
-	if err != nil {
-		return model.MealEntry{}, false, err
-	}
-	got, already, err := recordEatenTx(tx, row.DishID, row.Date, row.Meal, who, row.Leftover)
 	if err != nil {
 		return model.MealEntry{}, false, err
 	}
@@ -144,17 +137,60 @@ func recordEatenTx(tx *sql.Tx, dishID int64, date, meal, who string, leftover bo
 	return got, false, err
 }
 
-// DeleteMeal removes one row — "we did not eat at home", or a plan for a dish
-// the family turned down. A missing id is sql.ErrNoRows.
-func (s *Store) DeleteMeal(id int64) error {
-	res, err := s.db.Exec(`DELETE FROM meals WHERE id = ?`, id)
-	if err != nil {
+// DropPlans deletes the planned rows of one meal — of one dish, or of any
+// with dishID 0: "we did not eat at home". Eaten rows are never touched: a
+// photo that came in after the evening check went out still stands.
+func (s *Store) DropPlans(date, meal string, dishID int64) error {
+	if err := checkMealKey(date, meal); err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return sql.ErrNoRows
+	_, err := s.db.Exec(`
+		DELETE FROM meals
+		WHERE date = ? AND meal = ? AND status = 'planned' AND (? = 0 OR dish_id = ?)`,
+		date, meal, dishID, dishID)
+	return err
+}
+
+// TurnDown is the evening's "no, not ours" on a planned proposal: the plan of
+// that dish at this meal goes, and the dish is rejected — in one transaction,
+// so a failure cannot leave the plan gone and the proposal still offered.
+// Only a proposal is rejected: a dish eaten since the button was drawn is the
+// family's own, whatever a stale button says. It returns the dish as it now
+// stands; a missing one is sql.ErrNoRows.
+func (s *Store) TurnDown(dishID int64, date, meal string) (model.Dish, error) {
+	if err := checkMealKey(date, meal); err != nil {
+		return model.Dish{}, err
 	}
-	return nil
+	tx, err := s.db.Begin()
+	if err != nil {
+		return model.Dish{}, err
+	}
+	defer tx.Rollback()
+
+	d, err := scanDish(tx.QueryRow(dishCols+` WHERE id = ?`, dishID))
+	if err != nil {
+		return model.Dish{}, err
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM meals WHERE date = ? AND meal = ? AND status = 'planned' AND dish_id = ?`,
+		date, meal, dishID); err != nil {
+		return model.Dish{}, err
+	}
+	if d.Status == model.DishProposed {
+		if _, err := tx.Exec(`UPDATE dishes SET status = ? WHERE id = ?`, model.DishRejected, dishID); err != nil {
+			return model.Dish{}, err
+		}
+		d.Status = model.DishRejected
+	}
+	return d, tx.Commit()
+}
+
+// DishEaten reports whether the dish was ever eaten — what separates a
+// suggestion the family merely accepted from one that is now its own.
+func (s *Store) DishEaten(dishID int64) (bool, error) {
+	var eaten bool
+	err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM meals WHERE dish_id = ? AND status = 'eaten')`, dishID).Scan(&eaten)
+	return eaten, err
 }
 
 // MealsOn returns every row of one day, planned and eaten, lunch first.

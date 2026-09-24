@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"familyhub/internal/model"
 )
@@ -62,11 +63,9 @@ func (s *Store) AppendShown(date, meal string, ids []int64) error {
 	}
 	defer tx.Rollback()
 
-	// Write first, read second. A deferred transaction that reads and then
-	// writes can find, at the write, that another writer committed in
-	// between; SQLite then fails it with SQLITE_BUSY instead of waiting,
-	// because its snapshot is stale. A write as the first statement takes the
-	// write lock up front, where busy_timeout does make it wait its turn.
+	// The transaction holds the write lock from BEGIN (see db.Open), so the
+	// read below sees every earlier append; the no-op write doubles as the
+	// existence check.
 	res, err := tx.Exec(`UPDATE menu_messages SET shown = shown WHERE date = ?`, date)
 	if err != nil {
 		return err
@@ -95,6 +94,40 @@ func (s *Store) AppendShown(date, meal string, ids []int64) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// LastShown maps each dish the morning menu ever offered to the last day it
+// did, shuffles included. The menu ranks a dish by the later of this and
+// LastSeen: a dish offered every other morning and never picked has no plan
+// or meal to age it, and would otherwise stay the "longest unseen" for good.
+func (s *Store) LastShown() (map[int64]time.Time, error) {
+	rows, err := s.db.Query(`SELECT date, shown FROM menu_messages ORDER BY date`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]time.Time{}
+	for rows.Next() {
+		var date, raw string
+		if err := rows.Scan(&date, &raw); err != nil {
+			return nil, err
+		}
+		d, err := model.ParseDate(date)
+		if err != nil {
+			return nil, fmt.Errorf("store: menu date %q: %w", date, err)
+		}
+		shown, err := decodeShown(raw)
+		if err != nil {
+			return nil, fmt.Errorf("store: menu of %s: %w", date, err)
+		}
+		// Rows come oldest first, so a later day simply overwrites.
+		for _, ids := range shown {
+			for _, id := range ids {
+				out[id] = d
+			}
+		}
+	}
+	return out, rows.Err()
 }
 
 func decodeShown(raw string) (map[string][]int64, error) {

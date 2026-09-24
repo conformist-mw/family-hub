@@ -1,8 +1,8 @@
 ![Family Hub](docs/brand/banner.png)
 
-A small self-hosted app for a family's schedule and money, replacing a fragile
-spreadsheet, two separate bots and a phone's reminders list. Four domains live
-in it:
+A small self-hosted app for a family's schedule, money and kitchen, replacing a
+fragile spreadsheet, two separate bots and a phone's reminders list. Five
+domains live in it:
 
 - **Lessons** — recurring extracurricular courses: attendance journal,
   payments, and how many prepaid lessons are left or when a monthly pass runs
@@ -20,6 +20,9 @@ in it:
   tariff that applied then, with a running record of what was paid. A month can
   be sent to the family chat as a summary, or opened as a page made to be
   screenshotted into one.
+- **Kitchen** — the family's own catalogue of dishes and a journal of what was
+  planned and eaten. A morning menu, an evening check, weekly suggestions of
+  something new, and a cooking log fed by photos of the plate.
 
 Navigation is a hub and three worlds — Заняття, Дім, Статистика — with today's
 appointments and open chores above all of them, because "what is happening now"
@@ -28,6 +31,16 @@ belongs over the domains rather than inside one.
 Three ways in, one SQLite file behind them: a web UI for the desk, a Telegram
 bot in the family group, and a Telegram Mini App for the phone. Two ICS feeds
 carry the family's events and the school timetable to Home Assistant.
+
+Every morning the bot posts what to cook today: three dishes for lunch and
+three for dinner as buttons, yesterday's pot under «Доїдаємо», and a 🔀 per
+meal for when nothing on offer appeals. The dishes rotate by when each was
+last cooked or offered, and now and then one is a 🆕 the family has not tried.
+In the evening it asks what was actually eaten — the planned dish by name,
+yesterday's otherwise — unless a photo of the plate already said. A photo, or
+`/cooked драники`, is read by a vision model against the catalogue and comes
+back as a card to confirm; once a week the same model suggests a few new dishes
+to add, think about, or turn down.
 
 On Friday evening the bot also posts a review of the school week — per subject,
 the topics covered, the teacher's notes, the homework and the marks, collected
@@ -50,7 +63,7 @@ The original spreadsheet had a few sharp edges this app removes:
 | | Where | What it is for |
 | --- | --- | --- |
 | Web UI | behind oauth2-proxy | the whole data model: courses, payments, journal, reconciliation, recurring chores and what actually got done |
-| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, and the evening list of chores nobody closed |
+| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, the evening list of chores nobody closed, the morning menu and evening meal check, weekly dish suggestions, and the cooking log from a photo or `/cooked` |
 | Mini App | `/mini`, inside Telegram | what is going on today, the week's visits, the weekly lesson schedule, recording a payment, reconciling a course, managing recurring chores and reviewing how they are going |
 
 The Mini App authenticates the person who opened it — an HMAC over Telegram's
@@ -105,6 +118,8 @@ per-lesson courses, and "is today covered by a paid period" for monthly passes.
 - `pressly/goose` migrations, embedded
 - `gopkg.in/telebot.v3` for the Telegram bot
 - `google.golang.org/genai` for free-text parsing (Gemini)
+- the OpenAI chat-completions protocol over plain `net/http` to read plate
+  photos and suggest new dishes
 - Preact and htm, vendored, for the Mini App — no build step
 
 ## Running locally
@@ -115,7 +130,10 @@ go run ./cmd/server          # serves on :8080, db at data/family-hub.db
 
 Flags: `-addr` (listen address), `-db` (SQLite path). Configuration is env
 only — copy `.env.example` to `.env` and fill in what you need. Without
-`GEMINI_API_KEY` everything works except free-text capture.
+`GEMINI_API_KEY` everything works except free-text capture. Without
+`AI_API_KEY` the cooking log, the evening check's «Інше» and the weekly dish
+suggestions are off; the morning menu and the rest of the evening check still
+work.
 
 To open the Mini App in a normal browser, set `MINI_DEV_USER` to a Telegram
 user id that is also in `TELEGRAM_MINI_USERS`. It skips signature verification

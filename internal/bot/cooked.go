@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -179,7 +178,7 @@ func (b *Bot) onPhoto(c tele.Context) error {
 	cmd, rest := splitCommand(caption)
 	var pinned *plateFor
 	if e, ok := b.awaiting.takeMealOther(senderID(c), b.now()); ok {
-		pinned = &plateFor{date: e.date, meal: e.meal}
+		pinned = e.plateFor()
 	} else if !isPrivate(c) && cmd != "/cooked" {
 		return nil
 	}
@@ -190,8 +189,8 @@ func (b *Bot) onPhoto(c tele.Context) error {
 	photo, err := b.downloadPhoto(c.Message().Photo)
 	if err != nil {
 		b.logger.Error("bot: download photo", "err", err)
-		if pinned != nil {
-			b.awaiting.setMealOther(senderID(c), pinned.date, pinned.meal, b.now())
+		if again := pinned.again(); again != nil {
+			b.awaiting.setMealOther(senderID(c), *again, b.now())
 		}
 		return c.Send("Не вдалося завантажити фото 😕")
 	}
@@ -214,19 +213,44 @@ func (b *Bot) cmdCooked(c tele.Context) error {
 type plateFor struct {
 	date time.Time // local midnight
 	meal menu.Meal
+	// retried is the question asked a second time, after an answer the model
+	// could not read.
+	retried bool
+}
+
+func (e awaitingEntry) plateFor() *plateFor {
+	return &plateFor{date: e.date, meal: e.meal, retried: e.retried}
+}
+
+// again is the question to arm once more after an answer that could not be
+// read, or nil. Only once: whatever the person writes next in the group goes
+// to the model while the question is armed, so re-arming on every failure
+// would turn their ordinary chat into a paid call and a "could not read"
+// each, for as long as they kept talking. The buttons under the check are
+// still there after the second miss.
+func (p *plateFor) again() *plateFor {
+	if p == nil || p.retried {
+		return nil
+	}
+	return &plateFor{date: p.date, meal: p.meal, retried: true}
 }
 
 // recognise asks the model about the plate and shows the card. pinned is nil
 // for the cooking log's own entry points.
 //
 // An answer to the evening check that the model could not read is asked
-// again rather than dropped: take() already cleared the question, and the
-// buttons under the check are still there for whoever would rather tap.
+// again once rather than dropped (see plateFor.again): take() already cleared
+// the question, and the buttons under the check are still there for whoever
+// would rather tap.
 func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string, pinned *plateFor) error {
 	now := b.now()
 	retry := func() error {
-		b.awaiting.setMealOther(senderID(c), pinned.date, pinned.meal, now)
-		return c.Send("Не розпізнав 😕 Оберіть кнопкою або спробуйте пізніше — напишіть чи надішліть фото ще раз.")
+		again := pinned.again()
+		if again == nil {
+			return c.Send("Не розпізнав 😕 Оберіть кнопкою під питанням.")
+		}
+		b.awaiting.setMealOther(senderID(c), *again, now)
+		return c.Send("Не розпізнав 😕 Оберіть кнопкою або напишіть чи надішліть фото ще раз.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -261,12 +285,22 @@ func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string, pinn
 		return c.Send("Не зрозумів, що це за страва. Спробуй підказати назву: /cooked <назва>")
 	}
 
+	e := plateEntry(guess, b.senderName(c), now, b.cfg.Loc, pinned)
+	key := b.cookedCards.put(e, now)
+	text, markup := b.cookedCard(key, e)
+	return c.Send(text, markup, tele.ModeHTML)
+}
+
+// plateEntry is the card for what the model read. The day and meal come
+// from the question when the plate answers one, and otherwise from the
+// model's reading of the hint, then the clock.
+func plateEntry(guess dish.Guess, cook string, now time.Time, loc *time.Location, pinned *plateFor) *cookedEntry {
 	e := &cookedEntry{
-		cook:  b.senderName(c),
+		cook:  cook,
 		note:  guess.Note,
 		focus: -1,
 		meal:  mealFrom(guess.Slot, now),
-		date:  dateFrom(guess.Date, now, b.cfg.Loc),
+		date:  dateFrom(guess.Date, now, loc),
 	}
 	if pinned != nil {
 		e.meal, e.date = pinned.meal, pinned.date
@@ -274,9 +308,7 @@ func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string, pinn
 	for _, it := range guess.Items {
 		e.items = append(e.items, plateItem{Item: it})
 	}
-	key := b.cookedCards.put(e, now)
-	text, markup := b.cookedCard(key, e)
-	return c.Send(text, markup, tele.ModeHTML)
+	return e
 }
 
 // plateCatalogue is what the model matches a plate against: the family's own
@@ -439,10 +471,7 @@ func (b *Bot) mealButton(m *tele.ReplyMarkup, key string, e *cookedEntry, meal m
 func (b *Bot) redraw(c tele.Context, key string, e *cookedEntry) error {
 	_ = c.Respond()
 	text, markup := b.cookedCard(key, e)
-	if err := c.Edit(text, markup, tele.ModeHTML); err != nil && !errors.Is(err, tele.ErrSameMessageContent) {
-		return err
-	}
-	return nil
+	return editIgnoringSame(c, text, markup, tele.ModeHTML)
 }
 
 func (b *Bot) onCookedDay(c tele.Context) error {

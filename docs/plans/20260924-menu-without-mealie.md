@@ -344,12 +344,12 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/store/meals.go`
 - Create: `internal/store/meals_test.go`
 
-- [ ] `PlanMeal`, `RecordEaten`, `ConfirmMeal` за «Семантикою записів у `meals`»
-- [ ] `DeleteMeal(id)`, `MealsOn(date) []model.MealEntry`, `EatenOn(date)`
-- [ ] `LastSeen() map[dishID]date` (planned + eaten)
-- [ ] тести: план замінює план, план не чіпає `eaten`, план → фото тієї ж страви = `eaten`, план → фото іншої = інша `eaten` + план видалено, повторний `RecordEaten` = «вже записано», `proposed` → `active`, LastSeen враховує planned
-- [ ] тести: підтвердження неіснуючого, видалення не зачіпає інші дні
-- [ ] `go test ./...` — має пройти перед задачею 4
+- [x] `PlanMeal`, `RecordEaten`, `ConfirmMeal` за «Семантикою записів у `meals`»
+- [x] `DeleteMeal(id)`, `MealsOn(date) []model.MealEntry`, `EatenOn(date)`
+- [x] `LastSeen() map[dishID]date` (planned + eaten)
+- [x] тести: план замінює план, план не чіпає `eaten`, план → фото тієї ж страви = `eaten`, план → фото іншої = інша `eaten` + план видалено, повторний `RecordEaten` = «вже записано», `proposed` → `active`, LastSeen враховує planned
+- [x] тести: підтвердження неіснуючого, видалення не зачіпає інші дні
+- [x] `go test ./...` — має пройти перед задачею 4
 
 ### Task 4: Вибір варіантів меню
 

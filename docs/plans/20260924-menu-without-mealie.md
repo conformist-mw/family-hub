@@ -317,10 +317,10 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/db/migrations/0013_menu.sql`
 - Modify: `internal/db/migrations_test.go`
 
-- [ ] створити таблиці `dishes`, `meals`, `menu_messages` і індекси за схемою вище; Down у порядку `meals` → `menu_messages` → `dishes`
-- [ ] тест: таблиці існують після `Migrate` (як наявні тести)
-- [ ] тест: CHECK відкидає невідоме значення, `meals_once` відкидає дубль, FK відкидає неіснуючу страву
-- [ ] `go test ./...` — має пройти перед задачею 2
+- [x] створити таблиці `dishes`, `meals`, `menu_messages` і індекси за схемою вище; Down у порядку `meals` → `menu_messages` → `dishes`
+- [x] тест: таблиці існують після `Migrate` (як наявні тести)
+- [x] тест: CHECK відкидає невідоме значення, `meals_once` відкидає дубль, FK відкидає неіснуючу страву
+- [x] `go test ./...` — має пройти перед задачею 2
 
 ### Task 2: Store для страв
 

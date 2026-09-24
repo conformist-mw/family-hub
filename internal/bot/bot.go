@@ -237,6 +237,13 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: "vis_reason"}, bot.onReasonTap)
 	tb.Handle(&tele.Btn{Unique: "rem_chore"}, bot.onChoreTap)
 
+	// The morning menu reads the local catalogue and needs no model, so its
+	// buttons are live on every deploy — including one that sent a menu
+	// before MENU_TIME was switched off.
+	tb.Handle(&tele.Btn{Unique: menuPickUnique}, bot.onMenuPick)
+	tb.Handle(&tele.Btn{Unique: menuShufUnique}, bot.onMenuShuf)
+	tb.Handle(&tele.Btn{Unique: menuLeftUnique}, bot.onMenuLeft)
+
 	// Appointments. /list, /week and their callbacks only read and edit stored
 	// rows, so they work with or without a parser. OnText is registered
 	// unconditionally too: it also delivers the reply to a field-edit prompt

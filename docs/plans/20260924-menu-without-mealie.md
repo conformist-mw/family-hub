@@ -391,15 +391,15 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/store/menu_messages_test.go`
 - Modify: `internal/bot/bot.go` (реєстрація `menu_pick`, `menu_shuf`, `menu_left`)
 
-- [ ] store: `MenuMessage(date)`, `SaveMenuMessage`, `AppendShown(date, meal, ids)` у транзакції (два одночасні 🔀 не гублять одне одного)
-- [ ] `buildMenu(now) (menuState, ok)`: нема рядка за сьогодні; `Pick` для обох прийомів з exclude показаного вчора; `Leftovers(вчора)`; обидва прийоми порожні → `ok=false`
-- [ ] `menuView(state) (text, markup)` — розкладка з Technical Details, `shorten`, ✅ + ім'я, `withAppButton`
-- [ ] `applyMenuTap(now, unique, data, who)` — pick / shuf / left; дата з даних ≠ сьогодні → «це меню вже минуло», нічого не пише; поточні рядки — з клавіатури повідомлення
-- [ ] тонкі `sendMenu` і хендлери (відправка, `SaveMenuMessage`, `c.Edit` з терпимістю до `ErrSameMessageContent`)
-- [ ] тести store: `AppendShown` накопичує, `MenuMessage` повертає збережене
-- [ ] тести `menuView`: з/без залишків, з вибором, порожній прийом; round-trip клавіатури через `asTelegramSentIt`
-- [ ] тести `buildMenu`/`applyMenuTap` на SQLite: pick пише `planned`, pick іншої — заміна, shuf не повторює показане, застаріла дата не пише, повторний `buildMenu` за той самий день → `ok=false`, порожній каталог → `ok=false`
-- [ ] `go test ./...` — має пройти перед задачею 7
+- [x] store: `MenuMessage(date)`, `SaveMenuMessage`, `AppendShown(date, meal, ids)` у транзакції (два одночасні 🔀 не гублять одне одного)
+- [x] `buildMenu(now) (menuState, ok)`: нема рядка за сьогодні; `Pick` для обох прийомів з exclude показаного вчора; `Leftovers(вчора)`; обидва прийоми порожні → `ok=false`
+- [x] `menuView(state) (text, markup)` — розкладка з Technical Details, `shorten`, ✅ + ім'я, `withAppButton`
+- [x] `applyMenuTap(now, unique, data, who)` — pick / shuf / left; дата з даних ≠ сьогодні → «це меню вже минуло», нічого не пише; поточні рядки — з клавіатури повідомлення
+- [x] тонкі `sendMenu` і хендлери (відправка, `SaveMenuMessage`, `c.Edit` з терпимістю до `ErrSameMessageContent`)
+- [x] тести store: `AppendShown` накопичує, `MenuMessage` повертає збережене
+- [x] тести `menuView`: з/без залишків, з вибором, порожній прийом; round-trip клавіатури через `asTelegramSentIt`
+- [x] тести `buildMenu`/`applyMenuTap` на SQLite: pick пише `planned`, pick іншої — заміна, shuf не повторює показане, застаріла дата не пише, повторний `buildMenu` за той самий день → `ok=false`, порожній каталог → `ok=false`
+- [x] `go test ./...` — має пройти перед задачею 7
 
 ### Task 7: Журнал готування на локальних стравах
 

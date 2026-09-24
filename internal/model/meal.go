@@ -37,3 +37,16 @@ type MealEntry struct {
 func ValidMeal(m string) bool {
 	return m == MealLunch || m == MealDinner
 }
+
+// MenuMessage is the morning menu of one day: where it was posted, and every
+// dish it has offered for each meal, the shuffles included. Shown outlives
+// the message on purpose — what was offered yesterday is kept out of today's
+// menu, so a dish nobody picks does not sit in the window for ever.
+type MenuMessage struct {
+	Date      string // YYYY-MM-DD, local
+	ChatID    int64
+	MessageID int64
+	// Shown maps MealLunch/MealDinner to dish ids in the order they were
+	// first offered, each once.
+	Shown map[string][]int64
+}

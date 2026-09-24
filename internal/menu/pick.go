@@ -30,6 +30,15 @@ func (m Meal) Title() string {
 	return "Обід"
 }
 
+// Accusative is the meal as it reads after "на": "на обід", "на вечерю".
+// Beside Title for the same reason.
+func (m Meal) Accusative() string {
+	if m == Dinner {
+		return "вечерю"
+	}
+	return "обід"
+}
+
 // IsWeekend reports whether weekend-only dishes (delivery, bought ready-made)
 // may be offered. Friday dinner counts: the week is over by then, and that is
 // when the family actually orders in.
@@ -63,8 +72,14 @@ func RollNew(rnd *rand.Rand) bool {
 	return rnd.IntN(newChance) == 0
 }
 
-// Pick chooses up to n dishes for one meal on date. shownToday and
-// shownYesterday are the dishes the morning message already offered; they are
+// Exclude is what the morning messages already offered: Today on this
+// morning's message, Yesterday on yesterday's. Named fields rather than two
+// adjacent sets in Pick's signature, where swapping them would compile.
+type Exclude struct {
+	Today, Yesterday map[int64]bool
+}
+
+// Pick chooses up to n dishes for one meal on date. The shown dishes are
 // kept out so a shuffle brings something new and a dish nobody picks
 // yesterday does not sit in the window forever. When they exhaust the pool,
 // yesterday's are let back in first, then today's — the shuffle has gone
@@ -77,7 +92,7 @@ func RollNew(rnd *rand.Rand) bool {
 //
 // With withNew, one proposed dish (the menu's 🆕) replaces the last regular
 // one, if a proposal fits; without it proposals are never offered.
-func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterday map[int64]bool, n int, withNew bool, rnd *rand.Rand) []model.Dish {
+func Pick(cands []Candidate, date time.Time, meal Meal, shown Exclude, n int, withNew bool, rnd *rand.Rand) []model.Dish {
 	if n <= 0 {
 		return nil
 	}
@@ -94,7 +109,7 @@ func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterd
 		}
 	}
 
-	pool := fresh(active, shownToday, shownYesterday)
+	pool := fresh(active, shown)
 	rnd.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
 	slices.SortStableFunc(pool, func(a, b Candidate) int { return a.LastSeen.Compare(b.LastSeen) })
 	window := pool[:min(len(pool), max(2*n, n+3))]
@@ -108,7 +123,7 @@ func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterd
 	if !withNew {
 		return out
 	}
-	newPool := without(proposed, shownToday, shownYesterday)
+	newPool := without(proposed, shown.Today, shown.Yesterday)
 	if len(newPool) == 0 {
 		return out
 	}
@@ -132,11 +147,11 @@ func fits(d model.Dish, date time.Time, meal Meal) bool {
 
 // fresh drops what was shown, relaxing the exclusion in two steps when it
 // would leave nothing: yesterday's first, then today's.
-func fresh(pool []Candidate, today, yesterday map[int64]bool) []Candidate {
-	if out := without(pool, today, yesterday); len(out) > 0 {
+func fresh(pool []Candidate, shown Exclude) []Candidate {
+	if out := without(pool, shown.Today, shown.Yesterday); len(out) > 0 {
 		return out
 	}
-	if out := without(pool, today); len(out) > 0 {
+	if out := without(pool, shown.Today); len(out) > 0 {
 		return out
 	}
 	return slices.Clone(pool)

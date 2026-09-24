@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"familyhub/internal/model"
 )
 
 type Recognizer struct {
@@ -168,6 +170,14 @@ func userPrompt(in Input) string {
 	return sb.String()
 }
 
+// dishMeals and dishDays are the values a dish's meal and days take, the
+// default first: the schemas' enums and oneOf's fallback read the same lists,
+// built from the model's constants so they cannot drift from the CHECK.
+var (
+	dishMeals = []string{model.DishMealAny, model.MealLunch, model.MealDinner}
+	dishDays  = []string{model.DishDaysAny, model.DishDaysWeekend}
+)
+
 var itemSchema = map[string]any{
 	"type": "array",
 	"items": map[string]any{
@@ -177,8 +187,8 @@ var itemSchema = map[string]any{
 			"id":           map[string]any{"type": []string{"integer", "null"}},
 			"confidence":   map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
 			"alternatives": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
-			"meal":         map[string]any{"type": "string", "enum": []string{"lunch", "dinner", "any"}},
-			"days":         map[string]any{"type": "string", "enum": []string{"any", "weekend"}},
+			"meal":         map[string]any{"type": "string", "enum": dishMeals},
+			"days":         map[string]any{"type": "string", "enum": dishDays},
 		},
 		"required":             []string{"name", "id", "confidence", "alternatives", "meal", "days"},
 		"additionalProperties": false,
@@ -190,7 +200,7 @@ var responseSchema = map[string]any{
 	"properties": map[string]any{
 		"items": itemSchema,
 		"note":  map[string]any{"type": "string"},
-		"slot":  map[string]any{"type": "string", "enum": []string{"lunch", "dinner", ""}},
+		"slot":  map[string]any{"type": "string", "enum": []string{model.MealLunch, model.MealDinner, ""}},
 		"date":  map[string]any{"type": "string"},
 	},
 	"required":             []string{"items", "note", "slot", "date"},
@@ -235,8 +245,8 @@ func parseGuess(raw []byte, catalogue []DishRef) (Guess, error) {
 		it := Item{
 			Name:       strings.TrimSpace(ri.Name),
 			Confidence: ri.Confidence,
-			Meal:       oneOf(ri.Meal, "any", "lunch", "dinner"),
-			Days:       oneOf(ri.Days, "any", "weekend"),
+			Meal:       oneOf(ri.Meal, dishMeals...),
+			Days:       oneOf(ri.Days, dishDays...),
 		}
 		if ri.ID != nil {
 			if d, ok := byID[*ri.ID]; ok {
@@ -247,7 +257,9 @@ func parseGuess(raw []byte, catalogue []DishRef) (Guess, error) {
 			}
 		}
 		// One dish read twice is one dish: the same catalogue entry, or the
-		// same proposed name, must not turn into two rows of the journal.
+		// same proposed name, must not turn into two rows of the journal. The
+		// name key is a pre-filter only; EnsureDish folds the rest (spacing,
+		// apostrophes) by store.NameKey when the dish is created.
 		key := "new:" + strings.ToLower(it.Name)
 		if it.Known() {
 			key = fmt.Sprintf("id:%d", it.Dish.ID)
@@ -273,7 +285,7 @@ func parseGuess(raw []byte, catalogue []DishRef) (Guess, error) {
 		}
 	}
 
-	if g.Slot != "lunch" && g.Slot != "dinner" {
+	if !model.ValidMeal(g.Slot) {
 		g.Slot = ""
 	}
 	if _, err := time.Parse("2006-01-02", g.Date); err != nil {

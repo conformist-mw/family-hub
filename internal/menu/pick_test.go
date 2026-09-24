@@ -100,7 +100,7 @@ func TestPickPool(t *testing.T) {
 	}
 	for _, tc := range cases {
 		for seed := range uint64(20) {
-			got := ids(Pick(cands, tc.date, tc.meal, nil, nil, 10, false, seeded(seed)))
+			got := ids(Pick(cands, tc.date, tc.meal, Exclude{}, 10, false, seeded(seed)))
 			slices.Sort(got)
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("%s (seed %d): got %v, want %v", tc.name, seed, got, tc.want)
@@ -122,7 +122,7 @@ func TestPickPrefersNeverSeen(t *testing.T) {
 	}
 	hit := map[int64]bool{}
 	for seed := range uint64(50) {
-		got := ids(Pick(cands, thursday, Lunch, nil, nil, 1, false, seeded(seed)))
+		got := ids(Pick(cands, thursday, Lunch, Exclude{}, 1, false, seeded(seed)))
 		if len(got) != 1 || got[0] > 4 {
 			t.Fatalf("seed %d: got %v, want one of the never-seen 1..4", seed, got)
 		}
@@ -143,7 +143,7 @@ func TestPickPrefersOldest(t *testing.T) {
 		cands = append(cands, c)
 	}
 	for seed := range uint64(50) {
-		for _, id := range ids(Pick(cands, thursday, Lunch, nil, nil, 1, false, seeded(seed))) {
+		for _, id := range ids(Pick(cands, thursday, Lunch, Exclude{}, 1, false, seeded(seed))) {
 			if id < 7 {
 				t.Fatalf("seed %d: picked %d, want one of the four oldest 7..10", seed, id)
 			}
@@ -164,7 +164,7 @@ func TestPickExcludeAndCircle(t *testing.T) {
 		{"both exhausted, full circle", set(1, 2), set(3, 4, 1, 2), []int64{3, 4}},
 	}
 	for _, tc := range cases {
-		got := ids(Pick(cands, thursday, Lunch, tc.today, tc.yesterday, 10, false, seeded(1)))
+		got := ids(Pick(cands, thursday, Lunch, Exclude{Today: tc.today, Yesterday: tc.yesterday}, 10, false, seeded(1)))
 		slices.Sort(got)
 		if !slices.Equal(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
@@ -182,7 +182,7 @@ func TestPickAtMostOneNew(t *testing.T) {
 	}
 	for seed := range uint64(100) {
 		for _, withNew := range []bool{false, true} {
-			got := Pick(cands, thursday, Lunch, nil, nil, 3, withNew, seeded(seed))
+			got := Pick(cands, thursday, Lunch, Exclude{}, 3, withNew, seeded(seed))
 			if len(got) != 3 {
 				t.Fatalf("seed %d: got %d dishes, want 3", seed, len(got))
 			}
@@ -224,7 +224,7 @@ func TestPickNewRespectsPoolRules(t *testing.T) {
 		dish(102, model.DishMealAny, model.DishDaysAny, model.DishProposed),
 	}
 	for seed := range uint64(100) {
-		for _, d := range Pick(cands, thursday, Lunch, set(102), nil, 3, true, seeded(seed)) {
+		for _, d := range Pick(cands, thursday, Lunch, Exclude{Today: set(102)}, 3, true, seeded(seed)) {
 			if d.Status == model.DishProposed {
 				t.Fatalf("seed %d: offered proposed %d, but weekend-only, dinner-only and already shown should all be out", seed, d.ID)
 			}
@@ -240,7 +240,7 @@ func TestPickNewTopsUpShortMenu(t *testing.T) {
 		dish(100, model.DishMealAny, model.DishDaysAny, model.DishProposed),
 	}
 	for seed := range uint64(50) {
-		got := ids(Pick(cands, thursday, Lunch, nil, nil, 3, true, seeded(seed)))
+		got := ids(Pick(cands, thursday, Lunch, Exclude{}, 3, true, seeded(seed)))
 		if len(got) != 2 || got[0] != 1 || got[1] != 100 {
 			t.Fatalf("seed %d: got %v, want the only active dish and the proposal after it", seed, got)
 		}
@@ -262,7 +262,7 @@ func TestPickRotatesOverDays(t *testing.T) {
 	var prev []int64
 	for day := range 10 {
 		date := monday.AddDate(0, 0, day)
-		got := ids(Pick(cands, date, Lunch, nil, yesterday, 3, false, rnd))
+		got := ids(Pick(cands, date, Lunch, Exclude{Yesterday: yesterday}, 3, false, rnd))
 		if len(got) != 3 {
 			t.Fatalf("day %d: got %v, want 3 dishes", day, got)
 		}
@@ -285,20 +285,20 @@ func TestPickRotatesOverDays(t *testing.T) {
 }
 
 func TestPickEdges(t *testing.T) {
-	if got := Pick(nil, thursday, Lunch, nil, nil, 3, false, seeded(1)); len(got) != 0 {
+	if got := Pick(nil, thursday, Lunch, Exclude{}, 3, false, seeded(1)); len(got) != 0 {
 		t.Errorf("empty catalogue: got %v, want nothing", ids(got))
 	}
 	onlyDinner := []Candidate{dish(1, model.MealDinner, model.DishDaysAny, model.DishActive)}
-	if got := Pick(onlyDinner, thursday, Lunch, nil, nil, 3, false, seeded(1)); len(got) != 0 {
+	if got := Pick(onlyDinner, thursday, Lunch, Exclude{}, 3, false, seeded(1)); len(got) != 0 {
 		t.Errorf("nothing for lunch: got %v, want nothing", ids(got))
 	}
 	two := []Candidate{active(1), active(2)}
-	got := ids(Pick(two, thursday, Lunch, nil, nil, 5, false, seeded(1)))
+	got := ids(Pick(two, thursday, Lunch, Exclude{}, 5, false, seeded(1)))
 	slices.Sort(got)
 	if !slices.Equal(got, []int64{1, 2}) {
 		t.Errorf("n larger than the pool: got %v, want the whole pool", got)
 	}
-	if got := Pick(two, thursday, Lunch, nil, nil, 0, false, seeded(1)); got != nil {
+	if got := Pick(two, thursday, Lunch, Exclude{}, 0, false, seeded(1)); got != nil {
 		t.Errorf("n=0: got %v, want nil", ids(got))
 	}
 }
@@ -306,7 +306,7 @@ func TestPickEdges(t *testing.T) {
 func TestPickDoesNotReorderInput(t *testing.T) {
 	cands := []Candidate{active(1), active(2), active(3), active(4), active(5)}
 	before := slices.Clone(cands)
-	Pick(cands, thursday, Lunch, nil, nil, 3, false, seeded(3))
+	Pick(cands, thursday, Lunch, Exclude{}, 3, false, seeded(3))
 	if !slices.Equal(cands, before) {
 		t.Error("Pick reordered the caller's candidates")
 	}

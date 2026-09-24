@@ -79,7 +79,7 @@ func TestSuggestViewDecisionOutranksMaybe(t *testing.T) {
 	dishes[0].Status = model.DishActive
 	dishes[0].maybe = true
 	text, markup := suggestView(dishes)
-	if strings.Contains(text, "Подумаємо") || strings.Contains(buttonTexts(markup)[0][1], chosenPrefix) {
+	if strings.Contains(text, "Подумаємо") || strings.Contains(buttonTexts(markup)[0][1], answeredPrefix) {
 		t.Fatalf("a decided dish still shows the maybe:\n%s\n%v", text, buttonTexts(markup))
 	}
 }

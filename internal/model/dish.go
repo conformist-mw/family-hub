@@ -47,3 +47,13 @@ func ValidDishStatus(s string) bool {
 	}
 	return false
 }
+
+// ValidDishMeal and ValidDishDays are ValidDishStatus for the other two
+// columns with a CHECK, for writes whose values come from outside.
+func ValidDishMeal(m string) bool {
+	return m == DishMealAny || ValidMeal(m)
+}
+
+func ValidDishDays(d string) bool {
+	return d == DishDaysAny || d == DishDaysWeekend
+}

@@ -67,9 +67,24 @@ func TestSuggestRequest(t *testing.T) {
 		t.Error("the prompt still rules out fish dishes")
 	}
 	schema, _ := json.Marshal(body["response_format"])
-	for _, want := range []string{`"strict":true`, `"enum":["lunch","dinner","any"]`, `"enum":["any","weekend"]`} {
+	for _, want := range []string{`"strict":true`, `"enum":["any","lunch","dinner"]`, `"enum":["any","weekend"]`} {
 		if !strings.Contains(string(schema), want) {
 			t.Errorf("schema missing %s", want)
+		}
+	}
+}
+
+// The prompt spells the count out in words; it has to say the number the
+// parser keeps.
+func TestSuggestPromptAsksForMaxSuggestions(t *testing.T) {
+	words := map[int]string{3: "три"}
+	w, ok := words[maxSuggestions]
+	if !ok {
+		t.Fatalf("maxSuggestions = %d: update suggestSystemPrompt and this table", maxSuggestions)
+	}
+	for _, want := range []string{"пропонуєш " + w + " нові страви", "Рівно " + w + " страви"} {
+		if !strings.Contains(suggestSystemPrompt, want) {
+			t.Errorf("prompt lacks %q", want)
 		}
 	}
 }

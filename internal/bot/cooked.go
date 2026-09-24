@@ -178,7 +178,7 @@ func (b *Bot) onPhoto(c tele.Context) error {
 	cmd, rest := splitCommand(caption)
 	var pinned *plateFor
 	if e, ok := b.awaiting.takeMealOther(senderID(c), b.now()); ok {
-		pinned = e.plateFor()
+		pinned = &e.plateFor
 	} else if !isPrivate(c) && cmd != "/cooked" {
 		return nil
 	}
@@ -218,10 +218,6 @@ type plateFor struct {
 	retried bool
 }
 
-func (e awaitingEntry) plateFor() *plateFor {
-	return &plateFor{date: e.date, meal: e.meal, retried: e.retried}
-}
-
 // again is the question to arm once more after an answer that could not be
 // read, or nil. Only once: whatever the person writes next in the group goes
 // to the model while the question is armed, so re-arming on every failure
@@ -247,10 +243,10 @@ func (b *Bot) recognise(c tele.Context, photo []byte, mime, caption string, pinn
 	retry := func() error {
 		again := pinned.again()
 		if again == nil {
-			return c.Send("Не розпізнав 😕 Оберіть кнопкою під питанням.")
+			return c.Send("Не розпізнав 😕 Обери кнопкою під питанням.")
 		}
 		b.awaiting.setMealOther(senderID(c), *again, now)
-		return c.Send("Не розпізнав 😕 Оберіть кнопкою або напишіть чи надішліть фото ще раз.")
+		return c.Send("Не розпізнав 😕 Обери кнопкою або напиши чи надішли фото ще раз.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

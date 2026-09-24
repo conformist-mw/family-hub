@@ -66,7 +66,7 @@ func (b *Bot) onText(c tele.Context) error {
 		case awaitMealOther:
 			// Only armed by the "Інше" button, which is registered only with
 			// a recognizer, so cfg.Dish is set here.
-			return b.recognise(c, nil, "", text, e.plateFor())
+			return b.recognise(c, nil, "", text, &e.plateFor)
 		}
 		return nil
 	}

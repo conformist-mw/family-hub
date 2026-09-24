@@ -15,15 +15,16 @@ import (
 // dishes — and the apostrophe comes in three spellings depending on whose
 // keyboard typed it ("мʼясо", "м'ясо", "м’ясо").
 func NameKey(name string) string {
-	key := strings.ToLower(strings.Join(strings.Fields(name), " "))
-	return apostrophes.Replace(key)
+	return apostrophes.Replace(strings.ToLower(CleanDishName(name)))
 }
 
 var apostrophes = strings.NewReplacer("ʼ", "'", "’", "'")
 
-// cleanDishName is what gets stored as the display name: the same collapsed
+// CleanDishName is what gets stored as the display name: the same collapsed
 // whitespace as the key, but the family's own capitalisation and apostrophe.
-func cleanDishName(name string) string {
+// Exported for the Mealie import's dry run, which lists names as they would
+// be stored.
+func CleanDishName(name string) string {
 	return strings.Join(strings.Fields(name), " ")
 }
 
@@ -86,7 +87,7 @@ func (s *Store) EnsureDish(d model.Dish) (model.Dish, bool, error) {
 // unique index: the caller needs to know whether the row was already there,
 // and an ON CONFLICT DO NOTHING would only say that nothing was inserted.
 func createDishTx(tx *sql.Tx, d model.Dish) (model.Dish, bool, error) {
-	name := cleanDishName(d.Name)
+	name := CleanDishName(d.Name)
 	if name == "" {
 		return model.Dish{}, false, errors.New("store: dish name is empty")
 	}

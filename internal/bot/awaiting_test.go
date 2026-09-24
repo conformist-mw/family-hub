@@ -78,10 +78,10 @@ func TestPlateForAgainOnlyOnce(t *testing.T) {
 	a := newAwaitingStore()
 	a.setMealOther(1, *again, awaitNow)
 	e, ok := a.take(1, awaitNow)
-	if !ok || !e.plateFor().retried {
+	if !ok || !e.retried {
 		t.Fatalf("entry = %+v ok=%v, want the retried mark kept", e, ok)
 	}
-	if e.plateFor().again() != nil {
+	if e.again() != nil {
 		t.Fatal("a retried question was armed a third time")
 	}
 }

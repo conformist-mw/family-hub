@@ -228,3 +228,25 @@ func TestAddDish(t *testing.T) {
 		}
 	}
 }
+
+func TestFlagConflict(t *testing.T) {
+	for _, tc := range []struct {
+		set  []string
+		fail bool
+	}{
+		{nil, false},
+		{[]string{"apply"}, false},
+		{[]string{"add", "meal", "days"}, false},
+		{[]string{"add", "apply"}, true},
+		{[]string{"meal"}, true},
+		{[]string{"apply", "days"}, true},
+	} {
+		set := map[string]bool{}
+		for _, f := range tc.set {
+			set[f] = true
+		}
+		if err := flagConflict(set); (err != nil) != tc.fail {
+			t.Errorf("flags %v: err = %v, want failure %v", tc.set, err, tc.fail)
+		}
+	}
+}

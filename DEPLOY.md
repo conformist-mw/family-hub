@@ -114,7 +114,7 @@ appointment summaries stay off because Home Assistant sends those, while the
 chore nag, the school timetable and the menu run from here. `dish_suggest=false`
 with a day and time set means `AI_API_KEY` is missing, which the boot log also
 says as `bot: cooking log disabled (AI_API_KEY not set)`. It only falls back to
-`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminders)` when none
+`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder, school or menu clocks)` when none
 is configured. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
 `bot: billing reminders started`. Neither that one nor the pre-lesson warning

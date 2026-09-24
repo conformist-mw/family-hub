@@ -32,7 +32,9 @@
 --
 -- meals_once is the double-write guard: the same dish at the same meal of the
 -- same day is one row, whichever of the tap, the evening check and the photo
--- got there first.
+-- got there first. It leads with dish_id, so it does nothing for the reads
+-- that start from a day — the evening check, the plate card, a morning tap —
+-- which is what meals_day is for.
 --
 -- Why menu_messages keeps `shown`. A dish that is offered every morning and
 -- never picked would otherwise never age and sit at the top of the rotation
@@ -65,6 +67,7 @@ CREATE TABLE meals (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now','localtime'))
 );
 CREATE UNIQUE INDEX meals_once ON meals(dish_id, date, meal);
+CREATE INDEX meals_day ON meals(date, meal);
 
 CREATE TABLE menu_messages (
     date       TEXT PRIMARY KEY,           -- one morning menu per day
@@ -74,6 +77,7 @@ CREATE TABLE menu_messages (
 );
 
 -- +goose Down
+DROP INDEX IF EXISTS meals_day;
 DROP INDEX IF EXISTS meals_once;
 DROP TABLE IF EXISTS meals;
 DROP TABLE IF EXISTS menu_messages;

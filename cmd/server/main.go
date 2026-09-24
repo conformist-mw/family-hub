@@ -293,11 +293,12 @@ func buildHandler(webHandler, miniHandler http.Handler) http.Handler {
 	return root
 }
 
-// parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.
 // withMenuEnv sets the menu's three clocks. The menu is exempt from
 // NOTIFICATIONS_ENABLED too: HA has no part in it, the taps on its buttons
 // come back to the bot. An unset DISH_SUGGEST_DOW parses to -1, so the
-// suggestions stay off rather than landing on Sunday.
+// suggestions stay off rather than landing on Sunday. It sits outside the
+// bot.Config literal, unlike the other clocks, only as a test seam: getenv is
+// injected so main_test can check the wiring without touching the process env.
 func withMenuEnv(cfg bot.Config, getenv func(string) string) bot.Config {
 	cfg.MenuTime = getenv("MENU_TIME")
 	cfg.MenuEveningTime = getenv("MENU_EVENING_TIME")
@@ -306,6 +307,7 @@ func withMenuEnv(cfg bot.Config, getenv func(string) string) bot.Config {
 	return cfg
 }
 
+// parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.
 func parseDOW(s string) int {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -12,6 +12,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"familyhub/internal/dish"
+	"familyhub/internal/menu"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
 )
@@ -36,9 +37,10 @@ const (
 	// writes and the send room behind it.
 	suggestTimeout = 90 * time.Second
 
-	// chosenPrefix marks the answer given on a card's button. For the maybe it
-	// is also the only record of the answer, read back by suggestRefsFromMarkup.
-	chosenPrefix = "✓ "
+	// answeredPrefix marks the answer given on a card's button. For the maybe it
+	// is also the only record of the answer, read back by suggestRefsFromMarkup,
+	// so it is a plain prefix the card owns rather than the menu's chosenMark.
+	answeredPrefix = "✓ "
 )
 
 var suggUniques = []string{suggAddUnique, suggMaybeUnique, suggNoUnique}
@@ -78,7 +80,7 @@ func suggestView(dishes []suggestDish) (string, *tele.ReplyMarkup) {
 		id := strconv.FormatInt(d.ID, 10)
 		mark := func(on bool, label string) string {
 			if on {
-				return chosenPrefix + label
+				return answeredPrefix + label
 			}
 			return label
 		}
@@ -97,10 +99,8 @@ func suggestView(dishes []suggestDish) (string, *tele.ReplyMarkup) {
 func suggestWhen(meal, days string) string {
 	var when string
 	switch meal {
-	case model.MealLunch:
-		when = "на обід"
-	case model.MealDinner:
-		when = "на вечерю"
+	case model.MealLunch, model.MealDinner:
+		when = "на " + menu.Meal(meal).Accusative()
 	default:
 		when = "на обід чи вечерю"
 	}
@@ -137,7 +137,7 @@ func suggestRefsFromMarkup(m *tele.ReplyMarkup) suggestRefs {
 			if !slices.Contains(refs.ids, id) {
 				refs.ids = append(refs.ids, id)
 			}
-			if unique == suggMaybeUnique && strings.HasPrefix(btn.Text, chosenPrefix) {
+			if unique == suggMaybeUnique && strings.HasPrefix(btn.Text, answeredPrefix) {
 				refs.maybe[id] = true
 			}
 		}
@@ -354,15 +354,7 @@ func (b *Bot) onSuggestNo(c tele.Context) error    { return b.onSuggestTap(c, su
 
 func (b *Bot) onSuggestTap(c tele.Context, unique string) error {
 	dishes, toast, redraw, err := b.applySuggestTap(unique, c.Data(), currentMarkup(c))
-	if err != nil {
-		b.logger.Error("bot: suggestion tap", "unique", unique, "data", c.Data(), "err", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
-		return nil
-	}
-	_ = c.Respond(&tele.CallbackResponse{Text: toast})
-	if !redraw {
-		return nil
-	}
-	text, markup := suggestView(dishes)
-	return editIgnoringSame(c, text, b.withAppButton([]any{markup, tele.ModeHTML})...)
+	return b.respondAndRedraw(c, "suggestion", unique, toast, redraw, err, func() (string, *tele.ReplyMarkup) {
+		return suggestView(dishes)
+	})
 }

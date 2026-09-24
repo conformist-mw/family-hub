@@ -28,6 +28,8 @@ type Suggestion struct {
 
 // maxSuggestions is how many dishes one weekly message offers: enough to find
 // one worth trying, few enough that the card is answered rather than skimmed.
+// suggestSystemPrompt spells the number out («три», «Рівно три страви»), so
+// the two change together; TestSuggestPromptAsksForMaxSuggestions pins it.
 const maxSuggestions = 3
 
 // suggestSystemPrompt carries the household's standing tastes. They change
@@ -59,8 +61,8 @@ var suggestSchema = map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"name": map[string]any{"type": "string"},
-					"meal": map[string]any{"type": "string", "enum": []string{"lunch", "dinner", "any"}},
-					"days": map[string]any{"type": "string", "enum": []string{"any", "weekend"}},
+					"meal": map[string]any{"type": "string", "enum": dishMeals},
+					"days": map[string]any{"type": "string", "enum": dishDays},
 					"note": map[string]any{"type": "string"},
 				},
 				"required":             []string{"name", "meal", "days", "note"},
@@ -135,6 +137,9 @@ func parseSuggestions(raw []byte) ([]Suggestion, error) {
 	var out []Suggestion
 	seen := map[string]bool{}
 	for _, d := range rs.Dishes {
+		// Only a pre-filter against the model repeating itself within one
+		// answer: the caller dedupes against the catalogue by store.NameKey,
+		// which also folds apostrophes, and CreateDish checks it once more.
 		name := strings.Join(strings.Fields(d.Name), " ")
 		key := strings.ToLower(name)
 		if name == "" || seen[key] {
@@ -143,8 +148,8 @@ func parseSuggestions(raw []byte) ([]Suggestion, error) {
 		seen[key] = true
 		out = append(out, Suggestion{
 			Name: name,
-			Meal: oneOf(d.Meal, "any", "lunch", "dinner"),
-			Days: oneOf(d.Days, "any", "weekend"),
+			Meal: oneOf(d.Meal, dishMeals...),
+			Days: oneOf(d.Days, dishDays...),
 			Note: strings.TrimSpace(d.Note),
 		})
 		if len(out) == maxSuggestions {

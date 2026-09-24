@@ -21,13 +21,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"familyhub/internal/db"
@@ -45,6 +45,13 @@ func main() {
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	set := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if err := flagConflict(set); err != nil {
+		logger.Error("flags", "err", err)
+		os.Exit(2)
+	}
 
 	if *add != "" {
 		database, err := db.Open(*dbPath)
@@ -123,7 +130,7 @@ type skip struct {
 // only ever there to feed the meal-plan rules, and an untagged salad is as
 // good at lunch as at dinner.
 func mapRecipe(r mealie.Recipe) (model.Dish, string) {
-	name := strings.Join(strings.Fields(r.Name), " ")
+	name := store.CleanDishName(r.Name)
 	if name == "" {
 		return model.Dish{}, "no name"
 	}
@@ -216,16 +223,27 @@ func importDishes(st *store.Store, dishes []model.Dish, w io.Writer) (created, e
 	return created, existed, nil
 }
 
+// flagConflict refuses the combinations that would otherwise be silently
+// ignored: -add writes at once, so an -apply beside it reads as if it were
+// needed and is not; -meal and -days mean nothing to the import.
+func flagConflict(set map[string]bool) error {
+	if set["add"] && set["apply"] {
+		return errors.New("-add writes the dish at once; -apply is for the import")
+	}
+	if !set["add"] && (set["meal"] || set["days"]) {
+		return errors.New("-meal and -days only go with -add")
+	}
+	return nil
+}
+
 // addDish writes one active dish through CreateDish, so a name already in the
 // catalogue — in any spelling NameKey folds together — is reported, not
 // doubled or changed.
 func addDish(st *store.Store, name, meal, days string, w io.Writer) error {
-	switch meal {
-	case model.MealLunch, model.MealDinner, model.DishMealAny:
-	default:
+	if !model.ValidDishMeal(meal) {
 		return fmt.Errorf("-meal %q: want lunch, dinner or any", meal)
 	}
-	if days != model.DishDaysAny && days != model.DishDaysWeekend {
+	if !model.ValidDishDays(days) {
 		return fmt.Errorf("-days %q: want any or weekend", days)
 	}
 	got, existed, err := st.CreateDish(model.Dish{Name: name, Meal: meal, Days: days, Status: model.DishActive})

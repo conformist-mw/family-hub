@@ -100,6 +100,11 @@ func (s *Store) AppendShown(date, meal string, ids []int64) error {
 // did, shuffles included. The menu ranks a dish by the later of this and
 // LastSeen: a dish offered every other morning and never picked has no plan
 // or meal to age it, and would otherwise stay the "longest unseen" for good.
+//
+// It reads the whole table on every morning build and every 🔀. That is one
+// short row a day — a few thousand after a decade, milliseconds to decode —
+// so it is not bounded by a date: a cutoff would make every dish last shown
+// before it rank by LastSeen alone, older than it really is.
 func (s *Store) LastShown() (map[int64]time.Time, error) {
 	rows, err := s.db.Query(`SELECT date, shown FROM menu_messages ORDER BY date`)
 	if err != nil {

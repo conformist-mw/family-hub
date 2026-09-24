@@ -3,8 +3,6 @@ package bot
 import (
 	"sync"
 	"time"
-
-	"familyhub/internal/menu"
 )
 
 // awaitingStore tracks users whose next message answers a question the bot
@@ -17,27 +15,26 @@ type awaitingStore struct {
 	items map[int64]awaitingEntry
 }
 
-// What an awaited reply is for. The kind is explicit rather than read off
-// which fields are set: an entry for a meal has a zero appointment id, and
-// taking it for an edit would reschedule appointment 0.
+// awaitKind is what an awaited reply is for. The kind is explicit rather than
+// read off which fields are set: an entry for a meal has a zero appointment
+// id, and taking it for an edit would reschedule appointment 0.
+type awaitKind string
+
 const (
-	awaitApptEdit  = "appt_edit"
-	awaitMealOther = "meal_other"
+	awaitApptEdit  awaitKind = "appt_edit"
+	awaitMealOther awaitKind = "meal_other"
 )
 
 type awaitingEntry struct {
-	kind string
+	kind awaitKind
 
 	// awaitApptEdit: the appointment and which of its fields.
 	apptID int64
 	field  string // "time" | "title" | "who"
 
-	// awaitMealOther: the meal the evening check asked about, local midnight
-	// of its day, and whether this is the question asked again after an
-	// answer the model could not read.
-	date    time.Time
-	meal    menu.Meal
-	retried bool
+	// awaitMealOther: the meal the evening check asked about, handed on to
+	// the recognition as is.
+	plateFor
 
 	created time.Time
 }
@@ -57,7 +54,7 @@ func (a *awaitingStore) setEdit(senderID, apptID int64, field string, now time.T
 
 // setMealOther arms the "Інше" answer of the evening check for the sender.
 func (a *awaitingStore) setMealOther(senderID int64, p plateFor, now time.Time) {
-	a.put(senderID, awaitingEntry{kind: awaitMealOther, date: p.date, meal: p.meal, retried: p.retried}, now)
+	a.put(senderID, awaitingEntry{kind: awaitMealOther, plateFor: p}, now)
 }
 
 func (a *awaitingStore) put(senderID int64, e awaitingEntry, now time.Time) {
@@ -81,7 +78,7 @@ func (a *awaitingStore) takeMealOther(senderID int64, now time.Time) (awaitingEn
 	return a.takeKind(senderID, awaitMealOther, now)
 }
 
-func (a *awaitingStore) takeKind(senderID int64, kind string, now time.Time) (awaitingEntry, bool) {
+func (a *awaitingStore) takeKind(senderID int64, kind awaitKind, now time.Time) (awaitingEntry, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	e, ok := a.items[senderID]

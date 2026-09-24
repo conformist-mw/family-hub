@@ -204,8 +204,8 @@ func TestRecordEatenActivatesProposed(t *testing.T) {
 	if _, _, err := st.RecordEaten(liver.ID, today, model.MealDinner, "Олег", false); err != nil {
 		t.Fatalf("record rejected: %v", err)
 	}
-	if d, _ := st.Dish(liver.ID); d.Status != model.DishRejected {
-		t.Errorf("eaten rejected dish status = %q, want rejected", d.Status)
+	if d, err := st.Dish(liver.ID); err != nil || d.Status != model.DishRejected {
+		t.Errorf("eaten rejected dish status = %q (err %v), want rejected", d.Status, err)
 	}
 
 	// A plan alone is not eating it: the dish stays a proposal.
@@ -213,8 +213,8 @@ func TestRecordEatenActivatesProposed(t *testing.T) {
 	if _, err := st.PlanMeal(udon.ID, today, model.MealDinner, "Олег", false); err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if d, _ := st.Dish(udon.ID); d.Status != model.DishProposed {
-		t.Errorf("planned proposal status = %q, want proposed", d.Status)
+	if d, err := st.Dish(udon.ID); err != nil || d.Status != model.DishProposed {
+		t.Errorf("planned proposal status = %q (err %v), want proposed", d.Status, err)
 	}
 }
 
@@ -283,8 +283,8 @@ func TestTurnDown(t *testing.T) {
 	if d.Status != model.DishRejected {
 		t.Errorf("returned status = %q, want rejected", d.Status)
 	}
-	if got, _ := st.Dish(solianka.ID); got.Status != model.DishRejected {
-		t.Errorf("stored status = %q, want rejected", got.Status)
+	if got, err := st.Dish(solianka.ID); err != nil || got.Status != model.DishRejected {
+		t.Errorf("stored status = %q (err %v), want rejected", got.Status, err)
 	}
 	if got := mealsOn(t, st, today); len(got) != 1 || got[0].DishID != plov.ID {
 		t.Errorf("today = %+v, want only the dinner plan", got)

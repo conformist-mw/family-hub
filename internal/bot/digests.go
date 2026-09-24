@@ -31,7 +31,7 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		return
 	}
 	if !b.cfg.anyDigestEnabled() {
-		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminders)")
+		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder, school or menu clocks)")
 		return
 	}
 	pushOn := b.cfg.reminderPushEnabled()

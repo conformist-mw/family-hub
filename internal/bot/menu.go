@@ -243,7 +243,7 @@ func (b *Bot) buildMenu(now time.Time, rnd *rand.Rand) (menuState, bool, error) 
 		order = []menu.Meal{menu.Dinner, menu.Lunch}
 	}
 	for _, meal := range order {
-		picked := menu.Pick(cands, now, meal, onMessage, shownYesterday, menuOptions, withNew, rnd)
+		picked := menu.Pick(cands, now, meal, menu.Exclude{Today: onMessage, Yesterday: shownYesterday}, menuOptions, withNew, rnd)
 		refs.offered[meal] = dishIDs(picked)
 		if slices.ContainsFunc(picked, func(d model.Dish) bool { return d.Status == model.DishProposed }) {
 			withNew = false
@@ -380,7 +380,7 @@ func (b *Bot) shuffleMeal(now time.Time, date string, meal menu.Meal, refs menuR
 	}
 	withNew := slices.ContainsFunc(refs.offered[meal], func(id int64) bool { return proposed[id] })
 
-	ids := dishIDs(menu.Pick(cands, now, meal, exclude, yesterday, menuOptions, withNew, rnd))
+	ids := dishIDs(menu.Pick(cands, now, meal, menu.Exclude{Today: exclude, Yesterday: yesterday}, menuOptions, withNew, rnd))
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -550,8 +550,17 @@ func (b *Bot) onMenuLeft(c tele.Context) error { return b.onMenuTap(c, menuLeftU
 
 func (b *Bot) onMenuTap(c tele.Context, unique string) error {
 	st, toast, redraw, err := b.applyMenuTap(b.now(), unique, c.Data(), b.senderName(c), currentMarkup(c), menuRand())
+	return b.respondAndRedraw(c, "menu", unique, toast, redraw, err, func() (string, *tele.ReplyMarkup) {
+		return menuView(st)
+	})
+}
+
+// respondAndRedraw finishes a tap on the menu, the evening check or the
+// suggestion card: the toast, then the redraw of the tapped message when the
+// tap changed something. what names the message in the log.
+func (b *Bot) respondAndRedraw(c tele.Context, what, unique, toast string, redraw bool, err error, render func() (string, *tele.ReplyMarkup)) error {
 	if err != nil {
-		b.logger.Error("bot: menu tap", "unique", unique, "data", c.Data(), "err", err)
+		b.logger.Error("bot: "+what+" tap", "unique", unique, "data", c.Data(), "err", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
 		return nil
 	}
@@ -559,7 +568,7 @@ func (b *Bot) onMenuTap(c tele.Context, unique string) error {
 	if !redraw {
 		return nil
 	}
-	text, markup := menuView(st)
+	text, markup := render()
 	return editIgnoringSame(c, text, b.withAppButton([]any{markup, tele.ModeHTML})...)
 }
 
@@ -643,19 +652,18 @@ func (s eveningState) planned(meal menu.Meal) (model.MealEntry, bool) {
 	return model.MealEntry{}, false
 }
 
-// eveningView renders the check. ok is false when no meal is left to ask
-// about — nothing to send in the evening, and a redraw with no buttons once
-// the last meal is answered.
+// eveningView renders the check. Once the last meal is answered the redraw
+// has no buttons left; whether there is anything to send in the first place
+// is buildEvening's call.
 //
 // Every button names its meal: the two meals' rows sit one under the other,
 // and a bare "Не вдома" would not say which.
-func eveningView(s eveningState) (string, *tele.ReplyMarkup, bool) {
+func eveningView(s eveningState) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	sb.WriteString("🍽 <b>Що їли сьогодні?</b>\n")
 
 	mk := &tele.ReplyMarkup{}
 	var rows []tele.Row
-	asking := false
 	for _, meal := range menuMeals {
 		lower := strings.ToLower(meal.Title())
 		if eaten := s.eaten(meal); len(eaten) > 0 {
@@ -670,7 +678,6 @@ func eveningView(s eveningState) (string, *tele.ReplyMarkup, bool) {
 			fmt.Fprintf(&sb, "\n%s: не їли вдома", meal.Title())
 			continue
 		}
-		asking = true
 		id := func(dishID int64) string { return strconv.FormatInt(dishID, 10) }
 
 		if p, ok := s.planned(meal); ok {
@@ -711,7 +718,7 @@ func eveningView(s eveningState) (string, *tele.ReplyMarkup, bool) {
 		rows = append(rows, append(last, mk.Data("Не вдома · "+lower, eveHomeUnique, s.date, string(meal))))
 	}
 	mk.Inline(rows...)
-	return sb.String(), mk, asking
+	return sb.String(), mk
 }
 
 // eveningOpenFromMarkup reads back which meals a check still asks about: the
@@ -894,7 +901,7 @@ func (b *Bot) sendEveningCheck(now time.Time) {
 		b.logger.Info("bot: no evening check to send (every meal answered, or nothing to answer with)", "date", st.date)
 		return
 	}
-	text, markup, _ := eveningView(st)
+	text, markup := eveningView(st)
 	if _, err := b.sendToGroup(text, markup, tele.ModeHTML); err != nil {
 		b.logger.Error("bot: send evening check", "err", err)
 	}
@@ -907,17 +914,9 @@ func (b *Bot) onEveningRej(c tele.Context) error  { return b.onEveningTap(c, eve
 
 func (b *Bot) onEveningTap(c tele.Context, unique string) error {
 	st, toast, redraw, err := b.applyEveningTap(b.now(), unique, c.Data(), b.senderName(c), currentMarkup(c))
-	if err != nil {
-		b.logger.Error("bot: evening tap", "unique", unique, "data", c.Data(), "err", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Не вдалося"})
-		return nil
-	}
-	_ = c.Respond(&tele.CallbackResponse{Text: toast})
-	if !redraw {
-		return nil
-	}
-	text, markup, _ := eveningView(st)
-	return editIgnoringSame(c, text, b.withAppButton([]any{markup, tele.ModeHTML})...)
+	return b.respondAndRedraw(c, "evening", unique, toast, redraw, err, func() (string, *tele.ReplyMarkup) {
+		return eveningView(st)
+	})
 }
 
 // onEveningOther arms the tapper's next message — text or a photo — as the
@@ -936,17 +935,9 @@ func (b *Bot) onEveningOther(c tele.Context) error {
 	b.awaiting.setMealOther(senderID(c), plateFor{date: day, meal: meal}, now)
 	_ = c.Respond()
 	// In the group the question is addressed: only the tapper's reply counts.
-	ask := fmt.Sprintf("Що їли на %s? Напишіть або надішліть фото.", mealAccusative(meal))
+	ask := fmt.Sprintf("Що їли на %s? Напиши або надішли фото.", meal.Accusative())
 	if name := b.senderName(c); name != "" {
-		ask = fmt.Sprintf("%s, що їли на %s? Напишіть або надішліть фото.", html.EscapeString(name), mealAccusative(meal))
+		ask = fmt.Sprintf("%s, що їли на %s? Напиши або надішли фото.", html.EscapeString(name), meal.Accusative())
 	}
 	return c.Send(ask, tele.ModeHTML)
-}
-
-// mealAccusative is the meal as it reads after "на": "на обід", "на вечерю".
-func mealAccusative(m menu.Meal) string {
-	if m == menu.Dinner {
-		return "вечерю"
-	}
-	return "обід"
 }

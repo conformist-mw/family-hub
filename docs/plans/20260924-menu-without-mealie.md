@@ -208,7 +208,7 @@ CREATE TABLE menu_messages (
 
 ```go
 type Candidate struct{ Dish model.Dish; LastSeen time.Time /* zero = ніколи */ }
-func Pick(cands []Candidate, date time.Time, meal Meal, exclude map[int64]bool, n int, rnd *rand.Rand) []model.Dish
+func Pick(cands []Candidate, date time.Time, meal Meal, shownToday, shownYesterday map[int64]bool, n int, rnd *rand.Rand) []model.Dish
 func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 ```
 
@@ -357,14 +357,14 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/menu/pick.go`
 - Create: `internal/menu/pick_test.go`
 
-- [ ] тип `Meal` (`lunch`/`dinner`) з українським `Title()` (замінить `cooking.Slot`)
-- [ ] `IsWeekend(date, meal)` — пт вечеря, сб, нд
-- [ ] `Pick(...)` за правилами з Technical Details (пул, двоступеневе повернення по колу, shuffle + стабільне сортування, вибірка з найдавніших, одна `proposed` з імовірністю)
-- [ ] `Leftovers(eatenYesterday []model.MealEntry) []int64` — унікальні страви
-- [ ] тести (table-driven, фіксований `rand`): будні без `weekend`, пт вечеря з `weekend`, `any` в обох прийомах, never-seen першими, `exclude` + коло, не більше однієї 🆕
-- [ ] тест: усі страви з нульовим `LastSeen`, кілька «днів» поспіль з exclude вчорашнього — набори різні і покривають пул
-- [ ] тести: порожній пул → порожній результат, `n` більше пулу
-- [ ] `go test ./...` — має пройти перед задачею 5
+- [x] тип `Meal` (`lunch`/`dinner`) з українським `Title()` (замінить `cooking.Slot`)
+- [x] `IsWeekend(date, meal)` — пт вечеря, сб, нд
+- [x] `Pick(...)` за правилами з Technical Details (пул, двоступеневе повернення по колу, shuffle + стабільне сортування, вибірка з найдавніших, одна `proposed` з імовірністю)
+- [x] `Leftovers(eatenYesterday []model.MealEntry) []int64` — унікальні страви
+- [x] тести (table-driven, фіксований `rand`): будні без `weekend`, пт вечеря з `weekend`, `any` в обох прийомах, never-seen першими, `exclude` + коло, не більше однієї 🆕
+- [x] тест: усі страви з нульовим `LastSeen`, кілька «днів» поспіль з exclude вчорашнього — набори різні і покривають пул
+- [x] тести: порожній пул → порожній результат, `n` більше пулу
+- [x] `go test ./...` — має пройти перед задачею 5
 
 ### Task 5: Годинники меню в `RunDigests`
 

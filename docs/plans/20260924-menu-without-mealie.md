@@ -329,13 +329,13 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Create: `internal/store/dishes.go`
 - Create: `internal/store/dishes_test.go`
 
-- [ ] `model.Dish`; `store.NameKey(name)` — `strings.Fields` + join, `ToLower`, уніфікація апострофів
-- [ ] `CreateDish(d) (model.Dish, existed bool, error)` — при збігу `name_key` повертає наявну
-- [ ] `EnsureDish(d)` для журналу готування: як `CreateDish`, але наявну `rejected`/`proposed` переводить в `active` (її справді їли)
-- [ ] `Dishes(statuses ...string)`, `Dish(id)`, `SetDishStatus(id, status)`
-- [ ] тести: створення, дедуплікація «Борщ»/« борщ »/подвійні пробіли/апострофи, `EnsureDish` реактивує `rejected`, зміна статусу
-- [ ] тести: невідомий id, невалідний статус
-- [ ] `go test ./...` — має пройти перед задачею 3
+- [x] `model.Dish`; `store.NameKey(name)` — `strings.Fields` + join, `ToLower`, уніфікація апострофів
+- [x] `CreateDish(d) (model.Dish, existed bool, error)` — при збігу `name_key` повертає наявну
+- [x] `EnsureDish(d)` для журналу готування: як `CreateDish`, але наявну `rejected`/`proposed` переводить в `active` (її справді їли)
+- [x] `Dishes(statuses ...string)`, `Dish(id)`, `SetDishStatus(id, status)`
+- [x] тести: створення, дедуплікація «Борщ»/« борщ »/подвійні пробіли/апострофи, `EnsureDish` реактивує `rejected`, зміна статусу
+- [x] тести: невідомий id, невалідний статус
+- [x] `go test ./...` — має пройти перед задачею 3
 
 ### Task 3: Store для журналу їжі
 

@@ -77,6 +77,19 @@ type Config struct {
 	SchoolWeekReviewDOW  int
 	SchoolWeekReviewTime string
 
+	// MenuTime is when the bot posts today's menu to choose from, and
+	// MenuEveningTime when it asks what was actually eaten. "" disables
+	// either. Not behind NotificationsEnabled: HA has no part in these — the
+	// taps on their buttons come back to the bot.
+	MenuTime        string
+	MenuEveningTime string
+
+	// DishSuggestDOW/Time is when the bot asks the model for new dishes to
+	// try. DOW is 0=Sun..6=Sat and <0 disables, matching WeeklyDigestDOW; ""
+	// for the time disables it too, and so does a nil Dish.
+	DishSuggestDOW  int
+	DishSuggestTime string
+
 	// Reminders answers what came due and was left open. nil disables the nag
 	// regardless of ReminderNagTime.
 	Reminders *reminders.Service
@@ -99,6 +112,25 @@ type Config struct {
 
 	Cooking *cooking.Service
 	Dish    *dish.Recognizer
+}
+
+// menuEnabled and menuEveningEnabled gate on a configured time alone: the
+// menu reads the local dish catalogue, which is there with or without a
+// model, so a deploy without AI still gets the menu.
+func (c Config) menuEnabled() bool {
+	return c.MenuTime != ""
+}
+
+func (c Config) menuEveningEnabled() bool {
+	return c.MenuEveningTime != ""
+}
+
+// dishSuggestEnabled needs the recognizer as well as a day and a time, the way
+// schoolWeekReviewEnabled needs School: the suggestions come from the model,
+// and arming the clock without one would call a nil receiver in RunDigests'
+// goroutine and take the whole server down with it.
+func (c Config) dishSuggestEnabled() bool {
+	return c.DishSuggestTime != "" && c.DishSuggestDOW >= 0 && c.Dish != nil
 }
 
 type Bot struct {

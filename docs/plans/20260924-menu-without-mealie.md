@@ -372,14 +372,15 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - Modify: `internal/bot/digests.go`
 - Modify: `internal/bot/bot.go` (`Config`: `MenuTime`, `MenuEveningTime`, `DishSuggestDOW`, `DishSuggestTime`, `menuEnabled()`, `menuEveningEnabled()`, `dishSuggestEnabled()`)
 - Modify: `internal/bot/reminders_test.go`, `internal/bot/school_test.go`
+- ➕ Create: `internal/bot/digests_test.go` (тести нових годинників)
 
-- [ ] `dueThisMinute` повертає структуру `due{daily, weekly, nag, school, review, menu, evening, suggest bool}`, `last*` — теж структурою (інакше 8 позиційних булів і 16 правок викликів при кожному наступному годиннику)
-- [ ] ранній вихід і стартовий лог знають про три нові прапорці
-- [ ] `dishSuggestEnabled()` вимагає `Dish != nil`
-- [ ] `sendMenu` / `sendEveningCheck` / `sendDishSuggestions` — поки заглушки, що логують
-- [ ] оновити 16 наявних викликів у тестах під структуру
-- [ ] тести: кожен новий годинник спрацьовує рівно раз на день у свою хвилину, `DOW=-1` вимикає пропозиції, `Dish == nil` вимикає пропозиції, порожній час вимикає меню
-- [ ] `go test ./...` — має пройти перед задачею 6
+- [x] `dueThisMinute` повертає структуру `due{daily, weekly, nag, school, review, menu, evening, suggest bool}`, `last*` — теж структурою (інакше 8 позиційних булів і 16 правок викликів при кожному наступному годиннику)
+- [x] ранній вихід і стартовий лог знають про три нові прапорці
+- [x] `dishSuggestEnabled()` вимагає `Dish != nil`
+- [x] `sendMenu` / `sendEveningCheck` / `sendDishSuggestions` — поки заглушки, що логують
+- [x] оновити 16 наявних викликів у тестах під структуру
+- [x] тести: кожен новий годинник спрацьовує рівно раз на день у свою хвилину, `DOW=-1` вимикає пропозиції, `Dish == nil` вимикає пропозиції, порожній час вимикає меню
+- [x] `go test ./...` — має пройти перед задачею 6
 
 ### Task 6: Ранкове меню з вибором, 🔀 і «Доїдаємо»
 

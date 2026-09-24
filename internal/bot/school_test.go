@@ -317,17 +317,17 @@ func TestTheSchoolDigestFiresWithTheAppointmentDigestsSwitchedOff(t *testing.T) 
 	}
 	at := func(hh, mm int) time.Time { return time.Date(2026, 9, 1, hh, mm, 0, 0, time.UTC) }
 
-	daily, _, _, school, _ := prod.dueThisMinute(at(19, 30), "", "", "", "", "")
-	if !school {
+	d := prod.dueThisMinute(at(19, 30), lastFired{})
+	if !d.school {
 		t.Fatal("the school digest did not fire in the production shape")
 	}
-	if daily {
+	if d.daily {
 		t.Fatal("an appointment digest fired with notifications off")
 	}
-	if _, _, _, school, _ = prod.dueThisMinute(at(19, 31), "", "", "", "", ""); school {
+	if prod.dueThisMinute(at(19, 31), lastFired{}).school {
 		t.Fatal("fired at the wrong minute")
 	}
-	if _, _, _, school, _ = prod.dueThisMinute(at(19, 30), "", "", "", "2026-09-01", ""); school {
+	if prod.dueThisMinute(at(19, 30), lastFired{school: "2026-09-01"}).school {
 		t.Fatal("re-fired within the same day")
 	}
 }
@@ -754,18 +754,17 @@ func TestTheWeekReviewFiresOnItsDayOnly(t *testing.T) {
 	}
 	friday := func(hh, mm int) time.Time { return time.Date(2026, 9, 4, hh, mm, 0, 0, time.UTC) }
 
-	if _, _, _, _, review := prod.dueThisMinute(friday(19, 45), "", "", "", "", ""); !review {
+	if !prod.dueThisMinute(friday(19, 45), lastFired{}).review {
 		t.Fatal("the review did not fire on Friday at its time")
 	}
-	if _, _, _, _, review := prod.dueThisMinute(friday(19, 46), "", "", "", "", ""); review {
+	if prod.dueThisMinute(friday(19, 46), lastFired{}).review {
 		t.Error("fired at the wrong minute")
 	}
-	if _, _, _, _, review := prod.dueThisMinute(
-		friday(19, 45), "", "", "", "", "2026-09-04"); review {
+	if prod.dueThisMinute(friday(19, 45), lastFired{review: "2026-09-04"}).review {
 		t.Error("re-fired within the same day")
 	}
 	thursday := time.Date(2026, 9, 3, 19, 45, 0, 0, time.UTC)
-	if _, _, _, _, review := prod.dueThisMinute(thursday, "", "", "", "", ""); review {
+	if prod.dueThisMinute(thursday, lastFired{}).review {
 		t.Error("fired on the wrong day")
 	}
 }
@@ -775,8 +774,7 @@ func TestTheWeekReviewStaysOffWithoutAPortal(t *testing.T) {
 	if cfg.schoolWeekReviewEnabled() {
 		t.Fatal("the review is armed with no portal service to collect from")
 	}
-	if _, _, _, _, review := cfg.dueThisMinute(
-		time.Date(2026, 9, 4, 19, 45, 0, 0, time.UTC), "", "", "", "", ""); review {
+	if cfg.dueThisMinute(time.Date(2026, 9, 4, 19, 45, 0, 0, time.UTC), lastFired{}).review {
 		t.Fatal("it fired anyway")
 	}
 }
@@ -797,7 +795,7 @@ func TestTheReviewAloneKeepsTheDigestLoopAlive(t *testing.T) {
 		cfg.reminderPushEnabled() || cfg.schoolDigestEnabled() {
 		t.Fatal("the fixture is not the review-only shape")
 	}
-	if !cfg.schoolWeekReviewEnabled() {
+	if !cfg.schoolWeekReviewEnabled() || !cfg.anyDigestEnabled() {
 		t.Fatal("the review alone does not arm the loop; RunDigests would return early")
 	}
 }

@@ -502,11 +502,11 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
 - [x] ручний прогін з dev-токеном бота з `.env.example`, polling, приватний чат як `NotifyChat`: меню, натиск, 🔀, рестарт, натиск ще раз, вечірній перепит, «Інше» текстом і фото (skipped - not automatable, needs a dev bot token)
 
 ### Task 13: [Final] Документація
-- [ ] `ARCHITECTURE.md`: переписати «The cooking log» і замінити «Filling the meal plan» на «The menu» — чому не Mealie (вигадана історія), страва = те, що на столі (явно скасувати рішення про комбінації), plan vs eaten, залишки без прапорця, 🆕 = `proposed`, показане старить, стан у БД на відміну від карток тарілки
-- [ ] `ARCHITECTURE.md` → «Stack» / «Secrets» і згадки env: прибрати Mealie/`MEALPLAN_*`, згадати, що luna тепер і пропонує
-- [ ] `DEPLOY.md`: нові змінні, прибрані змінні, як запустити `import-mealie`
-- [ ] `README.md`, якщо там згадано Mealie
-- [ ] перенести цей план у `docs/plans/completed/`
+- [x] `ARCHITECTURE.md`: переписати «The cooking log» і замінити «Filling the meal plan» на «The menu» — чому не Mealie (вигадана історія), страва = те, що на столі (явно скасувати рішення про комбінації), plan vs eaten, залишки без прапорця, 🆕 = `proposed`, показане старить, стан у БД на відміну від карток тарілки
+- [x] `ARCHITECTURE.md` → «Stack» / «Secrets» і згадки env: прибрати Mealie/`MEALPLAN_*`, згадати, що luna тепер і пропонує
+- [x] `DEPLOY.md`: нові змінні, прибрані змінні, як запустити `import-mealie`
+- [x] `README.md`, якщо там згадано Mealie (не згадано — без змін)
+- [x] перенести цей план у `docs/plans/completed/` (пропущено — план переносить harness після всіх фаз)
 
 ## Post-Completion
 *Потребує ручних дій або інших систем — без чекбоксів*

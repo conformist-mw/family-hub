@@ -12,9 +12,9 @@ to look when picking it back up after a break.
 - `gopkg.in/telebot.v3` for the Telegram bot
 - `google.golang.org/genai` (Gemini) to parse appointments out of free text
 - the OpenAI chat-completions protocol, spoken over plain `net/http`, to
-  recognise a dish from a photograph — Gemini serves that protocol too, so
-  which model looks at the plate is three environment variables, not a code
-  path
+  recognise a dish from a photograph and to suggest new dishes once a week —
+  Gemini serves that protocol too, so which model looks at the plate (and
+  pitches the dishes) is three environment variables, not a code path
 - `joho/godotenv` to load `.env` in local development
 
 ## Domain model
@@ -160,11 +160,32 @@ did not.
   field the kind does not use, so a reading moved from a zoned tariff to a flat
   one does not keep half of its old arithmetic.
 
+### The kitchen
+
+What the family eats, for the morning menu and the cooking log — see "The
+menu" under Bot for why these live here rather than in Mealie.
+
+- **`dishes`** — something put on the table, named as the family names it.
+  Unique by `name_key`, a normalised name computed in Go (`store.NameKey`),
+  because SQLite's `lower()` folds only ASCII and "Борщ" and "борщ" would be
+  two dishes. `meal` (`lunch` | `dinner` | `any`) and `days` (`any` |
+  `weekend`) decide when the menu may offer it; `status` (`active` |
+  `proposed` | `rejected`) is how a dish the model suggested lives in the same
+  table as the family's own; `note` is the model's one-line pitch.
+- **`meals`** — one dish at one meal of one day, `planned` or `eaten`, with
+  `who` and `leftover`. `UNIQUE(dish_id, date, meal)` is the double-write
+  guard: the morning tap, the evening answer and the photo of the plate all
+  land on the same row.
+- **`menu_messages`** — one row per day's morning menu: where it was posted,
+  and `shown`, every dish the day offered per meal, shuffles included.
+
 ## Repository layout
 
 ```
 cmd/
   server/      # web + bot process
+  migrate/     # the schema step the deploy runs before touching the container
+  import-mealie/ # one-off: the Mealie recipe catalogue -> local dishes
 internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
@@ -179,9 +200,9 @@ internal/
   valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
-  dish/        # vision client: photo of a plate -> which recipe it is
-  cooking/     # what was eaten, written into Mealie: entries, photos, last-made
-  mealie/      # HTTP client for the recipe database
+  dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions
+  menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
+  mealie/      # HTTP client for Mealie, kept only for cmd/import-mealie
   ics/         # the VCALENDAR feeds HA polls (family + school)
   schooltoday/ # mirrors the school portal timetable; feeds /school.ics
 data/          # local SQLite (gitignored)
@@ -567,19 +588,26 @@ for exactly that reason.
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`),
   `RunCostPrompts` for the above, and `RunBillingReminders` (below). All four
   need a configured notify chat.
-- `RunDigests` hosts five wall-clock messages with **separate** gates: the
+- `RunDigests` hosts eight wall-clock messages with **separate** gates: the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
   prod — HA owns those summaries), the evening chore nag, gated by
   `REMINDER_NAG_TIME` alone, tomorrow's school timetable
-  (`internal/bot/school.go`), gated by `SCHOOL_DIGEST_TIME` alone, and the
+  (`internal/bot/school.go`), gated by `SCHOOL_DIGEST_TIME` alone, the
   Friday review of the school week just gone, gated by
-  `SCHOOL_WEEK_REVIEW_DOW`/`_TIME` **and** a configured portal (below). They are
-  split because HA can send the first and cannot send the others. It reads a
-  calendar, so it knows nothing about what was closed; and its calendar API
+  `SCHOOL_WEEK_REVIEW_DOW`/`_TIME` **and** a configured portal (below), and the
+  three menu messages — the morning menu (`MENU_TIME`), the evening check
+  (`MENU_EVENING_TIME`) and the weekly dish suggestions
+  (`DISH_SUGGEST_DOW`/`_TIME` **and** a configured model), see "The menu". They
+  are split because HA can send the first and cannot send the others. It reads
+  a calendar, so it knows nothing about what was closed; and its calendar API
   hands a template only summary/start/end/description, dropping the category
   that separates a lesson from the after-school block — so it cannot say when
-  the child is actually free. One shared flag would have left both permanently
-  silent in prod, the only place they matter.
+  the child is actually free. The menu messages have a plainer reason: their
+  buttons are answered by the bot, not by HA. One shared flag would have left
+  all of them permanently silent in prod, the only place they matter. Which
+  clocks are due in a minute is `Config.dueThisMinute`, and whether the loop
+  runs at all is `Config.anyDigestEnabled` — both pulled out of the loop so
+  that a new clock forgotten in either is a failing test, not a silent one.
 - The school digest reports the day the timetable really describes, which is
   why it does not read `/school.ics`. Everything runs in time order — a slot's
   place in the day is its place in the message — with a blank line wherever the
@@ -653,79 +681,99 @@ for exactly that reason.
 
 ### The cooking log
 
-Photograph a plate, and the bot writes down that the dish was cooked. It
-exists because Mealie cannot do this: its AI import reads a *recipe* out of an
-image — a page of a cookbook — and answers a photo of dinner with
-`No recipe was found in the provided source`, which is the endpoint working as
-designed, not a misconfiguration.
+Photograph a plate, and the bot writes down which dishes were eaten. It began
+as the half Mealie could not do — its AI import reads a *recipe* out of an
+image, a page of a cookbook, and answers a photo of dinner with `No recipe was
+found in the provided source` — and it now writes into this app's own
+`dishes` and `meals` tables, the same ones the morning menu reads (see "The
+menu" for why Mealie went).
 
 - **Entry points** (`internal/bot/cooked.go`). A bare photo counts only in a
   private chat. In the family group it takes `/cooked` in the caption: this
   bot can read every message there, and running the family's snapshots through
   a vision model would be both expensive and none of its business. `/cooked
-  <text>` is the same flow without a picture, and works anywhere.
+  <text>` is the same flow without a picture, and works anywhere. The one
+  exception to the gate is a photo from somebody who has just tapped «Інше» on
+  the evening check: they were asked for a picture, so it needs no command.
 - A caption is a **hint, never a key**. The cook writes Russian and the
-  recipes are Ukrainian, so nothing is matched locally — the caption goes to
-  the model as context, along with the whole recipe catalogue, and one call
-  answers with the plate read as a **list of dishes**: each one named in
-  Ukrainian and matched to a recipe or marked as one the database has never
-  heard of, with up to two other readings of that same dish, plus the meal,
-  the day and a line about what is on the plate.
+  dishes are Ukrainian, so nothing is matched locally — the caption goes to
+  the model as context, along with the catalogue as `id | name` (active dishes
+  and the proposals nobody has decided on — eating one *is* the decision), and
+  one call answers with the plate read as a **list of dishes**: each one named
+  in Ukrainian and matched to a dish id or marked as one the catalogue has
+  never heard of, with up to two other readings of that same dish, plus the
+  meal, the day and a line about what is on the plate. An id the model
+  invented is dropped (`internal/dish`); rejected dishes are not on the list,
+  so one that turns up anyway comes back as new.
 - **The plate is a list, not one dish with runners-up.** Meat, porridge and
   salad are three lines on the card and three buttons, each asking "is this
-  the right recipe?" about its own dish. The card used to be a main dish with
+  the right dish?" about its own dish. The card used to be a main dish with
   alternatives beside it, and the model answered in the shape it was asked in:
   a plate of three dishes came back as one dish and two rivals, so the
   porridge was offered as a competing reading of the meat and the salad was
   not offered at all.
+- **A dish is what is put on the table, and a combination is one dish.** This
+  section used to argue the opposite: that "goulash with mash" as one recipe
+  was rejected because it multiplies out to every pairing the kitchen makes,
+  and each combination accumulates the history the dishes themselves stop
+  accumulating. That decision is reversed. The pairings this kitchen actually
+  serves turned out to be few, and splitting them had a cost the old argument
+  never weighed once there was a menu: «Гречка» offered as a lunch button,
+  which answers nothing. So «Пюре зі скумбрією» is one dish, the prompt tells
+  the model to return a combination as one item when the catalogue has it,
+  and the Mealie import leaves the side dishes out. A plate that really holds
+  separate dishes — goulash next to a chicken cutlet — is still several items,
+  and nothing in the prompt calls them "sides": an earlier one did, described
+  garnish, and a cutlet that fitted no category was silently dropped.
 - **Alternatives belong to a dish, not to the meal**, because деруни, оладки
-  and сирники look alike and all three are in the database. Up to two per
+  and сирники look alike and all three are in the catalogue. Up to two per
   dish, offered on that dish's own card, so a near miss costs a tap instead of
   a wrong entry.
 - **Similar is not the same, and the prompt says so with examples.** Given a
   closed list to answer from, the model will always find something close
   enough: «смажене м'ясо з цибулею» came back as «Відбивні» — breaded and
   beaten — with «Гуляш», which is stewed in tomato, offered as the
-  alternative. The rule is now to match only when it is genuinely the same
-  dish and otherwise to answer with no recipe at all, putting the near misses
-  in that dish's alternatives. A dish proposed as new costs one tap to create;
-  a meal recorded against somebody else's recipe has to be hunted down in
-  Mealie and deleted by hand. A match the model itself called uncertain is
-  marked «(не точно)» on the card, because a stretch and a real match
-  otherwise look identical until the history is already wrong.
-- **A dish the catalogue does not have stays on the card** as one to create. A
-  slug the model invented is dropped (`internal/dish`), but the dish it stood
-  for is not: it was eaten. Creating it is its own tap and deliberately does
-  not also record the meal — the recipe is one decision and the plate is
-  another, and a card that wrote the meal down the moment a side dish was
-  created was a card whose buttons could not be predicted. Until then the
-  confirmation reads «Зафіксувати без нових», and the closing message names
-  what went unrecorded.
-- **A meal is a plate, not a dish.** Confirming records every dish on it: an
-  entry and a `lastMade` each. Nothing in the prompt calls them "sides" — an
-  earlier one did, and described garnish, so a chicken cutlet next to the
-  goulash fitted no category and was silently dropped. Without all of them, a
-  second dish's last-made date never moves and the planner keeps offering mash
-  nobody has stopped eating.
-  Combining the pair into a "goulash with mash" recipe was considered and
-  rejected: it multiplies out to every pairing the kitchen makes, and each
-  combination then accumulates the history that the dishes themselves stop
-  accumulating. Baking a pairing into one recipe stays the exception for when
-  the pair really is the dish («Скумбрія копчена з картоплею»).
+  alternative. The rule is to match only when it is genuinely the same dish
+  and otherwise to answer with no id at all, putting the near misses in that
+  dish's alternatives. A dish proposed as new costs one tap to create; a meal
+  recorded against somebody else's dish is a false line in the history that
+  also skews the rotation. A match the model itself called uncertain is marked
+  «(не точно)» on the card, because a stretch and a real match otherwise look
+  identical until the history is already wrong.
+- **A dish the catalogue does not have stays on the card** as one to create,
+  because it was eaten. Creating it is its own tap and deliberately does not
+  also record the meal — the dish is one decision and the plate is another,
+  and a card that wrote the meal down the moment a side dish was created was
+  a card whose buttons could not be predicted. It is created with the meal and
+  days the model read for it, through `EnsureDish` rather than `CreateDish`: a
+  dish on the plate is the family's, so a proposal of the same name becomes
+  active and an earlier "no" to it is overruled. Until then the confirmation
+  reads «Зафіксувати без нових», and the closing message names what went
+  unrecorded.
 - **One button writes the whole plate**, because a plate with a main, a side
   and a salad is one meal and approving it three times is three chances to
   give up half way. Everything else on the card only redraws it. A dish is
-  corrected on a card of its own — take another reading of it, make it the
-  dish the meal is recorded against, or say it was not there — because those
-  are questions about that one dish, and answering them in rows on the meal's
-  card is what made the buttons unreadable. The main dish is the first one the
-  database actually knows, until the cook says otherwise; a dish that leaves
-  the plate hands that role back, so the meal can never be recorded against
-  something nobody ate.
-- **The photo goes only to the main dish.** The rest get an entry saying
-  «Разом з: Гуляш» and no picture: the photograph is of a plate of goulash,
-  and attaching it to the mash would both misrepresent it and mark it as
-  already photographed, blocking a future picture that really is of the mash.
+  corrected on a card of its own — take another reading of it, or say it was
+  not there — because those are questions about that one dish, and answering
+  them in rows on the meal's card is what made the buttons unreadable. There
+  is no main dish any more: it existed to decide which recipe got the
+  photograph, and now that every dish is simply its own eaten row, which one
+  came first changes nothing that is stored.
+- **What a confirmation writes**: one `RecordEaten` per dish, at the card's
+  day and meal. That call does the reconciling with the morning's plan — the
+  planned dish, if it is on the plate, turns eaten; a plan for a dish that is
+  not on it is dropped, because the plan did not happen; a proposed dish that
+  was eaten stops being a proposal. The rows are not one transaction, so a
+  failure part way leaves the earlier dishes written and names the dish it
+  stopped at; retrying is safe because a dish already eaten at that meal
+  comes back as «вже було записано» rather than twice.
+- **Two cooks, two meals, no collision.** "Goulash for me, sushi for her" at
+  the same dinner is two rows. What is caught is the *same* dish recorded
+  twice at the same meal — `meals_once` makes that one row, whichever of the
+  photo, the evening check or a second confirmation got there first.
+- **Photographs are not kept.** The picture is used for the recognition and
+  then dropped: what the history needs is which dish and when, and a folder of
+  plates nobody looks at is a thing to back up and nothing else.
 - **The model tier matters more than the prompt here.** Measured on fourteen
   photographs, `gemini-flash-lite-latest` scored 12/14 but failed the case
   that actually matters — a real plate holding a main dish plus eggs, salad
@@ -734,88 +782,172 @@ designed, not a misconfiguration.
   `gemini-flash-latest` both read the main dish correctly. The default in
   `main.go` is now `gpt-6-luna`, chosen on price (half of 5.6 Luna) and not
   yet measured on that plate; `AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY` move it.
-- **What a confirmation writes** (`internal/cooking`): a timeline entry
-  subject-lined `Обід · Олег`, the photo attached to it, and `lastMade` — the
-  field the meal-plan rules filter on, and so the one that stops a dish being
-  suggested again next week. The three are not a transaction; the order is
-  chosen for what a half-finished write leaves behind, and a failure names the
-  step it died at rather than claiming success.
-- **The first real photograph becomes the recipe's main image**, displacing
-  the stock picture the recipe was seeded with; later ones stay in history
-  behind a "зробити головним" button. "Has anyone photographed this before?"
-  is answered by asking Mealie for a timeline entry that has an image, which
-  keeps the fact out of this app's database entirely. The probe runs *before*
-  the new photo is attached, or the entry would be the evidence that stops
-  itself.
-- **A new recipe is created with a name, a category, tags and the photo — and
-  no ingredients.** An invented ingredient list would flow into the shopping
-  list as fact, and how to cook something can be looked up; what this database
-  is for is which dishes exist and when they were last eaten. Organizers are
-  resolved against the live lists and anything unrecognised is dropped, never
-  created: Mealie answers an unknown organizer id with a silent `200` that
-  discards the *whole* payload, so one invented tag would also lose the
-  category and the serving count.
-- **The link back to Mealie is `/g/<group>/r/<slug>`**, and the group is read
-  from the API rather than assumed — a wrong guess produces an address that
-  404s only for whoever taps it. The API itself is reached container-to-
-  container, so the public address is a separate setting
-  (`MEALIE_PUBLIC_URL`); tapping the link needs a Mealie session, since the
-  group is private.
-- **Two cooks, two meals, no collision.** Entries and last-made dates are
-  per recipe, and the meal plan is never touched, so "goulash for me, sushi
-  for her" writes two independent records. What is caught is the *same* dish
-  recorded twice — meals are pinned to a canonical hour (13:00 and 19:00), so
-  "same recipe, same instant" is exactly that, and the second confirmation
-  reports «вже було записано» without writing. A check that errors falls
-  through to writing: a duplicate line somebody can delete beats a meal that
-  went unrecorded.
-- Cards live in memory (`cookedPending`) because they carry the photograph
-  itself, which is needed again after the write for the promote button. A
-  restart drops them and the photo is re-sent, the same bargain the
-  appointment cards make. The card is claimed once, so a double tap cannot
-  produce two entries, and creating a recipe holds the card busy for the same
-  reason.
+  The same model writes the weekly dish suggestions.
+- Cards live in memory (`cookedPending`): they are a draft — the model's
+  reading plus the cook's corrections — that only means anything while the
+  cook is looking at it. A restart drops them and the photo is re-sent, the
+  same bargain the appointment cards make. The card is claimed once, so a
+  double tap cannot write the plate twice, and creating a dish holds the card
+  busy for the same reason. The menu, which several people tap over a whole
+  day, is the opposite case and keeps nothing in memory (below).
 - **Who cooked it comes from `TELEGRAM_PEOPLE`, keyed by user id** — see
   `actor.Roster`. A display name is the person's to change, and when they do,
   every "Я" they write starts resolving to a new string while the rows already
   written keep the old one: one human, two names, no way to tell. The id never
   changes. Unlisted senders keep their Telegram display name, and the same
-  lookup serves the appointment capture, so the calendar and the kitchen
-  cannot disagree about who somebody is.
-- Without `MEALIE_TOKEN`/`MEALIE_URL` or `AI_API_KEY` the whole flow is not
-  registered — including `OnPhoto`, so that a bot with no cooking log does not
-  download every picture the family posts to discover it has nowhere to put
-  it.
+  lookup serves the appointment capture and the menu taps, so the calendar and
+  the kitchen cannot disagree about who somebody is.
+- Without `AI_API_KEY` the whole flow is not registered — including
+  `OnPhoto`, so that a bot with no cooking log does not download every
+  picture the family posts to discover it has nowhere to put it — and neither
+  are the evening check's «Інше» and the suggestion buttons, which need the
+  same model. The morning menu and the rest of the evening check do not: they
+  read and write local rows only.
 
-### Filling the meal plan
+### The menu
 
-`internal/cooking/planner.go` keeps the coming week's lunch and dinner slots
-from being empty, so nobody has to press "generate" and the morning menu
-message always has something to announce. It runs from `main.go` on a
-once-a-minute ticker that fires at `MEALPLAN_FILL_TIME`, for the same reason
-the reminders materialiser does: filling the plan is data, and hanging it off
-the bot would stop it happening whenever messages are switched off.
+What to cook today, asked the way the family actually decides it: in the
+morning the bot offers a few dishes per meal as buttons, in the evening it
+asks what was eaten after all, and once a week the model pitches a few new
+dishes. No ingredients, no shopping list, no plan for the week ahead. Three
+clocks in `RunDigests`; the bot posts to the notify chat itself rather than
+leaving it to HA, because the answers are button taps and those come back to
+the bot. The choice is `internal/menu` (pure), the messages are
+`internal/bot/menu.go` and `internal/bot/suggest.go`, the tables are
+`0013_menu.sql`.
 
-- **It does not use Mealie's own random generator.** That picks by tag alone,
-  so the same dish returns three times a week and the last-made date the
-  cooking log records changes nothing. The rules *can* filter on `lastMade`,
-  but only against a literal date — `lastMade < "now-14d"` is rejected with
-  `unknown date or datetime format` — so a rule carrying a freshness window
-  would rot the day after somebody wrote it.
-- **So the tag half stays in the rules and the freshness half is computed
-  per pass.** The rule for that day and meal is read from the API, and
-  ` AND (lastMade IS NONE OR lastMade < "<today − rest days>")` is appended.
-  Which dishes count as lunch remains a decision maintained in the UI.
-- A rule naming a weekday beats the general one, which is how "Friday is
-  pizza" would work. A slot with no rule is skipped entirely: somebody
-  deliberately did not describe it.
-- **Only empty slots are filled**, and only from tomorrow — today is already
-  being eaten. A dish already planned anywhere in the window is not picked
-  again, so борщ does not land on two days of the same week.
-- When nothing has rested long enough it falls back to the bare rule. A
-  repeat is a worse plan; an empty slot is a silent digest, which is worse.
-- No pass runs at startup. Deploys are frequent, and a plan that reshuffles
-  itself on every restart is not a plan.
+- **Why not Mealie.** This replaces a Mealie meal plan that a planner in this
+  app filled a week ahead. Two months of it showed that the Mealie model —
+  recipe → ingredients → shopping list → meal plan — answered a question
+  nobody was asking: the ingredients were never bought, the plan was never
+  edited, because editing it meant opening Mealie. What was wanted was only
+  "what else could we cook". Worse, **its history was invented.** Of 89
+  "made this" entries, nearly all were Mealie's own nightly auto-mark at 20:45
+  of whatever stood in the plan; about three came from real photos. The
+  planner filled the plan at 05:30, Mealie marked it eaten that evening, and
+  the planner then rotated on a `lastMade` it had itself made up. And the
+  menu arrived for *tomorrow*, when nobody in the family plans tomorrow: they
+  cook, and shop for, today. So the menu is for today, lives in this app's
+  database under the same nightly backup as everything else, and knows
+  dishes and meals, nothing more.
+- **A dish is what is put on the table** (see the cooking log): one button
+  per plate, never a lone side.
+- **Plan and fact are two statuses of one row.** A morning tap writes a
+  `planned` row (`PlanMeal`, which replaces any other plan for that meal and
+  never touches what was already eaten). The evening answer or a photo turns
+  it `eaten`, replaces it with the dish that really was eaten, or — "not at
+  home" — deletes it. History reads only `eaten`; rotation reads both, or
+  yesterday's unanswered borscht would come back tomorrow as "not had in a
+  while".
+- **Leftovers need no flag on the dish.** «Доїдаємо» is simply everything
+  confirmed eaten yesterday. Finishing the pot is itself recorded as eaten
+  (with `leftover=1`), so it is "eaten yesterday" again the next morning: a
+  big borscht carries over for two or three days on its own and drops out the
+  first day nobody picks it. Each leftover gets a row of two buttons, one per
+  meal. Picking yesterday's dish on the evening check counts as a leftover for
+  the same reason.
+- **How the dishes are picked** (`menu.Pick`). The pool is the active dishes
+  for that meal or for either; weekend-only dishes — delivery, bought
+  ready-made — only on Friday dinner, Saturday and Sunday, because Friday
+  evening is when the family actually orders in. The pool is shuffled and
+  *then* stably sorted by the day each dish was last planned or eaten, and
+  three are drawn at random from the oldest `max(2n, n+3)`. Without the
+  shuffle, every dish on the first day has the same zero date and they would
+  come out in id order, the same three every morning; without the random
+  draw, the top of the list is fixed until somebody eats it. Dinner is picked
+  with lunch's row kept out, so a dish good for either meal is not offered
+  twice in one message unless nothing else is left. The random source is
+  passed in, so the tests are deterministic.
+- **What was shown ages too.** A dish offered every morning and never picked
+  would otherwise never age, and would sit in the window for good.
+  `menu_messages.shown` records everything the day offered, shuffles
+  included, and what was shown yesterday is not offered today. When that
+  empties the pool, yesterday's are let back first, then today's — the
+  shuffle has gone round the circle. This is the whole reason the table keeps
+  `shown`; which dishes are on screen right now is read from the message.
+- **🆕 is exactly `proposed`.** New dishes live in the same table with a
+  status: `active`, `proposed`, `rejected`. A proposal takes the last slot of
+  a meal on roughly one draw in three, and the message shows at most one:
+  `Pick` only caps it per meal, so the bot picks dinner, and any shuffle,
+  without proposals when the other row already carries one. With the chance applied
+  per meal, a 🆕 turns up on a little over half the mornings rather than a
+  third; the cap is the promise, `newChance` is the dial if it proves too
+  often. A planned proposal that is then eaten becomes `active` by itself; a
+  plan alone does not. Dishes imported from Mealie arrive as ordinary
+  `active` ones, not 🆕.
+- **The state is in the database, not in memory** — the opposite of the plate
+  card, on purpose. The plate card is one cook's draft for a minute; the menu
+  is a message several people tap over a whole day, and deploys happen in the
+  middle of days. So nothing about it is held by the process: the dishes on
+  each row are read back from the message's own keyboard (the pattern
+  `choreRefsFromMarkup` set), what was chosen comes from `meals`, and the date
+  travels in the callback data (`2026-09-24|lunch|17`). A button from an
+  earlier day writes nothing — «Це меню вже минуло» — so yesterday's menu
+  tapped by mistake cannot plan today's lunch. A restart in the minute of
+  sending does not post twice: today's `menu_messages` row exists, so the
+  clock skips. The menu buttons are registered unconditionally, so a menu
+  already sent stays live on a deploy without a model or with `MENU_TIME`
+  switched off. An empty catalogue for both meals sends nothing and logs it.
+- **🔀 per meal** offers a fresh row: nothing shown today, nothing on the
+  other row, nothing shown yesterday, and the new row is appended to the
+  day's `shown` so the next shuffle moves on again. The append takes SQLite's
+  write lock before reading, so two people shuffling at once do not lose each
+  other's rows. The row that did not change is taken from the keyboard as it
+  is.
+- **The evening check** asks about every meal of the day without an `eaten`
+  row. With a plan: «Обід: Борщ — так?» and `Так` / `Інше` / `Не вдома`, plus
+  `Ні, не наше` when the planned dish is a proposal, which drops the plan,
+  rejects the dish, and keeps asking about the meal without it. Without a plan:
+  yesterday's dishes as buttons, since the pot most often lasts a second day,
+  then `Інше` and `Не вдома`. Every button names its meal, because the two
+  rows sit one under the other. When every meal is already answered — the
+  photo got there first — nothing is sent. "Not at home" writes nothing, so
+  that answer is kept the way the menu keeps its rows: a meal with no buttons
+  left and no eaten row reads «не їли вдома». An answer tapped after midnight
+  is still about the evening it was asked, so earlier dates are accepted and
+  only a future one is refused.
+- **«Інше» hands the answer to the cooking log.** It arms the tapper's next
+  message — text or a photo — in `awaitingStore`, now with an explicit kind
+  (`appt_edit` or `meal_other`), because an entry for a meal has a zero
+  appointment id and taking it for an edit would reschedule appointment 0.
+  The reply goes to the recognizer and comes back as the usual plate card
+  with the day and meal already set by the question rather than read from
+  the hint or the clock. A reply the model could not read re-arms the
+  question: `take()` already cleared it, and the buttons under the check are
+  still there for whoever would rather tap.
+- **The weekly suggestions** (`dish.Recognizer.Suggest`) ask for three dishes
+  the family does not cook yet. The system prompt carries the household's
+  standing tastes — two meals a day at home, pork and chicken, no lamb, the
+  older child does not eat fish — which change too rarely to be
+  configuration; the user prompt lists the active, proposed and rejected
+  dishes, the rejected list being the one that matters, or a dish turned down
+  last week comes back this week. The model repeats itself anyway, so every
+  suggestion is also checked in Go against the whole catalogue by
+  `NameKey`. The survivors are written as `proposed` **before** the card goes
+  out, which makes an ignored card mean "maybe" with no code at all. Each row
+  answers `➕ <name>` / `🤔 Подумаю` / `✖ Ні`: add and no set the status
+  whatever it was, so a changed mind is one more tap; maybe writes nothing and
+  is kept as the ✓ on its button. The call runs in its own goroutine behind an
+  atomic guard, like the school week review, because the model can take a
+  minute and the ticker drops the ticks it waits through. A failed call, or
+  nothing new left after the filter, is logged and sends nothing.
+- **Gates.** `MENU_TIME` and `MENU_EVENING_TIME` alone — the menu reads the
+  local catalogue and needs no model. The suggestions need
+  `DISH_SUGGEST_DOW`/`_TIME` **and** `AI_API_KEY`, the way the week review
+  needs a portal: a nil recognizer reached from the `RunDigests` goroutine
+  would take the whole server down. An unset `DISH_SUGGEST_DOW` is `-1`, off,
+  not Sunday. None of the three is behind `NOTIFICATIONS_ENABLED`.
+- **The catalogue comes from Mealie once** (`cmd/import-mealie`, run by hand —
+  see `DEPLOY.md`). Only the recipes come across, never the history, since
+  the history was the auto-marks. Tags map to the new columns — `obid` /
+  `vecheria` to lunch / dinner, both or neither to any, `dostavka` /
+  `pokupne` to weekend — and the categories that are not a plate by
+  themselves (Гарніри, Заготовки, Соуси та заправки, Напої) are skipped, with
+  the reason printed. It is a dry run unless given `-apply`, because the
+  skipped list is meant to be read by a person first: a side always served
+  with the same main is better re-added by hand as a combination. It writes
+  through `CreateDish`, so a second run changes nothing. It and
+  `internal/mealie` go once Mealie itself is gone.
 
 ## Reminders
 
@@ -936,10 +1068,13 @@ a person can pick that the app refuses.
   - `family_hub_school_ics_token` — shared secret for `/school.ics`
   - `family_hub_school_week_review_dow`, `family_hub_school_week_review_time` —
     when the Friday week review goes out (0=Sun..6=Sat; unset disables)
-  - `family_hub_mealie_token` — the recipe database's API token. Its own,
+  - `family_hub_mealie_token` — Mealie's API token, now read only by the
+    one-off `import-mealie`; the server no longer talks to Mealie. Its own,
     created as `family-hub-bot` rather than shared with a person's, so it can
-    be revoked without locking anyone out of the kitchen.
+    be revoked without locking anyone out — and it goes, with the key, when
+    Mealie is removed.
   - `family_hub_ai_api_key` — the model that reads a photograph of a plate
+    and pitches the weekly new dishes
   - `family_hub_people` — `<telegram id>:<name>` pairs, the family by user id.
     Secret because it is real names against real ids in a public repo.
   - `family_hub_mini_users` — the Telegram **user** ids allowed into the Mini

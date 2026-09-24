@@ -60,6 +60,18 @@ just deploy-hetzner-tag family-hub
   because `TELEGRAM_NOTIFY_CHAT` is unset locally.
 - The appointment digests stay off in prod (`NOTIFICATIONS_ENABLED` unset):
   Home Assistant sends those summaries from the ICS feed.
+- The menu is three more clocks, each off while its variable is unset:
+  `MENU_TIME` (the morning "what to cook today", e.g. `07:00`),
+  `MENU_EVENING_TIME` (the evening "what did you eat", e.g. `20:00`), and
+  `DISH_SUGGEST_DOW` + `DISH_SUGGEST_TIME` (the weekly new-dish suggestions,
+  e.g. `6` and `10:00`; `0`=Sun..`6`=Sat). The first two need nothing else;
+  the suggestions also need `AI_API_KEY`, the same key as the cooking log.
+  None of them answers to `NOTIFICATIONS_ENABLED` — HA has no part in the
+  menu, its buttons come back to the bot. The server no longer reads
+  `MEALPLAN_FILL_TIME`, `MEALPLAN_SLOTS`, `MEALPLAN_HORIZON_DAYS`,
+  `MEALPLAN_REST_DAYS` or `MEALIE_PUBLIC_URL`, and leaving them set is
+  harmless; `MEALIE_URL`/`MEALIE_TOKEN` are read only by `import-mealie`
+  (see "The Mealie cutover" below).
 - Recurring reminders record what came due through their own ticker, which
   takes no configuration and does not depend on `NOTIFICATIONS_ENABLED` or on
   a notify chat — that record is data, not a message, and putting it behind a
@@ -89,13 +101,17 @@ docker logs --tail=50 family-hub     # expect "listening", "scheduler started"
 
 A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_min=60`
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
-The digest ticker now hosts four wall-clock messages with separate gates, so
-its boot line reports each: `bot: digests started appointment_digests=false
-… reminder_nag=20:00 reminder_push=true school_digest=19:30` is the expected
-prod shape — the appointment summaries stay off because Home Assistant sends
-those, while the chore nag and the school timetable run from here. It only
-falls back to `bot: digests disabled (NOTIFICATIONS_ENABLED not set, no
-reminders)` when none is configured. The cost-prompt ticker should log
+digest ticker hosts several wall-clock messages with separate gates, so its
+boot line reports each: `bot: digests started appointment_digests=false
+… reminder_nag=20:00 reminder_push=true school_digest=19:30 … menu=true
+menu_time=07:00 menu_evening=true menu_evening_time=20:00 dish_suggest=true
+dish_suggest_dow=6 dish_suggest_time=10:00` is the expected prod shape — the
+appointment summaries stay off because Home Assistant sends those, while the
+chore nag, the school timetable and the menu run from here. `dish_suggest=false`
+with a day and time set means `AI_API_KEY` is missing, which the boot log also
+says as `bot: cooking log disabled (AI_API_KEY not set)`. It only falls back to
+`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminders)` when none
+is configured. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
 `bot: billing reminders started`. Neither that one nor the pre-lesson warning
 takes any configuration: how far ahead each course warns is its own
@@ -149,6 +165,49 @@ To migrate by hand:
 docker run --rm -v ~/server_data/family-hub:/data \
   --entrypoint /app/migrate olegsmedyuk/family-hub:latest -db /data/family-hub.db
 ```
+
+## The Mealie cutover
+
+The menu and the cooking log moved off Mealie into this app's own tables (see
+"The menu" in `ARCHITECTURE.md`). The catalogue is copied across once, by hand,
+with `/app/import-mealie`, which ships in the same image as the server. The
+order matters:
+
+1. **Deploy with the menu still off.** Drop `MEALPLAN_*` and
+   `MEALIE_PUBLIC_URL` from the role, keep `MEALIE_URL`/`MEALIE_TOKEN` for the
+   import, and do not set `MENU_*`/`DISH_SUGGEST_*` yet: a menu sent before the
+   import would be offered from an empty catalogue, which sends nothing.
+2. **Dry-run the import.** The running container already has the Mealie
+   address, the token and the docker network the address resolves on, so it
+   is the simplest place to run it:
+
+   ```sh
+   docker exec family-hub /app/import-mealie -db /data/family-hub.db
+   ```
+
+   Without `-apply` nothing is written and the database is not even opened.
+   It prints what would be imported (with the meal and days each dish gets
+   from its Mealie tags) and, separately, what would be skipped and why. Read
+   the skipped list: a side dish that is always served with the same main is
+   better re-added as one combined dish than dropped.
+3. **Apply.** The same command with `-apply` writes through `CreateDish`, so
+   it is safe to repeat and never touches a dish already in the table — a
+   dish added by hand in the meantime, or one the family has rejected, keeps
+   its status. It does not migrate: a database that is not up to date fails
+   on the missing table instead of being moved forward by a side tool.
+4. **Add the combinations by hand**, then set `MENU_TIME`,
+   `MENU_EVENING_TIME`, `DISH_SUGGEST_DOW` and `DISH_SUGGEST_TIME` and deploy.
+5. **Switch off the Home Assistant automation that posted tomorrow's menu**
+   before the first morning of the new one, or the group gets two.
+
+Only the catalogue comes across. Mealie's "made this" history is left behind
+on purpose: nearly all of it was Mealie auto-marking its own meal plan as
+eaten every evening, and importing it would seed the rotation with meals
+nobody ate. The dishes arrive as plain active ones with no last-seen date.
+
+Once Mealie itself is retired, `cmd/import-mealie`, `internal/mealie` and the
+third binary in the `Dockerfile` go too, and so do `MEALIE_URL`/`MEALIE_TOKEN`
+in the role and `family_hub_mealie_token` in SOPS.
 
 ## The home-meters cutover
 

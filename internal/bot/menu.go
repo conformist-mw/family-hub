@@ -218,7 +218,9 @@ func menuCallbackPayload(btn tele.InlineButton) (unique, payload string, ok bool
 // post it twice — or no dish fits either meal.
 //
 // Dinner is picked with lunch's dishes kept out, so a dish good for either
-// meal is not offered twice in one message unless there is nothing else.
+// meal is not offered twice in one message unless there is nothing else, and
+// without proposals when lunch already carries a 🆕: Pick caps them per meal,
+// the message promises at most one.
 func (b *Bot) buildMenu(now time.Time, rnd *rand.Rand) (menuState, bool, error) {
 	today := now.Format(time.DateOnly)
 	if _, err := b.store.MenuMessage(today); err == nil {
@@ -239,7 +241,11 @@ func (b *Bot) buildMenu(now time.Time, rnd *rand.Rand) (menuState, bool, error) 
 	refs := menuRefs{date: today, offered: map[menu.Meal][]int64{}}
 	lunch := menu.Pick(cands, now, menu.Lunch, nil, shownYesterday[menu.Lunch], menuOptions, rnd)
 	refs.offered[menu.Lunch] = dishIDs(lunch)
-	dinner := menu.Pick(cands, now, menu.Dinner, idSet(refs.offered[menu.Lunch]),
+	dinnerCands := cands
+	if slices.ContainsFunc(lunch, func(d model.Dish) bool { return d.Status == model.DishProposed }) {
+		dinnerCands = withoutProposed(cands)
+	}
+	dinner := menu.Pick(dinnerCands, now, menu.Dinner, idSet(refs.offered[menu.Lunch]),
 		shownYesterday[menu.Dinner], menuOptions, rnd)
 	refs.offered[menu.Dinner] = dishIDs(dinner)
 	if len(lunch) == 0 && len(dinner) == 0 {
@@ -347,6 +353,19 @@ func (b *Bot) shuffleMeal(now time.Time, date string, meal menu.Meal, refs menuR
 	if err != nil {
 		return nil, err
 	}
+	// The other meal's row may already show the message's one 🆕.
+	proposed := map[int64]bool{}
+	for _, c := range cands {
+		if c.Dish.Status == model.DishProposed {
+			proposed[c.Dish.ID] = true
+		}
+	}
+	for _, m := range menuMeals {
+		if m != meal && slices.ContainsFunc(refs.offered[m], func(id int64) bool { return proposed[id] }) {
+			cands = withoutProposed(cands)
+			break
+		}
+	}
 	ids := dishIDs(menu.Pick(cands, now, meal, exclude, yesterday[meal], menuOptions, rnd))
 	if len(ids) == 0 {
 		return nil, nil
@@ -424,6 +443,18 @@ func (b *Bot) menuStateFrom(refs menuRefs) (menuState, error) {
 		return menuState{}, err
 	}
 	return st, nil
+}
+
+// withoutProposed is the catalogue minus the proposals, for a meal picked
+// next to a row that already offers one.
+func withoutProposed(cands []menu.Candidate) []menu.Candidate {
+	out := make([]menu.Candidate, 0, len(cands))
+	for _, c := range cands {
+		if c.Dish.Status != model.DishProposed {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func dishIDs(dishes []model.Dish) []int64 {

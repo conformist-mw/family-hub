@@ -24,7 +24,14 @@ import (
 // the app button, so nothing reaches for telebot.
 func menuBot(t *testing.T) *Bot {
 	t.Helper()
-	database, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	return menuBotAt(t, filepath.Join(t.TempDir(), "test.db"))
+}
+
+// menuBotAt opens a bot over the database at path — a second one over the
+// same file is the bot after a restart.
+func menuBotAt(t *testing.T, path string) *Bot {
+	t.Helper()
+	database, err := db.Open(path)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -417,6 +424,192 @@ func TestMenuShuffleDoesNotRepeatWhatWasShown(t *testing.T) {
 	}
 	if rows, _ := b.store.MealsOn(menuToday); len(rows) != 0 {
 		t.Fatalf("a shuffle wrote meals: %+v", rows)
+	}
+}
+
+func seedProposed(t *testing.T, b *Bot, n int) {
+	t.Helper()
+	for i := range n {
+		if _, _, err := b.store.CreateDish(model.Dish{Name: fmt.Sprintf("Нова %02d", i+1), Status: model.DishProposed}); err != nil {
+			t.Fatalf("create proposed: %v", err)
+		}
+	}
+}
+
+func proposedIn(dishes []menuDish) int {
+	n := 0
+	for _, d := range dishes {
+		if d.proposed {
+			n++
+		}
+	}
+	return n
+}
+
+// Pick allows one 🆕 per meal; the message as a whole carries at most one.
+func TestBuildMenuOffersAtMostOneNew(t *testing.T) {
+	b := menuBot(t)
+	seedMenuDishes(t, b, 12)
+	seedProposed(t, b, 6)
+
+	sawLunch, sawDinner := false, false
+	for seed := range uint64(300) {
+		st, ok, err := b.buildMenu(menuMorning, rand.New(rand.NewPCG(seed, 3)))
+		if err != nil || !ok {
+			t.Fatalf("seed %d: ok=%v err=%v", seed, ok, err)
+		}
+		lunch, dinner := proposedIn(st.offered[menu.Lunch]), proposedIn(st.offered[menu.Dinner])
+		if lunch+dinner > 1 {
+			t.Fatalf("seed %d: %d new dishes at lunch and %d at dinner, want at most one per message", seed, lunch, dinner)
+		}
+		sawLunch = sawLunch || lunch == 1
+		sawDinner = sawDinner || dinner == 1
+	}
+	if !sawLunch || !sawDinner {
+		t.Errorf("new dish at lunch %v, at dinner %v — want either meal to carry it on some mornings", sawLunch, sawDinner)
+	}
+}
+
+func TestMenuShuffleKeepsOneNewPerMessage(t *testing.T) {
+	b := menuBot(t)
+	active := seedMenuDishes(t, b, 12)
+	seedProposed(t, b, 6)
+	fresh, err := b.store.Dishes(model.DishProposed)
+	if err != nil || len(fresh) == 0 {
+		t.Fatalf("proposed: %v %v", fresh, err)
+	}
+
+	keyboard := func(lunch ...int64) *tele.ReplyMarkup {
+		st, err := b.menuStateFrom(menuRefs{date: menuToday, offered: map[menu.Meal][]int64{
+			menu.Lunch:  lunch,
+			menu.Dinner: {active[3].ID, active[4].ID, active[5].ID},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, markup := menuView(st)
+		return asTelegramSentIt(markup)
+	}
+	shuffleDinner := func(kb *tele.ReplyMarkup, seed uint64) int {
+		got, _, redraw, err := b.applyMenuTap(menuMorning, menuShufUnique, menuToday+"|dinner", "",
+			kb, rand.New(rand.NewPCG(seed, 5)))
+		if err != nil || !redraw {
+			t.Fatalf("seed %d: redraw=%v err=%v", seed, redraw, err)
+		}
+		return proposedIn(got.offered[menu.Dinner])
+	}
+
+	withNew := keyboard(active[0].ID, active[1].ID, fresh[0].ID)
+	withoutNew := keyboard(active[0].ID, active[1].ID, active[2].ID)
+	sawNew := false
+	for seed := range uint64(100) {
+		if n := shuffleDinner(withNew, seed); n != 0 {
+			t.Fatalf("seed %d: a dinner shuffle added a second 🆕 next to lunch's", seed)
+		}
+		sawNew = sawNew || shuffleDinner(withoutNew, seed) > 0
+	}
+	if !sawNew {
+		t.Error("a dinner shuffle never offered a new dish, even with none on lunch's row")
+	}
+}
+
+func TestBuildMenuWeekendDishesFromFridayDinner(t *testing.T) {
+	b := menuBot(t)
+	for _, name := range []string{"Піца", "Суші", "Шаурма"} {
+		if _, _, err := b.store.CreateDish(model.Dish{Name: name, Days: model.DishDaysWeekend}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name          string
+		day           time.Time
+		lunch, dinner bool
+	}{
+		{"thursday", menuMorning, false, false},
+		{"friday", menuMorning.AddDate(0, 0, 1), false, true},
+		{"saturday", menuMorning.AddDate(0, 0, 2), true, true},
+		{"sunday", menuMorning.AddDate(0, 0, 3), true, true},
+		{"monday", menuMorning.AddDate(0, 0, 4), false, false},
+	} {
+		st, ok, err := b.buildMenu(tc.day, fixedRand())
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		lunch, dinner := len(st.offered[menu.Lunch]) > 0, len(st.offered[menu.Dinner]) > 0
+		if lunch != tc.lunch || dinner != tc.dinner || ok != (tc.lunch || tc.dinner) {
+			t.Errorf("%s: lunch %v dinner %v ok %v, want lunch %v dinner %v", tc.name, lunch, dinner, ok, tc.lunch, tc.dinner)
+		}
+	}
+}
+
+// A plan nobody confirmed in the evening is neither yesterday's pot nor a
+// dish "not seen for ages": it stays out of the leftovers and ranks as
+// recent, so the next morning offers something else.
+func TestBuildMenuAfterAnUnansweredEvening(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 10)
+	plov := dishes[0]
+	if _, err := b.store.PlanMeal(plov.ID, menuYesterday, model.MealLunch, "Олег", false); err != nil {
+		t.Fatal(err)
+	}
+
+	for seed := range uint64(100) {
+		st, ok, err := b.buildMenu(menuMorning, rand.New(rand.NewPCG(seed, 11)))
+		if err != nil || !ok {
+			t.Fatalf("seed %d: ok=%v err=%v", seed, ok, err)
+		}
+		if len(st.leftovers) != 0 {
+			t.Fatalf("seed %d: leftovers %v from a plan nobody confirmed", seed, st.leftovers)
+		}
+		for _, meal := range menuMeals {
+			for _, d := range st.offered[meal] {
+				if d.id == plov.ID {
+					t.Fatalf("seed %d: yesterday's unconfirmed plan offered again for %s", seed, meal)
+				}
+			}
+		}
+	}
+	rows, _ := b.store.MealsOn(menuYesterday)
+	if len(rows) != 1 || rows[0].Status != model.MealPlanned {
+		t.Fatalf("yesterday = %+v, want the plan left as it was", rows)
+	}
+}
+
+// Nothing about a sent menu lives in the process: a bot started afresh over
+// the same database handles taps on the message the previous one sent.
+func TestMenuButtonsWorkAfterARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	before := menuBotAt(t, path)
+	seedMenuDishes(t, before, 20)
+	st, kb := sentMenu(t, before)
+
+	after := menuBotAt(t, path)
+	pick := st.offered[menu.Dinner][1]
+	got, _, redraw, err := after.applyMenuTap(menuMorning, menuPickUnique,
+		tapData(menuToday, menu.Dinner, pick.id), "Аня", kb, fixedRand())
+	if err != nil || !redraw {
+		t.Fatalf("pick after restart: redraw=%v err=%v", redraw, err)
+	}
+	if fmt.Sprint(got.offered) != fmt.Sprint(st.offered) || !got.isChosen(menu.Dinner, pick.id) {
+		t.Fatalf("redraw after restart: offered %v chosen %v", got.offered, got.chosen)
+	}
+	_, markup := menuView(got)
+	kb = asTelegramSentIt(markup)
+
+	got, _, redraw, err = after.applyMenuTap(menuMorning, menuShufUnique, menuToday+"|lunch", "Аня", kb, fixedRand())
+	if err != nil || !redraw {
+		t.Fatalf("shuffle after restart: redraw=%v err=%v", redraw, err)
+	}
+	for _, d := range got.offered[menu.Lunch] {
+		if slices.ContainsFunc(st.offered[menu.Lunch], func(o menuDish) bool { return o.id == d.id }) {
+			t.Errorf("shuffle after restart repeated %s", d.name)
+		}
+	}
+	if !got.isChosen(menu.Dinner, pick.id) {
+		t.Error("shuffle after restart lost the dinner pick")
+	}
+	if _, ok, _ := after.buildMenu(menuMorning, fixedRand()); ok {
+		t.Error("the restarted bot would post today's menu a second time")
 	}
 }
 

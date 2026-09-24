@@ -491,14 +491,15 @@ func IsWeekend(date time.Time, meal Meal) bool  // пт вечеря, сб, нд
   - ➕ додано `cmd/server/main_test.go` з тестом `parseDOW`: незаданий `DISH_SUGGEST_DOW` = `-1` (вимкнено), а не неділя; прибрано невикористаний `atoiOr`
 
 ### Task 12: Verify acceptance criteria
-- [ ] ранкове меню: сьогодні, обід + вечеря, 🔀 по кожному, «Доїдаємо» з учорашнього, вихідні страви лише пт-вечір/сб/нд
-- [ ] вибір — `planned`, вечір або фото — `eaten`, невідповідений вечір не ламає ротацію
-- [ ] вечірній перепит мовчить, коли все закрито
-- [ ] суботні пропозиції: `proposed` з'являється як 🆕 не частіше одного на меню, `rejected` більше не пропонується
-- [ ] кнопки ранкового меню працюють після рестарту
-- [ ] фото / `/cooked` пишуть у `meals`, нова страва створюється локально
-- [ ] `go test ./...`, `go vet ./...`
-- [ ] ручний прогін з dev-токеном бота з `.env.example`, polling, приватний чат як `NotifyChat`: меню, натиск, 🔀, рестарт, натиск ще раз, вечірній перепит, «Інше» текстом і фото
+- [x] ранкове меню: сьогодні, обід + вечеря, 🔀 по кожному, «Доїдаємо» з учорашнього, вихідні страви лише пт-вечір/сб/нд — `TestBuildMenuOffersBothMeals`, `TestMenuViewLayout`, `TestMenuShuffleDoesNotRepeatWhatWasShown`, `TestBuildMenuLeftoversAndYesterdaysShown`, `TestIsWeekend`, `TestPickPool`, ➕ `TestBuildMenuWeekendDishesFromFridayDinner`
+- [x] вибір — `planned`, вечір або фото — `eaten`, невідповідений вечір не ламає ротацію — `TestMenuPickPlansAndReplaces`, `TestEveningYesRecordsThePlan`, `TestRecordPlateClosesThePlan`, `TestLastSeenCountsPlans`, ➕ `TestBuildMenuAfterAnUnansweredEvening`
+- [x] вечірній перепит мовчить, коли все закрито — `TestEveningViewIsSilentWhenEverythingIsAnswered`, `TestBuildEvening`
+- [x] суботні пропозиції: `proposed` з'являється як 🆕 не частіше одного на меню, `rejected` більше не пропонується — `TestPickAtMostOneNew`, `TestBuildMenuWithAnEmptyCatalogue`, `TestFilterSuggestions`, `TestEveningRejectTurnsDownAProposal`, ➕ `TestBuildMenuOffersAtMostOneNew`, ➕ `TestMenuShuffleKeepsOneNewPerMessage`
+  - ⚠️→✅ не виконувалось: `Pick` обмежував 🆕 одним на прийом, тож обід і вечеря разом давали дві 🆕 в одному повідомленні (і 🔀 вечері — другу поруч з обідньою). Виправлено в `buildMenu`/`shuffleMeal`: прийом поруч із рядком, де вже є 🆕, обирається без `proposed`
+- [x] кнопки ранкового меню працюють після рестарту — меню-хендлери реєструються безумовно, стан читається з клавіатури і БД; `TestMenuKeyboardRoundTrips`, `TestBuildMenuTwiceADayIsSilent`, ➕ `TestMenuButtonsWorkAfterARestart`
+- [x] фото / `/cooked` пишуть у `meals`, нова страва створюється локально — `TestRecordPlateWritesEveryDish`, `TestRecordPlateTwiceIsAlreadyRecorded`, `TestCreatePlateDishAddsToTheCatalogueOnly`, `TestCreatePlateDishRevivesARejectedDish`
+- [x] `go test ./...`, `go vet ./...`
+- [x] ручний прогін з dev-токеном бота з `.env.example`, polling, приватний чат як `NotifyChat`: меню, натиск, 🔀, рестарт, натиск ще раз, вечірній перепит, «Інше» текстом і фото (skipped - not automatable, needs a dev bot token)
 
 ### Task 13: [Final] Документація
 - [ ] `ARCHITECTURE.md`: переписати «The cooking log» і замінити «Filling the meal plan» на «The menu» — чому не Mealie (вигадана історія), страва = те, що на столі (явно скасувати рішення про комбінації), plan vs eaten, залишки без прапорця, 🆕 = `proposed`, показане старить, стан у БД на відміну від карток тарілки

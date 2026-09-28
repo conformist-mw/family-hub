@@ -328,20 +328,29 @@ func choreRefsFromMarkup(m *tele.ReplyMarkup) []choreRef {
 
 // choreCallbackPayload returns a button's "<id>|<due_at>|<status>", and
 // whether the button is one of ours at all.
+func choreCallbackPayload(btn tele.InlineButton) (string, bool) {
+	_, data, ok := callbackPayload(btn, choreCallbackUnique)
+	return data, ok
+}
+
+// callbackPayload returns which of uniques a button belongs to and its data
+// without the unique, or ok=false for a button that is none of them (the app
+// row, another feature's button).
 //
 // Two shapes, because a keyboard is read in two directions. One we built
 // carries Unique separately and Data bare — telebot only fuses them into
 // "\f<unique>|<data>" as it sends. One that came back from Telegram has only
 // callback_data, so it arrives fused with Unique empty.
-func choreCallbackPayload(btn tele.InlineButton) (string, bool) {
-	if btn.Unique == choreCallbackUnique {
-		return btn.Data, true
+func callbackPayload(btn tele.InlineButton, uniques ...string) (unique, data string, ok bool) {
+	for _, u := range uniques {
+		if btn.Unique == u {
+			return u, btn.Data, true
+		}
+		if rest, found := strings.CutPrefix(btn.Data, "\f"+u+"|"); found {
+			return u, rest, true
+		}
 	}
-	const prefix = "\f" + choreCallbackUnique + "|"
-	if rest, found := strings.CutPrefix(btn.Data, prefix); found {
-		return rest, true
-	}
-	return "", false
+	return "", "", false
 }
 
 // choreHeaderOf keeps the message's own opening line. "Пора" and "не закрито"

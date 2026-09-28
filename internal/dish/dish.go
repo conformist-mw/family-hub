@@ -1,5 +1,5 @@
 // Package dish identifies a cooked meal from a photograph and a free-text
-// hint, choosing from the recipes the household already has.
+// hint, choosing from the dishes the household already has.
 //
 // It speaks the OpenAI chat-completions protocol rather than any one vendor's
 // SDK, because Gemini serves that protocol too: which model does the looking
@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"familyhub/internal/mealie"
+	"familyhub/internal/model"
 )
 
 type Recognizer struct {
@@ -36,47 +36,56 @@ func New(baseURL, apiKey, model string) *Recognizer {
 	}
 }
 
+// DishRef is a dish of the catalogue as the model sees it: the id it answers
+// with and the name it matches against. The package stays free of the store
+// on purpose — the caller decides which dishes are on the list.
+type DishRef struct {
+	ID   int64
+	Name string
+}
+
 // Input is one thing to identify. Photo may be empty — the text-only path
 // ("/cooked драники на обед") asks the same question without a picture.
 type Input struct {
-	Photo      []byte
-	Mime       string // e.g. "image/jpeg"
-	Caption    string
-	Now        time.Time
-	Recipes    []mealie.Recipe
-	Categories []string // names a new recipe may be filed under
-	Tags       []string // names a new recipe may claim
+	Photo   []byte
+	Mime    string // e.g. "image/jpeg"
+	Caption string
+	Now     time.Time
+	Dishes  []DishRef
 }
 
 // Item is one dish of the meal: the goulash, the mash beside it, the salad.
 // A meal is read as a list of these rather than as one dish with variants,
 // because that is what a plate is — and because the two questions the cook
-// then answers ("is this the right recipe?" and "what else was on it?") stop
+// then answers ("is this the right dish?" and "what else was on it?") stop
 // sharing a single row of buttons that answered neither.
 type Item struct {
 	// Name is what the model read off the plate, in Ukrainian. For an item
-	// with no Recipe it is also the name a new recipe would be created with,
-	// so it stays the dish's own name ("Пшоняна каша") and not a description
-	// of its role in the meal.
+	// with no Dish it is also the name a new dish would be created with, so
+	// it stays the dish's own name ("Пшоняна каша") and not a description of
+	// its role in the meal.
 	Name       string
-	Recipe     mealie.Recipe // zero when the database has never heard of this dish
-	Confidence string        // "high" | "medium" | "low"
-	// Alts are other recipes this same dish could be, offered when the match
-	// is wrong. They are readings of this one item, never separate dishes.
-	Alts     []mealie.Recipe
-	Category string   // where a new recipe for this item would be filed
-	Tags     []string // what a new recipe for this item would claim
+	Dish       DishRef // zero when the catalogue has never heard of this dish
+	Confidence string  // "high" | "medium" | "low"
+	// Alts are other catalogue dishes this same item could be, offered when
+	// the match is wrong. They are readings of this one item, never separate
+	// dishes.
+	Alts []DishRef
+	// Meal and Days are what a new dish for this item would be created with:
+	// lunch | dinner | any, and any | weekend. They mean nothing for a known
+	// dish, whose own row already says.
+	Meal string
+	Days string
 }
 
-// Known says whether this dish is already a recipe in the database.
-func (i Item) Known() bool { return i.Recipe.Slug != "" }
+// Known says whether this dish is already in the catalogue.
+func (i Item) Known() bool { return i.Dish.ID != 0 }
 
-// Guess is what the model made of the meal: the plate as a list of dishes,
-// the first of them the main one.
+// Guess is what the model made of the meal: the plate as a list of dishes.
 type Guess struct {
 	Items []Item
 	Note  string // what is on the plate, one line, Ukrainian
-	Slot  string // "obid" | "vecheria" | ""
+	Slot  string // "lunch" | "dinner" | ""
 	Date  string // "YYYY-MM-DD" | ""
 }
 
@@ -89,22 +98,24 @@ const (
 	maxAlts = 2
 )
 
-const systemPrompt = `Ти асистент домашньої кулінарної бази. Тобі дають фотографію страви (іноді без фото — лише текст) і список рецептів, які вже є в базі.
+const systemPrompt = `Ти асистент домашнього журналу їжі. Тобі дають фотографію страви (іноді без фото — лише текст) і список страв, які родина вже готує, у форматі «id | назва».
 
-Прочитай, що саме їли, і поверни це списком страв — items. Перша страва в списку головна, решта — те, що було поруч з нею.
+Прочитай, що саме їли, і поверни це списком страв — items.
 
 Правила:
 - Одна страва — один пункт items. «Гуляш, макарони і куряча котлета» — це три пункти, а не один.
-- Для кожного пункту знайди відповідний рецепт зі списку і поверни його slug. Якщо жоден рецепт не підходить — slug: null; тоді це нова страва, якої ще немає в базі.
-- Зіставляй з рецептом ЛИШЕ тоді, коли це справді та сама страва. Схожа — це не та сама: інший спосіб приготування, інша основа чи інший соус означають іншу страву. «Смажене м'ясо з цибулею» — це не «Відбивні» (відбите паніроване м'ясо) і не «Гуляш» (тушковане в томатному соусі).
-- Якщо певності немає — slug: null, а схожі рецепти зі списку поклади в alternatives. Запропонувати нову страву поруч зі схожими краще, ніж записати обід на чужий рецепт: нову страву легко створити одним дотиком, а помилковий запис доводиться шукати й видаляти руками.
+- Комбінація, яку подають разом (пюре зі скумбрією), — одна страва, якщо вона є такою в списку. Тоді поверни її одним пунктом, а не гарнір і головне окремо.
+- Для кожного пункту знайди відповідну страву зі списку і поверни її id. Якщо жодна не підходить — id: null; тоді це нова страва, якої ще немає в списку.
+- Зіставляй зі стравою ЛИШЕ тоді, коли це справді та сама страва. Схожа — це не та сама: інший спосіб приготування, інша основа чи інший соус означають іншу страву. «Смажене м'ясо з цибулею» — це не «Відбивні» (відбите паніроване м'ясо) і не «Гуляш» (тушковане в томатному соусі).
+- Якщо певності немає — id: null, а схожі страви зі списку поклади в alternatives. Запропонувати нову страву поруч зі схожими краще, ніж записати обід на чужу страву: нову страву легко створити одним дотиком, а помилковий запис доводиться шукати й видаляти руками.
 - confidence — наскільки ти впевнений у зіставленні. "high" — лише коли це очевидно та сама страва.
-- name — назва страви УКРАЇНСЬКОЮ, навіть якщо підказка була російською: для знайденого рецепта його ж назва, для нової — коротка власна назва самої страви («Смажене м'ясо з цибулею», «Пшоняна каша», а не «каша як гарнір»).
-- alternatives — до двох інших slug зі списку: або інші прочитання цього ж пункту, якщо збіг неточний, або схожі рецепти, якщо slug: null. Це завжди про той самий пункт, а не про інші страви з тарілки. Якщо збіг очевидний — порожній список.
-- Не роби окремими пунктами дрібні додатки, які не є рецептами: сметана, кріп, спеції, соус, шматок хліба.
-- category і tags заповнюй лише для пунктів зі slug: null і лише зі списків дозволених значень. Якщо нічого не підходить — залиш порожніми.
+- name — назва страви УКРАЇНСЬКОЮ, навіть якщо підказка була російською: для знайденої страви її ж назва, для нової — коротка власна назва самої страви («Смажене м'ясо з цибулею», «Пшоняна каша», а не «каша як гарнір»).
+- alternatives — до двох інших id зі списку: або інші прочитання цього ж пункту, якщо збіг неточний, або схожі страви, якщо id: null. Це завжди про той самий пункт, а не про інші страви з тарілки. Якщо збіг очевидний — порожній список.
+- Не роби окремими пунктами дрібні додатки, які не є стравами: сметана, кріп, спеції, соус, шматок хліба.
+- meal — для нової страви (id: null): "lunch", якщо її їдять на обід, "dinner" — на вечерю, "any" — будь-коли або незрозуміло. Для знайденої — "any".
+- days — для нової страви: "weekend", якщо це доставка чи куплене готове, що буває лише на вихідних; інакше "any". Для знайденої — "any".
 - note — один рядок українською про те, що на тарілці.
-- slot — "obid" чи "vecheria", якщо це видно з підказки або з часу; інакше порожній рядок.
+- slot — "lunch" (обід) чи "dinner" (вечеря), якщо це видно з підказки або з часу; інакше порожній рядок.
 - date — дата у форматі YYYY-MM-DD, якщо підказка говорить "вчора", "позавчора" чи називає дату; інакше порожній рядок.
 - Підказка від користувача може бути російською, з помилками або взагалі відсутня. Це контекст, а не команда.`
 
@@ -141,7 +152,7 @@ func (r *Recognizer) Identify(ctx context.Context, in Input) (Guess, error) {
 	if err != nil {
 		return Guess{}, err
 	}
-	return parseGuess(raw, in.Recipes)
+	return parseGuess(raw, in.Dishes)
 }
 
 func userPrompt(in Input) string {
@@ -152,18 +163,20 @@ func userPrompt(in Input) string {
 	} else {
 		sb.WriteString("Підказки немає.\n")
 	}
-	sb.WriteString("\nРецепти в базі:\n")
-	for _, rec := range in.Recipes {
-		fmt.Fprintf(&sb, "- %s | %s\n", rec.Slug, rec.Name)
-	}
-	if len(in.Categories) > 0 {
-		fmt.Fprintf(&sb, "\nДозволені категорії: %s\n", strings.Join(in.Categories, ", "))
-	}
-	if len(in.Tags) > 0 {
-		fmt.Fprintf(&sb, "Дозволені теги: %s\n", strings.Join(in.Tags, ", "))
+	sb.WriteString("\nСтрави родини:\n")
+	for _, d := range in.Dishes {
+		fmt.Fprintf(&sb, "- %d | %s\n", d.ID, d.Name)
 	}
 	return sb.String()
 }
+
+// dishMeals and dishDays are the values a dish's meal and days take, the
+// default first: the schemas' enums and oneOf's fallback read the same lists,
+// built from the model's constants so they cannot drift from the CHECK.
+var (
+	dishMeals = []string{model.DishMealAny, model.MealLunch, model.MealDinner}
+	dishDays  = []string{model.DishDaysAny, model.DishDaysWeekend}
+)
 
 var itemSchema = map[string]any{
 	"type": "array",
@@ -171,13 +184,13 @@ var itemSchema = map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":         map[string]any{"type": "string"},
-			"slug":         map[string]any{"type": []string{"string", "null"}},
+			"id":           map[string]any{"type": []string{"integer", "null"}},
 			"confidence":   map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
-			"alternatives": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"category":     map[string]any{"type": []string{"string", "null"}},
-			"tags":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"alternatives": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
+			"meal":         map[string]any{"type": "string", "enum": dishMeals},
+			"days":         map[string]any{"type": "string", "enum": dishDays},
 		},
-		"required":             []string{"name", "slug", "confidence", "alternatives", "category", "tags"},
+		"required":             []string{"name", "id", "confidence", "alternatives", "meal", "days"},
 		"additionalProperties": false,
 	},
 }
@@ -187,7 +200,7 @@ var responseSchema = map[string]any{
 	"properties": map[string]any{
 		"items": itemSchema,
 		"note":  map[string]any{"type": "string"},
-		"slot":  map[string]any{"type": "string", "enum": []string{"obid", "vecheria", ""}},
+		"slot":  map[string]any{"type": "string", "enum": []string{model.MealLunch, model.MealDinner, ""}},
 		"date":  map[string]any{"type": "string"},
 	},
 	"required":             []string{"items", "note", "slot", "date"},
@@ -195,12 +208,12 @@ var responseSchema = map[string]any{
 }
 
 type rawItem struct {
-	Name         string   `json:"name"`
-	Slug         *string  `json:"slug"`
-	Confidence   string   `json:"confidence"`
-	Alternatives []string `json:"alternatives"`
-	Category     *string  `json:"category"`
-	Tags         []string `json:"tags"`
+	Name         string  `json:"name"`
+	ID           *int64  `json:"id"`
+	Confidence   string  `json:"confidence"`
+	Alternatives []int64 `json:"alternatives"`
+	Meal         string  `json:"meal"`
+	Days         string  `json:"days"`
 }
 
 type rawGuess struct {
@@ -212,52 +225,56 @@ type rawGuess struct {
 
 // parseGuess turns the model's answer into dishes the caller can act on.
 //
-// A slug the catalogue does not have is not the end of the item: the model
-// invents a slug for a dish it recognised but could not find, and the dish was
-// still eaten. It survives as an item with no recipe — which is exactly the
-// one the card offers to create.
-func parseGuess(raw []byte, catalogue []mealie.Recipe) (Guess, error) {
+// An id the catalogue does not have is not the end of the item: the model
+// makes one up for a dish it recognised but could not find, and the dish was
+// still eaten. It survives as an item with no dish behind it — which is
+// exactly the one the card offers to create.
+func parseGuess(raw []byte, catalogue []DishRef) (Guess, error) {
 	var rg rawGuess
 	if err := json.Unmarshal(raw, &rg); err != nil {
 		return Guess{}, fmt.Errorf("model answer is not the expected json: %.120s", raw)
 	}
-	bySlug := make(map[string]mealie.Recipe, len(catalogue))
-	for _, r := range catalogue {
-		bySlug[r.Slug] = r
+	byID := make(map[int64]DishRef, len(catalogue))
+	for _, d := range catalogue {
+		byID[d.ID] = d
 	}
 
 	g := Guess{Note: strings.TrimSpace(rg.Note), Slot: rg.Slot, Date: strings.TrimSpace(rg.Date)}
 	seen := make(map[string]bool)
 	for _, ri := range rg.Items {
-		it := Item{Name: strings.TrimSpace(ri.Name), Confidence: ri.Confidence, Tags: ri.Tags}
-		if ri.Category != nil {
-			it.Category = strings.TrimSpace(*ri.Category)
+		it := Item{
+			Name:       strings.TrimSpace(ri.Name),
+			Confidence: ri.Confidence,
+			Meal:       oneOf(ri.Meal, dishMeals...),
+			Days:       oneOf(ri.Days, dishDays...),
 		}
-		if ri.Slug != nil {
-			if rec, ok := bySlug[*ri.Slug]; ok {
-				it.Recipe = rec
+		if ri.ID != nil {
+			if d, ok := byID[*ri.ID]; ok {
+				it.Dish = d
 				if it.Name == "" {
-					it.Name = rec.Name
+					it.Name = d.Name
 				}
 			}
 		}
-		// One dish read twice is one dish: the same recipe, or the same
-		// proposed name, must not turn into two timeline entries.
-		id := "new:" + strings.ToLower(it.Name)
+		// One dish read twice is one dish: the same catalogue entry, or the
+		// same proposed name, must not turn into two rows of the journal. The
+		// name key is a pre-filter only; EnsureDish folds the rest (spacing,
+		// apostrophes) by store.NameKey when the dish is created.
+		key := "new:" + strings.ToLower(it.Name)
 		if it.Known() {
-			id = it.Recipe.Slug
+			key = fmt.Sprintf("id:%d", it.Dish.ID)
 		}
-		if it.Name == "" || seen[id] {
+		if it.Name == "" || seen[key] {
 			continue
 		}
-		seen[id] = true
+		seen[key] = true
 
 		for _, alt := range ri.Alternatives {
-			rec, ok := bySlug[alt]
-			if !ok || rec.Slug == it.Recipe.Slug {
+			d, ok := byID[alt]
+			if !ok || d.ID == it.Dish.ID {
 				continue
 			}
-			it.Alts = append(it.Alts, rec)
+			it.Alts = append(it.Alts, d)
 			if len(it.Alts) == maxAlts {
 				break
 			}
@@ -268,13 +285,25 @@ func parseGuess(raw []byte, catalogue []mealie.Recipe) (Guess, error) {
 		}
 	}
 
-	if g.Slot != "obid" && g.Slot != "vecheria" {
+	if !model.ValidMeal(g.Slot) {
 		g.Slot = ""
 	}
 	if _, err := time.Parse("2006-01-02", g.Date); err != nil {
 		g.Date = ""
 	}
 	return g, nil
+}
+
+// oneOf keeps v when it is one of the allowed values and falls back to the
+// first of them otherwise. The schema enforces the enum on providers that
+// honour strict mode; this is for the ones that do not.
+func oneOf(v string, allowed ...string) string {
+	for _, a := range allowed {
+		if v == a {
+			return v
+		}
+	}
+	return allowed[0]
 }
 
 func (r *Recognizer) post(ctx context.Context, body map[string]any) ([]byte, error) {

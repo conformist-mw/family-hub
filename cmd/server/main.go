@@ -17,10 +17,8 @@ import (
 
 	"familyhub/internal/actor"
 	"familyhub/internal/bot"
-	"familyhub/internal/cooking"
 	"familyhub/internal/db"
 	"familyhub/internal/dish"
-	"familyhub/internal/mealie"
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
@@ -104,34 +102,6 @@ func main() {
 		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
 	}
 
-	// The recipe database. Two addresses on purpose: the API is spoken to
-	// inside the docker network, while a link in a Telegram message has to be
-	// one a phone can open. A deploy that sets only the first gets links to
-	// it, which is right for a single host where they are the same.
-	var cookingSvc *cooking.Service
-	mealieURL := os.Getenv("MEALIE_URL")
-	mealiePublicURL := os.Getenv("MEALIE_PUBLIC_URL")
-	if mealiePublicURL == "" {
-		mealiePublicURL = mealieURL
-	}
-	if mealieToken := os.Getenv("MEALIE_TOKEN"); mealieURL != "" && mealieToken != "" {
-		mealieClient := mealie.New(mealieURL, mealieToken)
-		cookingSvc = cooking.NewService(mealieClient, mealiePublicURL)
-
-		// Filling the meal plan is data, like the reminder materialiser, so
-		// it runs from here rather than from the bot: hanging it off the
-		// bot's gates would stop the plan being written whenever messages
-		// are switched off. Empty MEALPLAN_FILL_TIME disables it.
-		go cooking.NewPlanner(mealieClient, cooking.PlannerConfig{
-			At:       os.Getenv("MEALPLAN_FILL_TIME"),
-			Slots:    splitCSV(os.Getenv("MEALPLAN_SLOTS")),
-			Horizon:  atoiOr(os.Getenv("MEALPLAN_HORIZON_DAYS"), 0),
-			RestDays: atoiOr(os.Getenv("MEALPLAN_REST_DAYS"), 0),
-			Loc:      time.Local,
-			Logger:   logger,
-		}).RunDaily(ctx)
-	}
-
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
 	var webhookPath string
@@ -168,10 +138,9 @@ func main() {
 			}
 		}
 
-		// The cooking log needs a model on top of the recipe database: one to
-		// look at the photograph, the other to write the result down. A
-		// missing key leaves the recognizer nil, which the bot reads as "not
-		// configured" and skips.
+		// The cooking log needs a model to look at the photograph; what it
+		// sees is written to the local store. A missing key leaves the
+		// recognizer nil, which the bot reads as "not configured" and skips.
 		var recognizer *dish.Recognizer
 		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
 			// The model tier matters: on a plate holding a main dish plus side
@@ -218,9 +187,9 @@ func main() {
 			Reminders:            remindersSvc,
 			School:               schoolSvc,
 			People:               people,
-			Cooking:              cookingSvc,
 			Dish:                 recognizer,
 		}
+		cfg = withMenuEnv(cfg, os.Getenv)
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
 		// loop, which webhook mode never runs and polling mode has already
 		// stopped via ctx by the time defers fire — either way it deadlocks
@@ -324,6 +293,20 @@ func buildHandler(webHandler, miniHandler http.Handler) http.Handler {
 	return root
 }
 
+// withMenuEnv sets the menu's three clocks. The menu is exempt from
+// NOTIFICATIONS_ENABLED too: HA has no part in it, the taps on its buttons
+// come back to the bot. An unset DISH_SUGGEST_DOW parses to -1, so the
+// suggestions stay off rather than landing on Sunday. It sits outside the
+// bot.Config literal, unlike the other clocks, only as a test seam: getenv is
+// injected so main_test can check the wiring without touching the process env.
+func withMenuEnv(cfg bot.Config, getenv func(string) string) bot.Config {
+	cfg.MenuTime = getenv("MENU_TIME")
+	cfg.MenuEveningTime = getenv("MENU_EVENING_TIME")
+	cfg.DishSuggestDOW = parseDOW(getenv("DISH_SUGGEST_DOW"))
+	cfg.DishSuggestTime = getenv("DISH_SUGGEST_TIME")
+	return cfg
+}
+
 // parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.
 func parseDOW(s string) int {
 	s = strings.TrimSpace(s)
@@ -376,15 +359,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-// atoiOr reads a positive integer from the environment, falling back to def
-// for anything unset or unparseable. Zero means "the package default", which
-// is where the actual numbers live.
-func atoiOr(s string, def int) int {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil || n < 0 {
-		return def
-	}
-	return n
 }

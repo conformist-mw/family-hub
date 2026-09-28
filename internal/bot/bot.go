@@ -16,7 +16,6 @@ import (
 
 	"familyhub/internal/actor"
 	"familyhub/internal/audit"
-	"familyhub/internal/cooking"
 	"familyhub/internal/dish"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
@@ -77,6 +76,19 @@ type Config struct {
 	SchoolWeekReviewDOW  int
 	SchoolWeekReviewTime string
 
+	// MenuTime is when the bot posts today's menu to choose from, and
+	// MenuEveningTime when it asks what was actually eaten. "" disables
+	// either. Not behind NotificationsEnabled: HA has no part in these — the
+	// taps on their buttons come back to the bot.
+	MenuTime        string
+	MenuEveningTime string
+
+	// DishSuggestDOW/Time is when the bot asks the model for new dishes to
+	// try. DOW is 0=Sun..6=Sat and <0 disables, matching WeeklyDigestDOW; ""
+	// for the time disables it too, and so does a nil Dish.
+	DishSuggestDOW  int
+	DishSuggestTime string
+
 	// Reminders answers what came due and was left open. nil disables the nag
 	// regardless of ReminderNagTime.
 	Reminders *reminders.Service
@@ -86,19 +98,36 @@ type Config struct {
 	// review regardless of the times, because there would be nothing to read.
 	School *schooltoday.Service
 
-	// Cooking writes meals down in the recipe database and Dish works out
-	// which dish a photograph shows. Both are nil unless the deploy carries a
-	// Mealie token and a vision model; either one missing disables the cooking
-	// log and leaves the rest of the bot untouched — the same bargain
-	// free-text capture makes with GEMINI_API_KEY.
 	// People names the family by Telegram user id, so that "Я" in a captured
 	// note and the byline on a cooking entry both resolve to the same person
 	// even after somebody edits their Telegram profile. Empty just means
 	// everyone is called whatever Telegram currently says.
 	People actor.Roster
 
-	Cooking *cooking.Service
-	Dish    *dish.Recognizer
+	// Dish works out which dishes a photograph shows. nil unless the deploy
+	// carries a vision model; nil disables the cooking log and leaves the rest
+	// of the bot untouched — the same bargain free-text capture makes with
+	// GEMINI_API_KEY. The dishes themselves live in the local store.
+	Dish *dish.Recognizer
+}
+
+// menuEnabled and menuEveningEnabled gate on a configured time alone: the
+// menu reads the local dish catalogue, which is there with or without a
+// model, so a deploy without AI still gets the menu.
+func (c Config) menuEnabled() bool {
+	return c.MenuTime != ""
+}
+
+func (c Config) menuEveningEnabled() bool {
+	return c.MenuEveningTime != ""
+}
+
+// dishSuggestEnabled needs the recognizer as well as a day and a time, the way
+// schoolWeekReviewEnabled needs School: the suggestions come from the model,
+// and arming the clock without one would call a nil receiver in RunDigests'
+// goroutine and take the whole server down with it.
+func (c Config) dishSuggestEnabled() bool {
+	return c.DishSuggestTime != "" && c.DishSuggestDOW >= 0 && c.Dish != nil
 }
 
 type Bot struct {
@@ -115,9 +144,8 @@ type Bot struct {
 	pending  *pendingStore
 	awaiting *awaitingStore
 
-	// cookedCards holds the confirmation cards of the cooking log, including
-	// the photograph itself: it is needed again after the write, for the
-	// "make it the main picture" tap.
+	// cookedCards holds the confirmation cards of the cooking log between the
+	// recognition and the taps that correct and confirm it.
 	cookedCards *cookedPending
 
 	// reviewRunning guards the Friday school review, which is the only message
@@ -125,6 +153,9 @@ type Bot struct {
 	// enough to outlast a minute would have a second collect started on top of
 	// the first, and the group would get the week twice.
 	reviewRunning atomic.Bool
+	// suggestRunning guards the weekly dish suggestions the same way: the
+	// model call leaves the ticker's goroutine too.
+	suggestRunning atomic.Bool
 }
 
 // ParseChatIDs parses a comma-separated list of int64 chat ids.
@@ -205,6 +236,20 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: "vis_reason"}, bot.onReasonTap)
 	tb.Handle(&tele.Btn{Unique: "rem_chore"}, bot.onChoreTap)
 
+	// The morning menu reads the local catalogue and needs no model, so its
+	// buttons are live on every deploy — including one that sent a menu
+	// before MENU_TIME was switched off.
+	tb.Handle(&tele.Btn{Unique: menuPickUnique}, bot.onMenuPick)
+	tb.Handle(&tele.Btn{Unique: menuShufUnique}, bot.onMenuShuf)
+	tb.Handle(&tele.Btn{Unique: menuLeftUnique}, bot.onMenuLeft)
+	// The evening check's answers only write rows, so they are live on every
+	// deploy as well; "Інше" is the exception, registered with the cooking
+	// log below, because its answer goes to the recognizer.
+	tb.Handle(&tele.Btn{Unique: eveYesUnique}, bot.onEveningYes)
+	tb.Handle(&tele.Btn{Unique: evePickUnique}, bot.onEveningPick)
+	tb.Handle(&tele.Btn{Unique: eveHomeUnique}, bot.onEveningHome)
+	tb.Handle(&tele.Btn{Unique: eveRejUnique}, bot.onEveningRej)
+
 	// Appointments. /list, /week and their callbacks only read and edit stored
 	// rows, so they work with or without a parser. OnText is registered
 	// unconditionally too: it also delivers the reply to a field-edit prompt
@@ -230,10 +275,10 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		logger.Info("bot: free-text capture disabled (GEMINI_API_KEY not set)")
 	}
 
-	// The cooking log. OnPhoto is registered only with both halves present:
-	// without them a photo has nowhere to go, and the handler would download
-	// every picture the family posts to find that out.
-	if cfg.Cooking != nil && cfg.Dish != nil {
+	// The cooking log. OnPhoto is registered only with a recognizer: without
+	// one a photo has nowhere to go, and the handler would download every
+	// picture the family posts to find that out.
+	if cfg.Dish != nil {
 		tb.Handle("/cooked", bot.cmdCooked)
 		tb.Handle(tele.OnPhoto, bot.onPhoto)
 		tb.Handle(&tele.Btn{Unique: "ckd_ok"}, bot.onCookedConfirm)
@@ -243,12 +288,16 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		tb.Handle(&tele.Btn{Unique: "ckd_item"}, bot.onCookedItem)
 		tb.Handle(&tele.Btn{Unique: "ckd_back"}, bot.onCookedBack)
 		tb.Handle(&tele.Btn{Unique: "ckd_pick"}, bot.onCookedPick)
-		tb.Handle(&tele.Btn{Unique: "ckd_main"}, bot.onCookedMakeMain)
 		tb.Handle(&tele.Btn{Unique: "ckd_drop"}, bot.onCookedDrop)
-		tb.Handle(&tele.Btn{Unique: "ckd_promote"}, bot.onCookedPromote)
 		tb.Handle(&tele.Btn{Unique: "ckd_cancel"}, bot.onCookedCancel)
+		tb.Handle(&tele.Btn{Unique: eveOtherUnique}, bot.onEveningOther)
+		// The suggestions come from the same model, so without one there is
+		// never a card for these buttons to belong to.
+		tb.Handle(&tele.Btn{Unique: suggAddUnique}, bot.onSuggestAdd)
+		tb.Handle(&tele.Btn{Unique: suggMaybeUnique}, bot.onSuggestMaybe)
+		tb.Handle(&tele.Btn{Unique: suggNoUnique}, bot.onSuggestNo)
 	} else {
-		logger.Info("bot: cooking log disabled (MEALIE_TOKEN or AI_API_KEY not set)")
+		logger.Info("bot: cooking log disabled (AI_API_KEY not set)")
 	}
 
 	// Populate the "/" menu — how the group discovers the appointment commands
@@ -263,7 +312,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	if parser != nil {
 		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записати візит: /visit завтра 15:00 педикюр"})
 	}
-	if cfg.Cooking != nil && cfg.Dish != nil {
+	if cfg.Dish != nil {
 		cmds = append(cmds, tele.Command{Text: "cooked", Description: "Що приготували: фото тарілки або /cooked драники"})
 	}
 	cmds = append(cmds,

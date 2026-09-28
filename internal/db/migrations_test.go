@@ -468,3 +468,118 @@ func seedPaymentCourse(t *testing.T, database *sql.DB) {
 		INSERT INTO enrollments (id, person_id, name, billing_type, current_price)
 		VALUES (1, 1, 'Карате', 'per_lesson', 400)`)
 }
+
+// Same reason as the other table checks: a migration goose does not pick up
+// fails silently as "table missing" much later, at the first morning menu.
+func TestMenuTablesExistAfterMigration(t *testing.T) {
+	database := migrated(t)
+	for _, table := range []string{"dishes", "meals", "menu_messages"} {
+		var name string
+		err := database.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %q missing after migrate: %v", table, err)
+		}
+	}
+}
+
+// meal, days and both status columns drive branching in the picker and the
+// evening check. A value they cannot mean would silently drop the dish out of
+// every pool instead of failing where it was written.
+func TestMenuRejectsUnknownEnumValues(t *testing.T) {
+	database := migrated(t)
+	mustExec(t, database, `INSERT INTO dishes (id, name, name_key) VALUES (1, 'Борщ', 'борщ')`)
+
+	for _, q := range []string{
+		`INSERT INTO dishes (name, name_key, meal) VALUES ('Плов', 'плов', 'breakfast')`,
+		`INSERT INTO dishes (name, name_key, days) VALUES ('Плов', 'плов', 'weekday')`,
+		`INSERT INTO dishes (name, name_key, status) VALUES ('Плов', 'плов', 'archived')`,
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (1, '2026-09-24', 'any', 'eaten')`,
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (1, '2026-09-24', 'lunch', 'skipped')`,
+	} {
+		if _, err := database.Exec(q); err == nil {
+			t.Errorf("CHECK accepted: %s", q)
+		}
+	}
+}
+
+// A dish written without the optional columns is an ordinary, everyday dish
+// that fits either meal — which is what an imported recipe with no meal tag
+// should become.
+func TestADishDefaultsToActiveAnyMealAnyDay(t *testing.T) {
+	database := migrated(t)
+	mustExec(t, database, `INSERT INTO dishes (id, name, name_key) VALUES (1, 'Борщ', 'борщ')`)
+
+	var meal, days, status, note string
+	if err := database.QueryRow(
+		`SELECT meal, days, status, note FROM dishes WHERE id = 1`).
+		Scan(&meal, &days, &status, &note); err != nil {
+		t.Fatalf("read defaults: %v", err)
+	}
+	if meal != "any" || days != "any" || status != "active" || note != "" {
+		t.Fatalf("defaults = %q %q %q %q", meal, days, status, note)
+	}
+}
+
+// The name key is the dedup guard between the photo log, the model's
+// suggestions and the import: "Борщ" typed twice must stay one dish.
+func TestTwoDishesWithOneNameKeyAreRejected(t *testing.T) {
+	database := migrated(t)
+	mustExec(t, database, `INSERT INTO dishes (name, name_key) VALUES ('Борщ', 'борщ')`)
+
+	if _, err := database.Exec(
+		`INSERT INTO dishes (name, name_key) VALUES ('борщ', 'борщ')`); err == nil {
+		t.Fatal("duplicate name_key was accepted")
+	}
+}
+
+// The same dish at the same meal of the same day is one row, whichever of the
+// morning tap, the evening check and the photo wrote it first. Another meal or
+// another day is a different row.
+func TestOneMealRowPerDishDateAndMeal(t *testing.T) {
+	database := migrated(t)
+	mustExec(t, database, `INSERT INTO dishes (id, name, name_key) VALUES (1, 'Борщ', 'борщ')`)
+	mustExec(t, database,
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (1, '2026-09-24', 'lunch', 'planned')`)
+
+	if _, err := database.Exec(
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (1, '2026-09-24', 'lunch', 'eaten')`); err == nil {
+		t.Fatal("duplicate (dish_id, date, meal) was accepted")
+	}
+	mustExec(t, database,
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (1, '2026-09-24', 'dinner', 'eaten')`)
+	mustExec(t, database,
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (1, '2026-09-25', 'lunch', 'planned')`)
+}
+
+// A meal pointing at no dish would render as a blank line in the evening
+// check and could never be answered.
+func TestAMealForAMissingDishIsRejected(t *testing.T) {
+	database := migrated(t)
+
+	if _, err := database.Exec(
+		`INSERT INTO meals (dish_id, date, meal, status) VALUES (42, '2026-09-24', 'lunch', 'planned')`); err == nil {
+		t.Fatal("a meal for a non-existent dish was accepted")
+	}
+}
+
+// One morning menu per day: the date is the key, and a restart in the sending
+// minute finds the row and does not send a second one.
+func TestOneMenuMessagePerDay(t *testing.T) {
+	database := migrated(t)
+	mustExec(t, database,
+		`INSERT INTO menu_messages (date, chat_id, message_id) VALUES ('2026-09-24', -100, 7)`)
+
+	var shown string
+	if err := database.QueryRow(
+		`SELECT shown FROM menu_messages WHERE date = '2026-09-24'`).Scan(&shown); err != nil {
+		t.Fatalf("read shown: %v", err)
+	}
+	if shown != "{}" {
+		t.Fatalf("shown = %q, want an empty JSON object", shown)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO menu_messages (date, chat_id, message_id) VALUES ('2026-09-24', -100, 8)`); err == nil {
+		t.Fatal("a second menu message for the same day was accepted")
+	}
+}

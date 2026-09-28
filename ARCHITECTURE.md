@@ -185,7 +185,7 @@ menu" under Bot for why these live here rather than in Mealie.
 cmd/
   server/      # web + bot process
   migrate/     # the schema step the deploy runs before touching the container
-  import-mealie/ # one-off: the Mealie recipe catalogue -> local dishes
+  add-dish/    # one dish into the catalogue from the command line (combinations)
 internal/
   db/          # sql.Open + embedded goose migrations
   model/       # plain structs and constants
@@ -202,7 +202,6 @@ internal/
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
   dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions
   menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
-  mealie/      # HTTP client for Mealie, kept only for cmd/import-mealie
   ics/         # the VCALENDAR feeds HA polls (family + school)
   schooltoday/ # mirrors the school portal timetable; feeds /school.ics
 data/          # local SQLite (gitignored)
@@ -721,7 +720,7 @@ menu" for why Mealie went).
   never weighed once there was a menu: «Гречка» offered as a lunch button,
   which answers nothing. So «Пюре зі скумбрією» is one dish, the prompt tells
   the model to return a combination as one item when the catalogue has it,
-  and the Mealie import leaves the side dishes out. A plate that really holds
+  and the side dishes were left out of the catalogue. A plate that really holds
   separate dishes — goulash next to a chicken cutlet — is still several items,
   and nothing in the prompt calls them "sides": an earlier one did, described
   garnish, and a cutlet that fitted no category was silently dropped.
@@ -959,20 +958,15 @@ the bot. The choice is `internal/menu` (pure), the messages are
   needs a portal: a nil recognizer reached from the `RunDigests` goroutine
   would take the whole server down. An unset `DISH_SUGGEST_DOW` is `-1`, off,
   not Sunday. None of the three is behind `NOTIFICATIONS_ENABLED`.
-- **The catalogue comes from Mealie once** (`cmd/import-mealie`, run by hand —
-  see `DEPLOY.md`). Only the recipes come across, never the history, since
-  the history was the auto-marks. Tags map to the new columns — `obid` /
-  `vecheria` to lunch / dinner, both or neither to any, `dostavka` /
-  `pokupne` to weekend — and the categories that are not a plate by
-  themselves (Гарніри, Заготовки, Соуси та заправки, Напої) are skipped, with
-  the reason printed. It is a dry run unless given `-apply`, because the
-  skipped list is meant to be read by a person first: a side always served
-  with the same main is better re-added as a combination, with
-  `import-mealie -add "<name>" -meal … -days …`. It writes through
-  `CreateDish`, so a second run changes nothing. It and `internal/mealie` go
-  once Mealie itself is gone.
-- **The catalogue has no screen of its own.** Dishes arrive from the import,
-  from `-add`, from the plate card's «Створити» and from the suggestions;
+- **The catalogue came from Mealie once**, by a one-off import that has since
+  been deleted along with Mealie itself. Only the recipes came across, never
+  the history, since the history was the auto-marks; sides that are not a
+  plate by themselves were left out and the usual pairings re-added as
+  combinations.
+- **The catalogue has no screen of its own.** Dishes arrive from the plate
+  card's «Створити», from the suggestions, and from `cmd/add-dish` — which
+  exists for combinations, since the model reads a plate of two dishes as
+  two;
   there is no UI to rename a dish, fix its meal or days, or delete it. A
   mis-tagged import is fixed in SQL (the python-in-a-container recipe under
   the home-meters cutover in `DEPLOY.md`), never by inserting rows by hand:
@@ -1098,11 +1092,6 @@ a person can pick that the app refuses.
   - `family_hub_school_ics_token` — shared secret for `/school.ics`
   - `family_hub_school_week_review_dow`, `family_hub_school_week_review_time` —
     when the Friday week review goes out (0=Sun..6=Sat; unset disables)
-  - `family_hub_mealie_token` — Mealie's API token, now read only by the
-    one-off `import-mealie`; the server no longer talks to Mealie. Its own,
-    created as `family-hub-bot` rather than shared with a person's, so it can
-    be revoked without locking anyone out — and it goes, with the key, when
-    Mealie is removed.
   - `family_hub_ai_api_key` — the model that reads a photograph of a plate
     and pitches the weekly new dishes
   - `family_hub_people` — `<telegram id>:<name>` pairs, the family by user id.

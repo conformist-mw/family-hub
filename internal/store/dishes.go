@@ -15,16 +15,14 @@ import (
 // dishes — and the apostrophe comes in three spellings depending on whose
 // keyboard typed it ("мʼясо", "м'ясо", "м’ясо").
 func NameKey(name string) string {
-	return apostrophes.Replace(strings.ToLower(CleanDishName(name)))
+	return apostrophes.Replace(strings.ToLower(cleanDishName(name)))
 }
 
 var apostrophes = strings.NewReplacer("ʼ", "'", "’", "'")
 
-// CleanDishName is what gets stored as the display name: the same collapsed
+// cleanDishName is what gets stored as the display name: the same collapsed
 // whitespace as the key, but the family's own capitalisation and apostrophe.
-// Exported for the Mealie import's dry run, which lists names as they would
-// be stored.
-func CleanDishName(name string) string {
+func cleanDishName(name string) string {
 	return strings.Join(strings.Fields(name), " ")
 }
 
@@ -34,7 +32,7 @@ const dishCols = `
 
 // CreateDish inserts a dish unless one with the same NameKey exists, in which
 // case the existing row comes back untouched with existed=true. Callers that
-// add dishes from outside — the suggestions, the Mealie import — rely on this
+// add dishes from outside — the suggestions, cmd/add-dish — rely on this
 // to be idempotent: a name already in the catalogue is never a second dish,
 // and never has its status overwritten by whoever arrived later.
 func (s *Store) CreateDish(d model.Dish) (model.Dish, bool, error) {
@@ -87,7 +85,7 @@ func (s *Store) EnsureDish(d model.Dish) (model.Dish, bool, error) {
 // unique index: the caller needs to know whether the row was already there,
 // and an ON CONFLICT DO NOTHING would only say that nothing was inserted.
 func createDishTx(tx *sql.Tx, d model.Dish) (model.Dish, bool, error) {
-	name := CleanDishName(d.Name)
+	name := cleanDishName(d.Name)
 	if name == "" {
 		return model.Dish{}, false, errors.New("store: dish name is empty")
 	}

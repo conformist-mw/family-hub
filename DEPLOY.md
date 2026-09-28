@@ -73,9 +73,8 @@ just deploy-hetzner-tag family-hub
   None of them answers to `NOTIFICATIONS_ENABLED` — HA has no part in the
   menu, its buttons come back to the bot. The server no longer reads
   `MEALPLAN_FILL_TIME`, `MEALPLAN_SLOTS`, `MEALPLAN_HORIZON_DAYS`,
-  `MEALPLAN_REST_DAYS` or `MEALIE_PUBLIC_URL`, and leaving them set is
-  harmless; `MEALIE_URL`/`MEALIE_TOKEN` are read only by `import-mealie`
-  (see "The Mealie cutover" below).
+  `MEALPLAN_REST_DAYS`, `MEALIE_URL`, `MEALIE_TOKEN` or `MEALIE_PUBLIC_URL`;
+  Mealie is gone.
 - Recurring reminders record what came due through their own ticker, which
   takes no configuration and does not depend on `NOTIFICATIONS_ENABLED` or on
   a notify chat — that record is data, not a message, and putting it behind a
@@ -170,69 +169,22 @@ docker run --rm -v ~/server_data/family-hub:/data \
   --entrypoint /app/migrate olegsmedyuk/family-hub:latest -db /data/family-hub.db
 ```
 
-## The Mealie cutover
+## Adding a dish by hand
 
-The menu and the cooking log moved off Mealie into this app's own tables (see
-"The menu" in `ARCHITECTURE.md`). The catalogue is copied across once, by hand,
-with `/app/import-mealie`, which ships in the same image as the server. The
-order matters:
+The catalogue has no screen. The bot adds a dish from a plate («Створити») and
+from the weekly suggestions; a combination served together
+(«Пюре зі скумбрією») is added with `add-dish`, because the model reads a
+plate of two dishes as two:
 
-1. **Deploy with the menu still off.** Drop `MEALPLAN_*` and
-   `MEALIE_PUBLIC_URL` from the role, keep `MEALIE_URL`/`MEALIE_TOKEN` for the
-   import, and do not set `MENU_*`/`DISH_SUGGEST_*` yet: a menu sent before the
-   import would be offered from an empty catalogue, which sends nothing.
-   From this deploy on nothing refills Mealie's meal plan, so the Home
-   Assistant automation that posts tomorrow's menu from it runs dry within
-   the plan's horizon: do steps 2–5 within a few days, or switch that
-   automation off now rather than in step 5.
-2. **Dry-run the import.** The running container already has the Mealie
-   address, the token and the docker network the address resolves on, so it
-   is the simplest place to run it:
+```sh
+docker exec family-hub /app/add-dish -db /data/family-hub.db \
+  -meal lunch -days any "Пюре зі скумбрією"
+```
 
-   ```sh
-   docker exec family-hub /app/import-mealie -db /data/family-hub.db
-   ```
-
-   Without `-apply` nothing is written and the database is not even opened.
-   It prints what would be imported (with the meal and days each dish gets
-   from its Mealie tags) and, separately, what would be skipped and why. Read
-   the skipped list: a side dish that is always served with the same main is
-   better re-added as one combined dish than dropped.
-3. **Apply.** The same command with `-apply` writes through `CreateDish`, so
-   it is safe to repeat and never touches a dish already in the table — a
-   dish added by hand in the meantime, or one the family has rejected, keeps
-   its status. It does not migrate: a database that is not up to date fails
-   on the missing table instead of being moved forward by a side tool.
-4. **Add the combinations** the skipped list calls for, one at a time:
-
-   ```sh
-   docker exec family-hub /app/import-mealie -db /data/family-hub.db \
-     -add "Пюре зі скумбрією" -meal lunch -days any
-   ```
-
-   `-add` needs no Mealie and writes one active dish through `CreateDish`; a
-   name already in the catalogue, in any capitalisation or apostrophe, is
-   reported and left as it is. It is the way to add a dish outside the bot —
-   the catalogue has no screen, and a row inserted by hand would miss the
-   `name_key` Go computes (SQLite's `lower()` does not fold Cyrillic). A
-   `/cooked` of the combination is no substitute: the model reads a plate of
-   two dishes as two, and offers to create each.
-
-   Then set `MENU_TIME`, `MENU_EVENING_TIME`, `DISH_SUGGEST_DOW` and
-   `DISH_SUGGEST_TIME` (see the env notes above) and deploy.
-5. **Switch off the Home Assistant automation that posted tomorrow's menu**
-   before the first morning of the new one, or the group gets two.
-
-Only the catalogue comes across. Mealie's "made this" history is left behind
-on purpose: nearly all of it was Mealie auto-marking its own meal plan as
-eaten every evening, and importing it would seed the rotation with meals
-nobody ate. The dishes arrive as plain active ones with no last-seen date.
-
-Once Mealie itself is retired, `cmd/import-mealie`, `internal/mealie` and the
-third binary in the `Dockerfile` go too, and so do `MEALIE_URL`/`MEALIE_TOKEN`
-in the role and `family_hub_mealie_token` in SOPS. `-add` goes with them, so
-if adding dishes outside the bot is still wanted by then, move it into a
-command of its own first.
+It writes one active dish through `CreateDish`; a name already in the
+catalogue, in any capitalisation or apostrophe, is reported and left as it is.
+Do not insert rows by hand: `name_key` is computed in Go, because SQLite's
+`lower()` does not fold Cyrillic.
 
 ## The home-meters cutover
 
@@ -268,7 +220,7 @@ cp -a ~/server_data/family-hub/family-hub.db \
 
 docker run --rm --entrypoint python3 \
   -v ~/server_data/home-meters:/src -v ~/server_data/family-hub:/dst \
-  ghcr.io/mealie-recipes/mealie:v3.22.0 -c '
+  python:3-alpine -c '
 import sqlite3
 src = sqlite3.connect("/src/meters.db"); src.row_factory = sqlite3.Row
 dst = sqlite3.connect("/dst/family-hub.db")

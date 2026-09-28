@@ -937,11 +937,10 @@ the bot. The choice is `internal/menu` (pure), the messages are
   and a "could not read" each. After the second miss the buttons under the
   check are still there for whoever would rather tap.
 - **The weekly suggestions** (`dish.Recognizer.Suggest`) ask for three dishes
-  the family does not cook yet. The system prompt carries the household's
-  standing tastes — two meals a day at home, pork and chicken, no lamb, the
-  older child does not eat fish (context, not a ban: the rest of the family
-  does, and the catalogue has fish dishes) — which change too rarely to be
-  configuration; the user prompt lists the active, proposed and rejected
+  the family does not cook yet. The system prompt says only how the household
+  eats — two meals a day, home cooking — and carries no rules about who won't
+  eat what: tastes are read from the catalogue itself, and a dish nobody
+  wants is answered `✖ Ні` once and stays out. The user prompt lists the active, proposed and rejected
   dishes, the rejected list being the one that matters, or a dish turned down
   last week comes back this week. The model repeats itself anyway, so every
   suggestion is also checked in Go against the whole catalogue by

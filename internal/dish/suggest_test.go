@@ -55,16 +55,18 @@ func TestSuggestRequest(t *testing.T) {
 	// to reach it, and so does the standing context of the household.
 	for _, want := range []string{
 		"- Борщ", "- Деруни", "- Шакшука", "- Плов з бараниною",
-		"Відхилені", "Баранину не їдять", "не їсть рибу", "решта родини рибу їсть", "обід і вечеря",
+		"Відхилені", "обід і вечеря",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("request missing %q", want)
 		}
 	}
-	// The elder child not eating fish is context, not a ban: the family
-	// cooks fish, and a fish dish is a fair suggestion.
-	if strings.Contains(text, "риба головна") {
-		t.Error("the prompt still rules out fish dishes")
+	// Tastes come from the catalogue and the rejected list, not from rules
+	// about who won't eat what.
+	for _, rule := range []string{"рибу", "Баранину", "не їсть"} {
+		if strings.Contains(suggestSystemPrompt, rule) {
+			t.Errorf("the prompt still carries a dietary rule (%q)", rule)
+		}
 	}
 	schema, _ := json.Marshal(body["response_format"])
 	for _, want := range []string{`"strict":true`, `"enum":["any","lunch","dinner"]`, `"enum":["any","weekend"]`} {

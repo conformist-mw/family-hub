@@ -32,16 +32,16 @@ type Suggestion struct {
 // the two change together; TestSuggestPromptAsksForMaxSuggestions pins it.
 const maxSuggestions = 3
 
-// suggestSystemPrompt carries the household's standing tastes. They change
-// rarely enough to live here rather than in configuration, and the catalogue
-// in the user prompt already says the rest — what the family actually cooks.
+// suggestSystemPrompt says only how the household eats, not what anyone
+// won't eat: the catalogue in the user prompt already shows what the family
+// cooks, and the rejected list what it turned down, so tastes are learned
+// from those rather than kept as rules here.
 const suggestSystemPrompt = `Ти допомагаєш родині урізноманітнити домашнє меню. Раз на тиждень ти пропонуєш три нові страви, яких родина ще не готує.
 
 Про родину:
 - Їдять двічі на день удома: обід і вечеря.
 - Домашня українська кухня — те, що реально приготувати вдома у звичайний день з продуктів зі звичайного супермаркету.
-- М'ясо — свинина і курка. Баранину не їдять.
-- Старша дитина не їсть рибу; решта родини рибу їсть.
+- Що родина любить, видно зі списку страв, які вона вже готує.
 
 Правила:
 - Рівно три страви, і всі три — різні за основою (не три супи і не три страви з курки).

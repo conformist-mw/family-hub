@@ -159,6 +159,20 @@ func TestMenuViewMarksTheChoice(t *testing.T) {
 	}
 }
 
+// A pick another dish replaced stays in the journal, but the message says
+// what the meal turned out to be.
+func TestMenuViewShowsWhatWasEatenOverThePick(t *testing.T) {
+	s := sampleMenu()
+	s.chosen = []model.MealEntry{
+		{DishID: 2, Dish: "Плов", Meal: model.MealLunch, Who: "Олег", Status: model.MealPlanned},
+		{DishID: 3, Dish: "Деруни", Meal: model.MealLunch, Who: "Аня", Status: model.MealEaten},
+	}
+	text, _ := menuView(s)
+	if !strings.Contains(text, "✅ Обід: Деруни — Аня") || strings.Contains(text, "✅ Обід: Плов") {
+		t.Errorf("text:\n%s", text)
+	}
+}
+
 // Choosing one meal takes that meal's buttons away and leaves the other's.
 func TestMenuViewDropsADecidedMeal(t *testing.T) {
 	s := sampleMenu()
@@ -1149,8 +1163,9 @@ func TestEveningYesAfterAnotherDishWasRecorded(t *testing.T) {
 	if toast != "Вже записано" {
 		t.Errorf("toast = %q", toast)
 	}
-	if got := mealRows(t, b, menuToday); got != "lunch:"+instead.Name+":eaten" {
-		t.Fatalf("meals = %s, want only what was reported", got)
+	// The stale tap writes nothing: the plan stays a plan beside what was eaten.
+	if got := mealRows(t, b, menuToday); got != "lunch:"+planned.Name+":planned,lunch:"+instead.Name+":eaten" {
+		t.Fatalf("meals = %s, want the pick and what was reported, nothing more", got)
 	}
 	if text, _ := eveningView(st); !strings.Contains(text, "✅ Обід: "+instead.Name) {
 		t.Errorf("redraw does not show the answer:\n%s", text)

@@ -70,6 +70,25 @@ func (s menuState) isChosen(meal menu.Meal, dishID int64) bool {
 	return false
 }
 
+// choiceLines is what the ✅ lines show: per meal, what was eaten if anything
+// was, else the plan. A pick that another dish replaced stays in the journal
+// as history, but the message says what the meal turned out to be.
+func (s menuState) choiceLines() []model.MealEntry {
+	eaten := map[string]bool{}
+	for _, m := range s.chosen {
+		if m.Status == model.MealEaten {
+			eaten[m.Meal] = true
+		}
+	}
+	var out []model.MealEntry
+	for _, m := range s.chosen {
+		if m.Status == model.MealEaten || !eaten[m.Meal] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // decided says whether the meal already has a dish for today, planned or
 // eaten. A decided meal loses its buttons: the choice is made, and a keyboard
 // still offering the other dishes reads as a question nobody has answered. A
@@ -134,9 +153,9 @@ func menuView(s menuState) (string, *tele.ReplyMarkup) {
 		}
 		fmt.Fprintf(&sb, "%s: %s\n", meal.Title(), strings.Join(names, " · "))
 	}
-	if len(s.chosen) > 0 {
+	if shown := s.choiceLines(); len(shown) > 0 {
 		sb.WriteString("\n")
-		for _, m := range s.chosen {
+		for _, m := range shown {
 			fmt.Fprintf(&sb, "✅ %s: %s", menu.Meal(m.Meal).Title(), html.EscapeString(m.Dish))
 			if m.Leftover {
 				sb.WriteString(" (доїдаємо)")

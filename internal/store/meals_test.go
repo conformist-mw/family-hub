@@ -126,7 +126,9 @@ func TestRecordEatenClosesPlanOfSameDish(t *testing.T) {
 	}
 }
 
-func TestRecordEatenOtherDishDropsPlan(t *testing.T) {
+// The morning's pick stays next to what was really eaten: the history is
+// what later shows which picks hold.
+func TestRecordEatenOtherDishKeepsThePlan(t *testing.T) {
 	st := testStore(t)
 	plov := seedDish(t, st, "Плов", model.DishActive)
 	deruny := seedDish(t, st, "Деруни", model.DishActive)
@@ -144,14 +146,17 @@ func TestRecordEatenOtherDishDropsPlan(t *testing.T) {
 	}
 
 	got := mealsOn(t, st, today)
-	if len(got) != 2 {
-		t.Fatalf("meals = %+v, want eaten Деруни + planned Удон", got)
+	if len(got) != 3 {
+		t.Fatalf("meals = %+v, want planned Плов + eaten Деруни + planned Удон", got)
 	}
-	if got[0].DishID != deruny.ID || got[0].Status != model.MealEaten || got[0].Who != "Олег" {
-		t.Errorf("lunch = %+v, want eaten Деруни", got[0])
+	if got[0].DishID != plov.ID || got[0].Status != model.MealPlanned || got[0].Who != "Оля" {
+		t.Errorf("lunch plan = %+v, want the pick kept", got[0])
 	}
-	if got[1].ID != dinner.ID || got[1].Status != model.MealPlanned {
-		t.Errorf("dinner = %+v, want the dinner plan untouched", got[1])
+	if got[1].DishID != deruny.ID || got[1].Status != model.MealEaten || got[1].Who != "Олег" {
+		t.Errorf("lunch = %+v, want eaten Деруни", got[1])
+	}
+	if got[2].ID != dinner.ID || got[2].Status != model.MealPlanned {
+		t.Errorf("dinner = %+v, want the dinner plan untouched", got[2])
 	}
 }
 

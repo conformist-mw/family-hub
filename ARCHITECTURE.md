@@ -761,7 +761,8 @@ menu" for why Mealie went).
 - **What a confirmation writes**: one `RecordEaten` per dish, at the card's
   day and meal. That call does the reconciling with the morning's plan — the
   planned dish, if it is on the plate, turns eaten; a plan for a dish that is
-  not on it is dropped, because the plan did not happen; a proposed dish that
+  not on it stays a plan beside what was eaten, because "picked borscht, ate
+  plov" is the history that later shows which picks hold; a proposed dish that
   was eaten stops being a proposal. The rows are not one transaction, so a
   failure part way leaves the earlier dishes written and names the dish it
   stopped at; retrying is safe because a dish already eaten at that meal
@@ -836,13 +837,15 @@ the bot. The choice is `internal/menu` (pure), the messages are
   never touches what was already eaten — a tap on a meal already reported
   eaten writes nothing and says what was eaten, because a plan next to an
   eaten row would never be closed). The evening answer or a photo turns
-  it `eaten`, replaces it with the dish that really was eaten, or — "not at
-  home" — deletes it. A meal with a dish, planned or eaten, loses its
+  it `eaten`, or records the dish that really was eaten beside it — the pick
+  stays in the journal as a plan, and a meal with an eaten row is answered, so
+  nothing asks about it again — or, "not at home", deletes it. A meal with a dish, planned or eaten, loses its
   buttons on the redraw — the leftover button for it, its dishes and its 🔀 —
   and the message shows «✅ Обід: Борщ — Олег» instead; once both meals have
   one, the keyboard is gone. A keyboard still offering the other dishes read
   as a question left open. A change of mind is recorded the way any meal is,
-  with a photo or `/cooked плов`, which replaces the plan. History reads only `eaten`; rotation reads both, or
+  with a photo or `/cooked плов`; the message's ✅ line then shows what was
+  eaten, and the morning's pick is left as it was. History reads only `eaten`; rotation reads both, or
   yesterday's unanswered borscht would come back tomorrow as "not had in a
   while".
 - **Leftovers need no flag on the dish.** «Доїдаємо» is simply everything

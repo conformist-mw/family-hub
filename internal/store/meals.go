@@ -76,8 +76,11 @@ func (s *Store) PlanMeal(dishID int64, date, meal, who string, leftover bool) (m
 // check or a photo of the plate. already is true only when that exact row was
 // eaten before, and then nothing is written: the photo and the evening answer
 // often report the same meal twice. A planned row for the same dish becomes
-// eaten; planned rows for other dishes are dropped, because the plan did not
-// happen. A proposed dish that was eaten is no longer a proposal.
+// eaten. Planned rows for other dishes stay: the morning's choice is part of
+// the history, and "picked borscht, ate plov" is what later shows which picks
+// hold. A meal with an eaten row is answered, so a plan left beside it is
+// never asked about again. A proposed dish that was eaten is no longer a
+// proposal.
 func (s *Store) RecordEaten(dishID int64, date, meal, who string, leftover bool) (model.MealEntry, bool, error) {
 	if err := checkMealKey(date, meal); err != nil {
 		return model.MealEntry{}, false, err
@@ -120,12 +123,6 @@ func recordEatenTx(tx *sql.Tx, dishID int64, date, meal, who string, leftover bo
 		    leftover = MAX(leftover, excluded.leftover)
 		WHERE status = 'planned'`,
 		dishID, date, meal, who, leftover); err != nil {
-		return model.MealEntry{}, false, err
-	}
-	if _, err := tx.Exec(`
-		DELETE FROM meals
-		WHERE date = ? AND meal = ? AND status = 'planned' AND dish_id <> ?`,
-		date, meal, dishID); err != nil {
 		return model.MealEntry{}, false, err
 	}
 	if status == model.DishProposed {

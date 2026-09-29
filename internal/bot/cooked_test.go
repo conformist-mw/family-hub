@@ -500,7 +500,8 @@ func TestRecordPlateClosesThePlan(t *testing.T) {
 			t.Fatalf("record: %v", err)
 		}
 		got := mealRows(t, b, plateDate)
-		if strings.Contains(got, "Плов") || !strings.Contains(got, "dinner:Гуляш:eaten") {
+		// The pick stays in the history beside what was eaten.
+		if !strings.Contains(got, "dinner:Плов:planned") || !strings.Contains(got, "dinner:Гуляш:eaten") {
 			t.Fatalf("journal = %q", got)
 		}
 	})

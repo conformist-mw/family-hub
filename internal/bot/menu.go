@@ -70,6 +70,20 @@ func (s menuState) isChosen(meal menu.Meal, dishID int64) bool {
 	return false
 }
 
+// decided says whether the meal already has a dish for today, planned or
+// eaten. A decided meal loses its buttons: the choice is made, and a keyboard
+// still offering the other dishes reads as a question nobody has answered. A
+// change of mind after that is recorded the way any meal is — a photo or
+// /cooked — and replaces the plan.
+func (s menuState) decided(meal menu.Meal) bool {
+	for _, m := range s.chosen {
+		if m.Meal == string(meal) {
+			return true
+		}
+	}
+	return false
+}
+
 // menuRefs is what a menu message's keyboard remembers: the day, and the dish
 // ids on each row.
 type menuRefs struct {
@@ -82,19 +96,34 @@ type menuRefs struct {
 // added on the way out by sendToGroup and the redraw, so the keyboard read
 // back here stays only the menu's own.
 func menuView(s menuState) (string, *tele.ReplyMarkup) {
+	var open []menu.Meal
+	for _, meal := range menuMeals {
+		if !s.decided(meal) {
+			open = append(open, meal)
+		}
+	}
+	leftovers := s.leftovers
+	if len(open) == 0 {
+		leftovers = nil
+	}
+
 	var sb strings.Builder
 	sb.WriteString("🍽 <b>Що приготувати сьогодні</b>\n")
-	if len(s.leftovers) > 0 || len(s.offered[menu.Lunch]) > 0 || len(s.offered[menu.Dinner]) > 0 {
+	offering := len(leftovers) > 0
+	for _, meal := range open {
+		offering = offering || len(s.offered[meal]) > 0
+	}
+	if offering {
 		sb.WriteString("\n")
 	}
-	if len(s.leftovers) > 0 {
-		names := make([]string, 0, len(s.leftovers))
-		for _, d := range s.leftovers {
+	if len(leftovers) > 0 {
+		names := make([]string, 0, len(leftovers))
+		for _, d := range leftovers {
 			names = append(names, html.EscapeString(d.name))
 		}
 		fmt.Fprintf(&sb, "Доїдаємо: %s\n", strings.Join(names, " · "))
 	}
-	for _, meal := range menuMeals {
+	for _, meal := range open {
 		dishes := s.offered[meal]
 		if len(dishes) == 0 {
 			continue
@@ -121,23 +150,22 @@ func menuView(s menuState) (string, *tele.ReplyMarkup) {
 
 	mk := &tele.ReplyMarkup{}
 	var rows []tele.Row
-	for _, d := range s.leftovers {
+	for _, d := range leftovers {
 		var row tele.Row
-		for _, meal := range menuMeals {
+		for _, meal := range open {
 			label := fmt.Sprintf("↩ %s · %s", shorten(d.name, menuButtonName), strings.ToLower(meal.Title()))
-			row = append(row, mk.Data(chosenMark(s, meal, d.id)+label,
-				menuLeftUnique, s.date, string(meal), strconv.FormatInt(d.id, 10)))
+			row = append(row, mk.Data(label, menuLeftUnique, s.date, string(meal), strconv.FormatInt(d.id, 10)))
 		}
 		rows = append(rows, row)
 	}
-	for _, meal := range menuMeals {
+	for _, meal := range open {
 		dishes := s.offered[meal]
 		if len(dishes) == 0 {
 			continue
 		}
 		var row tele.Row
 		for _, d := range dishes {
-			label := chosenMark(s, meal, d.id) + newMark(d) + shorten(d.name, menuButtonName)
+			label := newMark(d) + shorten(d.name, menuButtonName)
 			row = append(row, mk.Data(label, menuPickUnique, s.date, string(meal), strconv.FormatInt(d.id, 10)))
 		}
 		rows = append(rows, row,
@@ -145,13 +173,6 @@ func menuView(s menuState) (string, *tele.ReplyMarkup) {
 	}
 	mk.Inline(rows...)
 	return strings.TrimRight(sb.String(), "\n"), mk
-}
-
-func chosenMark(s menuState, meal menu.Meal, dishID int64) string {
-	if s.isChosen(meal, dishID) {
-		return "✅ "
-	}
-	return ""
 }
 
 func newMark(d menuDish) string {

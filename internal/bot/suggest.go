@@ -39,7 +39,7 @@ const (
 
 	// answeredPrefix marks the answer given on a card's button. For the maybe it
 	// is also the only record of the answer, read back by suggestRefsFromMarkup,
-	// so it is a plain prefix the card owns rather than the menu's chosenMark.
+	// so it is a plain prefix the card owns.
 	answeredPrefix = "✓ "
 )
 

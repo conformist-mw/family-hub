@@ -837,7 +837,12 @@ the bot. The choice is `internal/menu` (pure), the messages are
   eaten writes nothing and says what was eaten, because a plan next to an
   eaten row would never be closed). The evening answer or a photo turns
   it `eaten`, replaces it with the dish that really was eaten, or — "not at
-  home" — deletes it. History reads only `eaten`; rotation reads both, or
+  home" — deletes it. A meal with a dish, planned or eaten, loses its
+  buttons on the redraw — the leftover button for it, its dishes and its 🔀 —
+  and the message shows «✅ Обід: Борщ — Олег» instead; once both meals have
+  one, the keyboard is gone. A keyboard still offering the other dishes read
+  as a question left open. A change of mind is recorded the way any meal is,
+  with a photo or `/cooked плов`, which replaces the plan. History reads only `eaten`; rotation reads both, or
   yesterday's unanswered borscht would come back tomorrow as "not had in a
   while".
 - **Leftovers need no flag on the dish.** «Доїдаємо» is simply everything

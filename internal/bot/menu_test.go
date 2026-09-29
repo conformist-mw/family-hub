@@ -147,17 +147,43 @@ func TestMenuViewMarksTheChoice(t *testing.T) {
 			t.Errorf("text lacks %q:\n%s", want, text)
 		}
 	}
-	rows := buttonTexts(markup)
-	if rows[0][0] != "↩ Борщ · обід" || rows[0][1] != "✅ ↩ Борщ · вечеря" {
-		t.Errorf("leftover row = %v, want only the dinner button marked", rows[0])
+	// Both meals are decided: nothing left to choose, so no buttons at all and
+	// no list of what was on offer.
+	if rows := buttonTexts(markup); len(rows) != 0 {
+		t.Errorf("keyboard = %v, want none once both meals are chosen", rows)
 	}
-	if rows[1][1] != "✅ Деруни" || rows[1][0] != "Плов" {
-		t.Errorf("lunch row = %v, want only Деруни marked", rows[1])
-	}
-	for _, label := range rows[3] {
-		if strings.HasPrefix(label, "✅") {
-			t.Errorf("dinner row marks %q; the dinner choice is the leftover", label)
+	for _, gone := range []string{"Доїдаємо:", "Обід: Плов", "Вечеря: Відбивні"} {
+		if strings.Contains(text, gone) {
+			t.Errorf("text still offers %q after the choice:\n%s", gone, text)
 		}
+	}
+}
+
+// Choosing one meal takes that meal's buttons away and leaves the other's.
+func TestMenuViewDropsADecidedMeal(t *testing.T) {
+	s := sampleMenu()
+	s.chosen = []model.MealEntry{
+		{DishID: 3, Dish: "Деруни", Meal: model.MealLunch, Who: "Олег", Status: model.MealPlanned},
+	}
+	text, markup := menuView(s)
+
+	want := [][]string{
+		{"↩ Борщ · вечеря"},
+		{"Відбивні", "Вареники", "Удон"},
+		{"🔀 вечеря"},
+	}
+	if got := buttonTexts(markup); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("keyboard = %v\nwant       %v", got, want)
+	}
+	if strings.Contains(text, "Обід: Плов") || !strings.Contains(text, "Вечеря: Відбивні") ||
+		!strings.Contains(text, "✅ Обід: Деруни — Олег") || !strings.Contains(text, "Доїдаємо: Борщ") {
+		t.Errorf("text:\n%s", text)
+	}
+
+	// The redraw reads the keyboard back; what it holds is only the open meal.
+	refs := menuRefsFromMarkup(asTelegramSentIt(markup))
+	if len(refs.offered[menu.Lunch]) != 0 || len(refs.offered[menu.Dinner]) != 3 || len(refs.leftovers) != 1 {
+		t.Errorf("refs = %+v", refs)
 	}
 }
 

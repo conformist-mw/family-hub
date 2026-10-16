@@ -86,6 +86,16 @@ func (s *Store) UpcomingAppointments(from string, limit int) ([]model.Appointmen
 		LIMIT ?`, model.ApptStatusCancelled, from, limit)
 }
 
+// AppointmentsFrom is UpcomingAppointments with the cancelled ones kept — for
+// the Mini App list, which shows them dimmed so a cancellation can be seen,
+// and taken back, where it was made.
+func (s *Store) AppointmentsFrom(from string, limit int) ([]model.Appointment, error) {
+	return s.queryAppointments(appointmentCols+`
+		WHERE deleted_at IS NULL AND starts_at >= ?
+		ORDER BY starts_at ASC
+		LIMIT ?`, from, limit)
+}
+
 // AppointmentsBetween returns non-cancelled, non-deleted appointments in
 // [from, to) (LocalDatetime), soonest first — used for the today/week digests.
 func (s *Store) AppointmentsBetween(from, to string) ([]model.Appointment, error) {

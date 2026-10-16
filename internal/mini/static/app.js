@@ -207,12 +207,26 @@ function App() {
     }
   }
 
+  const setAppointmentStatus = async (item, status) => {
+    if (status === 'cancelled' && !confirm('Позначити візит скасованим?')) return
+    try {
+      await api(`/appointments/${item.id}/status`, { method: 'PUT', body: { status } })
+      closeAll()
+      loadAppointments()
+      loadHome()
+    } catch (err) {
+      setAppointments({ phase: 'error', error: err })
+      closeAll()
+    }
+  }
+
   if (screen && screen.name === 'appointmentCard') {
     return html`
       <${AppointmentCard}
         item=${screen.item}
         onEdit=${() => push({ name: 'appointmentForm', item: screen.item })}
         onDelete=${() => removeAppointment(screen.item)}
+        onStatus=${(status) => setAppointmentStatus(screen.item, status)}
         onClose=${pop} />`
   }
 

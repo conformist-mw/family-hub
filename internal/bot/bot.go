@@ -263,7 +263,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: "lst_nav"}, bot.onNav)
 	tb.Handle(&tele.Btn{Unique: "lst_arm"}, bot.onArm)
 	tb.Handle(&tele.Btn{Unique: "lst_del"}, bot.onDel)
-	tb.Handle(&tele.Btn{Unique: "appt_cost"}, bot.onCostSkip)
+	tb.Handle(&tele.Btn{Unique: "appt_cost"}, bot.onCostButton)
 	tb.Handle(tele.OnText, bot.onText)
 
 	if parser != nil {

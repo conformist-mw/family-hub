@@ -265,6 +265,52 @@ func TestWritesReachTheFamilyGroup(t *testing.T) {
 	}
 }
 
+// A visit called off is cancelled, not deleted: it keeps its row, the group
+// hears about it, and a second tap takes it back.
+func TestCancelAndRestoreFromThePhone(t *testing.T) {
+	st := testStore(t)
+	fam := &group{}
+	h := testRouterWithNotifier(t, st, []int64{42}, 0, fam)
+
+	a, err := st.CreateAppointment(model.Appointment{
+		Title: "Ортодонт", Person: "Демид", StartsAt: "2026-08-06T09:00", Status: model.ApptStatusPlanned,
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	path := "/mini/api/appointments/" + itoa(a.ID) + "/status"
+
+	setStatus := func(status string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, signedRequest(t, http.MethodPut, path, `{"status":"`+status+`"}`))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, body = %s", status, rec.Code, rec.Body)
+		}
+		got, err := st.GetAppointment(a.ID)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if got.Status != status || got.Title != "Ортодонт" {
+			t.Errorf("after %s: %+v", status, got)
+		}
+	}
+
+	setStatus(model.ApptStatusCancelled)
+	setStatus(model.ApptStatusCancelled) // a double tap says nothing new
+	setStatus(model.ApptStatusPlanned)
+
+	if len(fam.sent) != 2 ||
+		!strings.Contains(fam.sent[0], "✗ Візит скасовано (Тест)") ||
+		!strings.Contains(fam.sent[1], "🔄 Візит відновлено (Тест)") {
+		t.Errorf("group messages = %q", fam.sent)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedRequest(t, http.MethodPut, path, `{"status":"maybe"}`))
+	assertAPIError(t, rec, http.StatusUnprocessableEntity, "validation")
+}
+
 // The chips are there to be picked, so what this asserts is the order: the
 // name visits are actually booked for leads, and the rest of the household
 // stays reachable behind it.

@@ -401,3 +401,115 @@ func TestMealWritesRejectBadInput(t *testing.T) {
 		t.Error("RecordEaten accepted a malformed date")
 	}
 }
+
+// The picker sends the whole set: what is ticked is eaten, what was unticked
+// is not any more, and the morning's plan for a dish that was eaten turns
+// eaten rather than gaining a twin.
+func TestSetEatenMakesTheSetExact(t *testing.T) {
+	st := testStore(t)
+	pure := seedDish(t, st, "Пюре з котлетами", model.DishActive)
+	salad := seedDish(t, st, "Салат з капусти", model.DishActive)
+	borsch := seedDish(t, st, "Борщ", model.DishActive)
+	novel := seedDish(t, st, "Шакшука", model.DishProposed)
+
+	if _, err := st.PlanMeal(pure.ID, today, model.MealDinner, "Оля", false); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, _, err := st.RecordEaten(borsch.ID, today, model.MealDinner, "Олег", false); err != nil {
+		t.Fatalf("eat: %v", err)
+	}
+	// Lunch is another meal and must not be touched.
+	if _, _, err := st.RecordEaten(borsch.ID, today, model.MealLunch, "Олег", false); err != nil {
+		t.Fatalf("eat lunch: %v", err)
+	}
+
+	ids := []int64{pure.ID, salad.ID, novel.ID}
+	if err := st.SetEaten(today, model.MealDinner, "Олег", ids, map[int64]bool{pure.ID: true}); err != nil {
+		t.Fatalf("set eaten: %v", err)
+	}
+
+	got := map[int64]model.MealEntry{}
+	for _, m := range mealsOn(t, st, today) {
+		if m.Meal == model.MealDinner {
+			got[m.DishID] = m
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("dinner = %+v, want exactly the three ticked dishes", got)
+	}
+	if p := got[pure.ID]; p.ID == 0 || p.Status != model.MealEaten || !p.Leftover {
+		t.Errorf("planned dish = %+v, want the plan confirmed as a leftover", p)
+	}
+	if got[salad.ID].Status != model.MealEaten || got[novel.ID].Status != model.MealEaten {
+		t.Errorf("dinner = %+v", got)
+	}
+	if d, _ := st.Dish(novel.ID); d.Status != model.DishActive {
+		t.Errorf("eaten proposal status = %q, want active", d.Status)
+	}
+	lunch := 0
+	for _, m := range mealsOn(t, st, today) {
+		if m.Meal == model.MealLunch {
+			lunch++
+		}
+	}
+	if lunch != 1 {
+		t.Errorf("lunch rows = %d, want the borscht untouched", lunch)
+	}
+
+	// Unticking everything leaves the meal unanswered.
+	if err := st.SetEaten(today, model.MealDinner, "Олег", nil, nil); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	for _, m := range mealsOn(t, st, today) {
+		if m.Meal == model.MealDinner {
+			t.Errorf("dinner row left after clearing: %+v", m)
+		}
+	}
+}
+
+func TestSetEatenIsAllOrNothing(t *testing.T) {
+	st := testStore(t)
+	borsch := seedDish(t, st, "Борщ", model.DishActive)
+	if _, _, err := st.RecordEaten(borsch.ID, today, model.MealDinner, "Олег", false); err != nil {
+		t.Fatalf("eat: %v", err)
+	}
+	err := st.SetEaten(today, model.MealDinner, "Олег", []int64{9999}, nil)
+	if !store.IsNotFound(err) {
+		t.Fatalf("missing dish err = %v, want not found", err)
+	}
+	if got := mealsOn(t, st, today); len(got) != 1 || got[0].DishID != borsch.ID {
+		t.Errorf("after failed set = %+v, want the borscht kept", got)
+	}
+}
+
+func TestFrequentDishesRankByUseAndSkipRejected(t *testing.T) {
+	st := testStore(t)
+	plov := seedDish(t, st, "Плов", model.DishActive)
+	udon := seedDish(t, st, "Удон", model.DishActive)
+	gone := seedDish(t, st, "Печінка", model.DishActive)
+	seedDish(t, st, "Ніколи не їли", model.DishActive)
+
+	eat := func(id int64, date string) {
+		t.Helper()
+		if _, _, err := st.RecordEaten(id, date, model.MealDinner, "", false); err != nil {
+			t.Fatalf("eat: %v", err)
+		}
+	}
+	eat(udon.ID, "2026-09-20")
+	eat(plov.ID, "2026-09-21")
+	eat(plov.ID, "2026-09-22")
+	eat(gone.ID, "2026-09-23")
+	eat(gone.ID, "2026-09-24")
+	eat(gone.ID, "2026-09-25")
+	if err := st.SetDishStatus(gone.ID, model.DishRejected); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+
+	got, err := st.FrequentDishes(10)
+	if err != nil {
+		t.Fatalf("frequent: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != plov.ID || got[1].ID != udon.ID {
+		t.Errorf("frequent = %+v, want Плов then Удон", got)
+	}
+}

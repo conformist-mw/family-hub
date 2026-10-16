@@ -172,6 +172,9 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("POST /mini/api/courses/{id}/audit/send", rt.handleAuditSend)
 	mux.HandleFunc("PUT /mini/api/payments/{id}", rt.handlePaymentUpdate)
 	mux.HandleFunc("DELETE /mini/api/payments/{id}", rt.handlePaymentDelete)
+	mux.HandleFunc("GET /mini/api/kitchen", rt.handleKitchen)
+	mux.HandleFunc("GET /mini/api/meals/{date}/{meal}", rt.handlePicker)
+	mux.HandleFunc("PUT /mini/api/meals/{date}/{meal}", rt.handlePickerSave)
 	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)
 	mux.HandleFunc("DELETE /mini/api/slots/{id}", rt.handleSlotDelete)
 	// Reminders mount only when the service is wired. Without it the routes

@@ -665,6 +665,12 @@ type eveningState struct {
 	// other offers "Інше", which hands the answer to the recognizer and so
 	// exists only with one.
 	other bool
+	// appURL is the Mini App deep link, empty when the bot's username did not
+	// resolve. With it, each meal gets a button to the picker, which takes
+	// several dishes at once — a keyboard tap answers exactly one, so
+	// yesterday's mash with a new salad could not be said here. Without it the
+	// check falls back to yesterday's dishes as buttons.
+	appURL string
 }
 
 func (s eveningState) eaten(meal menu.Meal) []model.MealEntry {
@@ -680,7 +686,7 @@ func (s eveningState) eaten(meal menu.Meal) []model.MealEntry {
 // answerable is whether a meal has an answer besides "Не вдома".
 func (s eveningState) answerable(meal menu.Meal) bool {
 	_, planned := s.planned(meal)
-	return planned || len(s.yesterday) > 0 || s.other
+	return planned || len(s.yesterday) > 0 || s.other || s.appURL != ""
 }
 
 func (s eveningState) planned(meal menu.Meal) (model.MealEntry, bool) {
@@ -728,28 +734,36 @@ func eveningView(s eveningState) (string, *tele.ReplyMarkup) {
 			}
 			fmt.Fprintf(&sb, "\n%s: %s<b>%s</b> — так?", meal.Title(), mark, html.EscapeString(p.Dish))
 			first := tele.Row{mk.Data("✓ Так · "+lower, eveYesUnique, s.date, string(meal), id(p.DishID))}
+			if s.appURL != "" {
+				first = append(first, mk.URL(pickLabel+" · "+lower, mealPickerURL(s.appURL, s.date, meal)))
+			}
+			var second tele.Row
 			if s.other {
-				first = append(first, mk.Data("Інше · "+lower, eveOtherUnique, s.date, string(meal)))
+				second = append(second, mk.Data("Інше · "+lower, eveOtherUnique, s.date, string(meal)))
 			}
-			second := tele.Row{mk.Data("Не вдома · "+lower, eveHomeUnique, s.date, string(meal))}
-			if proposed {
-				second = append(second, mk.Data("✖ Ні, не наше", eveRejUnique, s.date, string(meal), id(p.DishID)))
-			}
+			second = append(second, mk.Data("Не вдома · "+lower, eveHomeUnique, s.date, string(meal)))
 			rows = append(rows, first, second)
+			if proposed {
+				rows = append(rows, tele.Row{mk.Data("✖ Ні, не наше", eveRejUnique, s.date, string(meal), id(p.DishID))})
+			}
 			continue
 		}
 
 		fmt.Fprintf(&sb, "\n%s: що їли?", meal.Title())
-		var picks tele.Row
-		for _, d := range s.yesterday {
-			picks = append(picks, mk.Data("↩ "+shorten(d.name, menuButtonName), evePickUnique, s.date, string(meal), id(d.id)))
-			if len(picks) == menuOptions {
-				rows = append(rows, picks)
-				picks = nil
+		if s.appURL != "" {
+			rows = append(rows, tele.Row{mk.URL(pickLabel+" · "+lower, mealPickerURL(s.appURL, s.date, meal))})
+		} else {
+			var picks tele.Row
+			for _, d := range s.yesterday {
+				picks = append(picks, mk.Data("↩ "+shorten(d.name, menuButtonName), evePickUnique, s.date, string(meal), id(d.id)))
+				if len(picks) == menuOptions {
+					rows = append(rows, picks)
+					picks = nil
+				}
 			}
-		}
-		if len(picks) > 0 {
-			rows = append(rows, picks)
+			if len(picks) > 0 {
+				rows = append(rows, picks)
+			}
 		}
 		var last tele.Row
 		if s.other {
@@ -906,7 +920,7 @@ func (b *Bot) eveningStateFrom(date string, open map[menu.Meal]bool) (eveningSta
 	if open == nil {
 		open = map[menu.Meal]bool{}
 	}
-	st := eveningState{date: date, open: open, other: b.cfg.Dish != nil}
+	st := eveningState{date: date, open: open, other: b.cfg.Dish != nil, appURL: b.miniAppURL()}
 	var err error
 	if st.meals, err = b.store.MealsOn(date); err != nil {
 		return eveningState{}, err

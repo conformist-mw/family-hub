@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"familyhub/internal/menu"
+
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -25,10 +27,20 @@ const appButtonLabel = "📱 Відкрити застосунок"
 // whatever BotFather calls the bot. Empty when that resolve failed, which hides
 // the button instead of sending a dead link.
 func (b *Bot) miniAppURL() string {
-	if b.b.Me == nil || b.b.Me.Username == "" {
+	if b.b == nil || b.b.Me == nil || b.b.Me.Username == "" {
 		return ""
 	}
 	return "https://t.me/" + b.b.Me.Username + "?startapp"
+}
+
+// pickLabel opens the meal picker from the evening check.
+const pickLabel = "🍽 Вибрати страви"
+
+// mealPickerURL deep-links straight into the picker for one meal. The
+// parameter is what the Mini App reads as start_param, and Telegram allows it
+// only [A-Za-z0-9_-], which an ISO date and a meal name already are.
+func mealPickerURL(appURL, date string, meal menu.Meal) string {
+	return appURL + "=meal_" + date + "_" + string(meal)
 }
 
 // appMarkup is a keyboard carrying just the app button — and an empty one when

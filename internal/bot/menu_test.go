@@ -856,8 +856,8 @@ func TestEveningViewAsksAboutThePlan(t *testing.T) {
 		}
 	}
 	want := [][]string{
-		{"✓ Так · обід", "Інше · обід"},
-		{"Не вдома · обід"},
+		{"✓ Так · обід"},
+		{"Інше · обід", "Не вдома · обід"},
 		{"↩ Плов", "↩ Деруни"},
 		{"Інше · вечеря", "Не вдома · вечеря"},
 	}
@@ -866,6 +866,34 @@ func TestEveningViewAsksAboutThePlan(t *testing.T) {
 	}
 	if strings.Contains(text, "не наше") || hasLabel(markup, "✖ Ні, не наше") {
 		t.Error("an active dish offered for rejection")
+	}
+}
+
+// With the Mini App reachable, yesterday's dishes are not buttons any more: a
+// tap answers one dish, and the picker behind the link answers several.
+func TestEveningViewLinksToThePicker(t *testing.T) {
+	s := eveningSample()
+	s.appURL = "https://t.me/family_core_hub_bot?startapp"
+	_, markup := eveningView(s)
+	want := [][]string{
+		{"✓ Так · обід", pickLabel + " · обід"},
+		{"Інше · обід", "Не вдома · обід"},
+		{pickLabel + " · вечеря"},
+		{"Інше · вечеря", "Не вдома · вечеря"},
+	}
+	if got := buttonTexts(markup); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("keyboard = %v\nwant       %v", got, want)
+	}
+	if got, want := markup.InlineKeyboard[2][0].URL,
+		"https://t.me/family_core_hub_bot?startapp=meal_"+menuToday+"_dinner"; got != want {
+		t.Errorf("picker url = %q, want %q", got, want)
+	}
+
+	// The link carries no callback, so the meals still asked about are read
+	// back from the buttons that do.
+	open := eveningOpenFromMarkup(asTelegramSentIt(markup))
+	if !open[menu.Lunch] || !open[menu.Dinner] {
+		t.Errorf("open = %v, want both meals", open)
 	}
 }
 

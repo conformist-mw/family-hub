@@ -1312,3 +1312,99 @@ func TestEveningTapWithBadData(t *testing.T) {
 		t.Errorf("the day it was tapped = %q, want nothing", got)
 	}
 }
+
+// With the Mini App reachable, the morning message is the day's suggestions
+// as text and one link: the menu is made in the app, where a meal can take
+// several dishes.
+func TestMenuViewLinksToThePlanner(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 6)
+	st, ok, err := b.buildMenu(menuMorning, fixedRand())
+	if err != nil || !ok {
+		t.Fatalf("build: ok=%v err=%v", ok, err)
+	}
+	st.appURL = "https://t.me/family_core_hub_bot?startapp"
+
+	text, markup := menuView(st)
+	if !strings.Contains(text, "Обід:") || !strings.Contains(text, "Вечеря:") {
+		t.Errorf("suggestions missing from the text:\n%s", text)
+	}
+	want := [][]string{{menuMakeLabel}}
+	if got := buttonTexts(markup); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("keyboard = %v, want only the link", got)
+	}
+	if got := markup.InlineKeyboard[0][0].URL; got != st.appURL+"=menu_"+menuToday {
+		t.Errorf("link = %q", got)
+	}
+
+	// Both meals planned, several dishes at lunch: one ✅ line per meal, and
+	// the link turns into a way to change it.
+	for _, p := range []struct {
+		meal string
+		ids  []int64
+	}{{model.MealLunch, []int64{dishes[0].ID, dishes[1].ID}}, {model.MealDinner, []int64{dishes[2].ID}}} {
+		if _, err := b.store.SetPlan(menuToday, p.meal, "Олег", p.ids, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if st.chosen, err = b.store.MealsOn(menuToday); err != nil {
+		t.Fatal(err)
+	}
+	text, markup = menuView(st)
+	line := fmt.Sprintf("✅ Обід: %s · %s — Олег", dishes[0].Name, dishes[1].Name)
+	if !strings.Contains(text, line) {
+		t.Errorf("text lacks %q:\n%s", line, text)
+	}
+	if got := buttonTexts(markup); fmt.Sprint(got) != fmt.Sprint([][]string{{menuChangeLabel}}) {
+		t.Errorf("keyboard = %v, want the change link", got)
+	}
+}
+
+// A plan made in the app can hold several dishes; "Так" confirms all of them,
+// and a proposal among them can still be turned down on its own.
+func TestEveningConfirmsAWholePlan(t *testing.T) {
+	b := menuBot(t)
+	dishes := seedMenuDishes(t, b, 2)
+	novel, _, err := b.store.CreateDish(model.Dish{Name: "Шакшука", Status: model.DishProposed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.store.SetPlan(menuToday, model.MealLunch, "Оля",
+		[]int64{dishes[0].ID, dishes[1].ID, novel.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	st, ok, err := b.buildEvening(menuEvening)
+	if err != nil || !ok {
+		t.Fatalf("build: ok=%v err=%v", ok, err)
+	}
+	text, markup := eveningView(st)
+	want := fmt.Sprintf("Обід: <b>%s</b> · <b>%s</b> · 🆕 <b>Шакшука</b> — так?", dishes[0].Name, dishes[1].Name)
+	if !strings.Contains(text, want) {
+		t.Errorf("text lacks %q:\n%s", want, text)
+	}
+	if !hasLabel(markup, "✖ Шакшука — не наше") {
+		t.Errorf("no rejection for the proposal: %v", buttonTexts(markup))
+	}
+
+	_, toast, redraw, err := b.applyEveningTap(menuEvening, eveYesUnique,
+		tapData(menuToday, menu.Lunch, dishes[0].ID), "Олег", asTelegramSentIt(markup))
+	if err != nil || !redraw {
+		t.Fatalf("yes: toast=%q redraw=%v err=%v", toast, redraw, err)
+	}
+	eaten := 0
+	rows, err := b.store.MealsOn(menuToday)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range rows {
+		if m.Meal == model.MealLunch && m.Status == model.MealEaten {
+			eaten++
+		}
+	}
+	if eaten != 3 {
+		t.Errorf("eaten lunch rows = %d, want the whole plan", eaten)
+	}
+	if d, _ := b.store.Dish(novel.ID); d.Status != model.DishActive {
+		t.Errorf("eaten proposal = %q, want active", d.Status)
+	}
+}

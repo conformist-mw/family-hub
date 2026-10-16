@@ -35,11 +35,14 @@ const maxPickedDishes = 20
 // maxDishName keeps a typed name a name, not a paragraph.
 const maxDishName = 80
 
+// errDishGone answers a set naming a dish deleted since the screen loaded.
+var errDishGone = valid.FieldError{Field: "dishes", Message: "однієї зі страв уже немає — онови сторінку"}
+
 type kitchenMealDTO struct {
 	Meal    string   `json:"meal"`
 	Title   string   `json:"title"`
 	Eaten   []string `json:"eaten"`
-	Planned string   `json:"planned"` // the morning's pick, shown while nothing is eaten
+	Planned []string `json:"planned"` // the morning's plan, shown while nothing is eaten
 }
 
 type kitchenDayDTO struct {
@@ -75,12 +78,12 @@ func (rt *Router) handleKitchen(w http.ResponseWriter, r *http.Request) {
 		date := d.Format(time.DateOnly)
 		day := kitchenDayDTO{Date: date, Label: dayLabel(d, now)}
 		for _, meal := range []menu.Meal{menu.Lunch, menu.Dinner} {
-			dto := kitchenMealDTO{Meal: string(meal), Title: meal.Title(), Eaten: []string{}}
+			dto := kitchenMealDTO{Meal: string(meal), Title: meal.Title(), Eaten: []string{}, Planned: []string{}}
 			for _, m := range byMeal[key{date, string(meal)}] {
 				if m.Status == model.MealEaten {
 					dto.Eaten = append(dto.Eaten, m.Dish)
-				} else if dto.Planned == "" {
-					dto.Planned = m.Dish
+				} else {
+					dto.Planned = append(dto.Planned, m.Dish)
 				}
 			}
 			day.Meals = append(day.Meals, dto)
@@ -103,8 +106,8 @@ type pickerDTO struct {
 	DayLabel string `json:"dayLabel"`
 	// Selected is what is eaten now; the picker opens with it ticked.
 	Selected []int64 `json:"selected"`
-	// Planned is the morning's pick, 0 for none.
-	Planned int64 `json:"planned"`
+	// Planned is the morning's plan.
+	Planned []int64 `json:"planned"`
 	// Quick are the chips shown before a search: the plan, yesterday's pot,
 	// then what is eaten most. Selected dishes are shown anyway.
 	Quick []int64 `json:"quick"`
@@ -150,17 +153,13 @@ func (rt *Router) picker(date string, meal menu.Meal, day time.Time) (pickerDTO,
 	dto := pickerDTO{
 		Date: date, Meal: string(meal), Title: meal.Title(),
 		DayLabel: dayLabel(day, rt.now().In(rt.loc)),
-		Selected: []int64{}, Quick: []int64{}, Dishes: []pickerDishDTO{},
+		Selected: []int64{}, Planned: []int64{}, Quick: []int64{},
 	}
 
-	catalogue, err := rt.store.Dishes(model.DishActive, model.DishProposed)
-	if err != nil {
+	var listed map[int64]bool
+	var err error
+	if dto.Dishes, listed, err = rt.catalogue(); err != nil {
 		return dto, err
-	}
-	listed := map[int64]bool{}
-	for _, d := range catalogue {
-		dto.Dishes = append(dto.Dishes, pickerDishDTO{ID: d.ID, Name: d.Name, Proposed: d.Status == model.DishProposed})
-		listed[d.ID] = true
 	}
 
 	rows, err := rt.store.MealsOn(date)
@@ -177,8 +176,8 @@ func (rt *Router) picker(date string, meal menu.Meal, day time.Time) (pickerDTO,
 		}
 		if m.Status == model.MealEaten {
 			dto.Selected = append(dto.Selected, m.DishID)
-		} else if dto.Planned == 0 {
-			dto.Planned = m.DishID
+		} else {
+			dto.Planned = append(dto.Planned, m.DishID)
 		}
 	}
 
@@ -189,7 +188,9 @@ func (rt *Router) picker(date string, meal menu.Meal, day time.Time) (pickerDTO,
 			dto.Quick = append(dto.Quick, id)
 		}
 	}
-	add(dto.Planned)
+	for _, id := range dto.Planned {
+		add(id)
+	}
 	yesterday, err := rt.store.EatenOn(day.AddDate(0, 0, -1).Format(time.DateOnly))
 	if err != nil {
 		return dto, err
@@ -230,39 +231,15 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errBadRequest)
 		return
 	}
-	if len(body.DishIDs)+len(body.NewNames) > maxPickedDishes {
-		rt.writeError(w, valid.FieldError{Field: "dishes", Message: "забагато страв для одного разу"}, "save meal")
+	if err := body.check(); err != nil {
+		rt.writeError(w, err, "save meal")
 		return
 	}
-	for _, name := range body.NewNames {
-		if n := len([]rune(strings.TrimSpace(name))); n == 0 || n > maxDishName {
-			rt.writeError(w, valid.FieldError{Field: "dishes", Message: "назва страви порожня або задовга"}, "save meal")
-			return
-		}
-	}
-
-	ids := make([]int64, 0, len(body.DishIDs)+len(body.NewNames))
-	seen := map[int64]bool{}
-	pick := func(id int64) {
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	for _, id := range body.DishIDs {
-		pick(id)
-	}
-	// Created before the meal is written, outside its transaction: a dish that
-	// then fails to be recorded is still a dish the family named, and saving
-	// again finds it by name instead of creating a second one.
-	for _, name := range body.NewNames {
-		d, _, err := rt.store.EnsureDish(model.Dish{Name: name})
-		if err != nil {
-			rt.log.Error("mini: create dish", "err", err)
-			rt.fail(w, errInternal)
-			return
-		}
-		pick(d.ID)
+	ids, err := rt.dishIDs(body)
+	if err != nil {
+		rt.log.Error("mini: create dish", "err", err)
+		rt.fail(w, errInternal)
+		return
 	}
 
 	// Yesterday's dish eaten again is yesterday's pot — the same mark the
@@ -280,7 +257,7 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 
 	if err := rt.store.SetEaten(date, string(meal), who.Name, ids, leftover); err != nil {
 		if store.IsNotFound(err) {
-			rt.writeError(w, valid.FieldError{Field: "dishes", Message: "однієї зі страв уже немає — онови сторінку"}, "save meal")
+			rt.writeError(w, errDishGone, "save meal")
 			return
 		}
 		rt.log.Error("mini: save meal", "err", err)
@@ -288,4 +265,59 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, map[string]int{"saved": len(ids)})
+}
+
+// check keeps one meal's set within reason before anything is written.
+func (p pickerWrite) check() error {
+	if len(p.DishIDs)+len(p.NewNames) > maxPickedDishes {
+		return valid.FieldError{Field: "dishes", Message: "забагато страв для одного разу"}
+	}
+	for _, name := range p.NewNames {
+		if n := len([]rune(strings.TrimSpace(name))); n == 0 || n > maxDishName {
+			return valid.FieldError{Field: "dishes", Message: "назва страви порожня або задовга"}
+		}
+	}
+	return nil
+}
+
+// dishIDs is the set as ids, the typed names created first. They are created
+// outside the meal's transaction: a dish that then fails to be recorded is
+// still a dish the family named, and saving again finds it by name instead of
+// creating a second one.
+func (rt *Router) dishIDs(p pickerWrite) ([]int64, error) {
+	ids := make([]int64, 0, len(p.DishIDs)+len(p.NewNames))
+	seen := map[int64]bool{}
+	pick := func(id int64) {
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, id := range p.DishIDs {
+		pick(id)
+	}
+	for _, name := range p.NewNames {
+		d, _, err := rt.store.EnsureDish(model.Dish{Name: name})
+		if err != nil {
+			return nil, err
+		}
+		pick(d.ID)
+	}
+	return ids, nil
+}
+
+// catalogue is every dish a picker may search — all but the rejected — and
+// which ids it holds.
+func (rt *Router) catalogue() ([]pickerDishDTO, map[int64]bool, error) {
+	dishes, err := rt.store.Dishes(model.DishActive, model.DishProposed)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := make([]pickerDishDTO, 0, len(dishes))
+	listed := make(map[int64]bool, len(dishes))
+	for _, d := range dishes {
+		out = append(out, pickerDishDTO{ID: d.ID, Name: d.Name, Proposed: d.Status == model.DishProposed})
+		listed[d.ID] = true
+	}
+	return out, listed, nil
 }

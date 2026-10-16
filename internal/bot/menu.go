@@ -12,14 +12,22 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/kitchen"
 	"familyhub/internal/menu"
 	"familyhub/internal/model"
 	"familyhub/internal/store"
 )
 
 // The morning menu: a few dishes for lunch and for dinner, yesterday's pot to
-// finish, and a 🔀 per meal for when nothing on offer appeals. A tap plans the
-// meal; the evening check and the photo of the plate say what was eaten.
+// finish, and a link to the Mini App, where the day's menu is actually made —
+// any number of dishes per meal, more suggestions on request, the whole
+// catalogue searchable. A keyboard can only plan one dish per tap, which is
+// why it moved there. The evening check and the photo of the plate say what
+// was eaten.
+//
+// The buttons of the older keyboard — a dish per tap and a 🔀 per meal — are
+// still handled, for a menu posted before the link existed, and are still
+// drawn when there is no link to draw.
 //
 // The flow is split three ways so it can be tested without a Telegram
 // context: menuView renders a state, buildMenu and applyMenuTap compute the
@@ -59,6 +67,8 @@ type menuState struct {
 	// chosen is every row of the day in the meals table — the morning's plan
 	// and anything already reported eaten.
 	chosen []model.MealEntry
+	// appURL is the Mini App deep link base; empty draws the old keyboard.
+	appURL string
 }
 
 func (s menuState) isChosen(meal menu.Meal, dishID int64) bool {
@@ -155,19 +165,43 @@ func menuView(s menuState) (string, *tele.ReplyMarkup) {
 	}
 	if shown := s.choiceLines(); len(shown) > 0 {
 		sb.WriteString("\n")
-		for _, m := range shown {
-			fmt.Fprintf(&sb, "✅ %s: %s", menu.Meal(m.Meal).Title(), html.EscapeString(m.Dish))
-			if m.Leftover {
-				sb.WriteString(" (доїдаємо)")
+		// One line per meal, however many dishes it has: "✅ Обід: Борщ ·
+		// Салат — Олег".
+		for _, meal := range menuMeals {
+			var names, whos []string
+			for _, m := range shown {
+				if m.Meal != string(meal) {
+					continue
+				}
+				name := html.EscapeString(m.Dish)
+				if m.Leftover {
+					name += " (доїдаємо)"
+				}
+				names = append(names, name)
+				if m.Who != "" && !slices.Contains(whos, m.Who) {
+					whos = append(whos, m.Who)
+				}
 			}
-			if m.Who != "" {
-				fmt.Fprintf(&sb, " — %s", html.EscapeString(m.Who))
+			if len(names) == 0 {
+				continue
+			}
+			fmt.Fprintf(&sb, "✅ %s: %s", meal.Title(), strings.Join(names, " · "))
+			if len(whos) > 0 {
+				fmt.Fprintf(&sb, " — %s", html.EscapeString(strings.Join(whos, ", ")))
 			}
 			sb.WriteString("\n")
 		}
 	}
 
 	mk := &tele.ReplyMarkup{}
+	if s.appURL != "" {
+		label := menuMakeLabel
+		if len(open) == 0 {
+			label = menuChangeLabel
+		}
+		mk.Inline(tele.Row{mk.URL(label, menuPlannerURL(s.appURL, s.date))})
+		return strings.TrimRight(sb.String(), "\n"), mk
+	}
 	var rows []tele.Row
 	for _, d := range leftovers {
 		var row tele.Row
@@ -243,17 +277,9 @@ func menuRefsFromMarkup(m *tele.ReplyMarkup) menuRefs {
 
 // buildMenu decides today's menu. ok is false when there is nothing to send:
 // today's menu already went out — a restart in the minute of sending must not
-// post it twice — or no dish fits either meal.
-//
-// The meals are picked one after the other, the second with the first's
-// dishes kept out, so a dish good for either meal is not offered twice in one
-// message unless there is nothing else; yesterday's pot is kept out of both,
-// being on the message already. What was shown yesterday is kept out of
-// both meals, not just the one it was shown at.
-//
-// The 🆕 is drawn once for the whole message and offered first to a meal
-// picked at random, so it is not always lunch's; the other meal gets it only
-// when the first had no proposal that fits.
+// post it twice — or no dish fits either meal. What is picked is
+// kitchen.FirstPicks, the same the Mini App falls back to on a day without a
+// message.
 func (b *Bot) buildMenu(now time.Time, rnd *rand.Rand) (menuState, bool, error) {
 	today := now.Format(time.DateOnly)
 	if _, err := b.store.MenuMessage(today); err == nil {
@@ -261,42 +287,14 @@ func (b *Bot) buildMenu(now time.Time, rnd *rand.Rand) (menuState, bool, error) 
 	} else if !store.IsNotFound(err) {
 		return menuState{}, false, err
 	}
-	yesterday := now.AddDate(0, 0, -1).Format(time.DateOnly)
-	shownYesterday, err := b.shownOn(yesterday)
+	leftovers, offered, err := b.kitchen().FirstPicks(now, rnd)
 	if err != nil {
 		return menuState{}, false, err
 	}
-	cands, err := b.menuCandidates()
-	if err != nil {
-		return menuState{}, false, err
-	}
-	eaten, err := b.store.EatenOn(yesterday)
-	if err != nil {
-		return menuState{}, false, err
-	}
-
-	refs := menuRefs{date: today, leftovers: menu.Leftovers(eaten), offered: map[menu.Meal][]int64{}}
-	onMessage := idSet(refs.leftovers)
-	withNew := menu.RollNew(rnd)
-	order := menuMeals
-	if withNew && rnd.IntN(2) == 1 {
-		order = []menu.Meal{menu.Dinner, menu.Lunch}
-	}
-	for _, meal := range order {
-		picked := menu.Pick(cands, now, meal, menu.Exclude{Today: onMessage, Yesterday: shownYesterday}, menuOptions, withNew, rnd)
-		refs.offered[meal] = dishIDs(picked)
-		if slices.ContainsFunc(picked, func(d model.Dish) bool { return d.Status == model.DishProposed }) {
-			withNew = false
-		}
-		for _, d := range picked {
-			onMessage[d.ID] = true
-		}
-	}
-	if len(refs.offered[menu.Lunch]) == 0 && len(refs.offered[menu.Dinner]) == 0 {
+	if len(offered[menu.Lunch]) == 0 && len(offered[menu.Dinner]) == 0 {
 		return menuState{}, false, nil
 	}
-
-	st, err := b.menuStateFrom(refs)
+	st, err := b.menuStateFrom(menuRefs{date: today, leftovers: leftovers, offered: offered})
 	return st, err == nil, err
 }
 
@@ -380,104 +378,21 @@ func parseMealData(data string, withID bool) (date string, meal menu.Meal, dishI
 	return parts[0], menu.Meal(parts[1]), dishID, true
 }
 
-// shuffleMeal offers a fresh row for one meal: nothing shown today at either
-// meal, nothing on screen, nothing shown yesterday — Pick lets those back in,
-// in reverse order, once the pool runs out. The new row is added to the day's
-// shown set in the store, so the next shuffle moves on again.
-//
-// The row keeps a 🆕 slot only if it had one. The message's one draw was made
-// in the morning; a shuffle that drew again would add a proposal every few
-// taps, and one next to the other row's 🆕 would break the one-per-message
-// promise.
+// shuffleMeal offers a fresh row for one meal of an older keyboard menu; see
+// kitchen.More. Everything on screen is kept out, the other meal's row and
+// yesterday's pot included.
 func (b *Bot) shuffleMeal(now time.Time, date string, meal menu.Meal, refs menuRefs, rnd *rand.Rand) ([]int64, error) {
-	exclude, err := b.shownOn(date)
-	if err != nil {
-		return nil, err
-	}
-	// The rows on screen count as shown even if the day's row in the store is
-	// missing — a menu posted by hand, or a save that failed after sending.
+	var onScreen []int64
 	for _, m := range menuMeals {
-		for _, id := range refs.offered[m] {
-			exclude[id] = true
+		if m != meal {
+			onScreen = append(onScreen, refs.offered[m]...)
 		}
 	}
-	for _, id := range refs.leftovers {
-		exclude[id] = true
-	}
-	yesterday, err := b.shownOn(now.AddDate(0, 0, -1).Format(time.DateOnly))
-	if err != nil {
-		return nil, err
-	}
-	cands, err := b.menuCandidates()
-	if err != nil {
-		return nil, err
-	}
-	proposed := map[int64]bool{}
-	for _, c := range cands {
-		if c.Dish.Status == model.DishProposed {
-			proposed[c.Dish.ID] = true
-		}
-	}
-	withNew := slices.ContainsFunc(refs.offered[meal], func(id int64) bool { return proposed[id] })
-
-	ids := dishIDs(menu.Pick(cands, now, meal, menu.Exclude{Today: exclude, Yesterday: yesterday}, menuOptions, withNew, rnd))
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	if err := b.store.AppendShown(date, string(meal), ids); err != nil && !store.IsNotFound(err) {
-		return nil, err
-	}
-	return ids, nil
+	onScreen = append(onScreen, refs.leftovers...)
+	return b.kitchen().More(now, date, meal, refs.offered[meal], onScreen, rnd)
 }
 
-// shownOn is every dish the day's menu offered, at either meal; a day
-// without a menu showed nothing. The meals are not told apart: a dish good
-// for either that was offered at yesterday's lunch has been seen just the
-// same when today's dinner is picked.
-func (b *Bot) shownOn(date string) (map[int64]bool, error) {
-	out := map[int64]bool{}
-	msg, err := b.store.MenuMessage(date)
-	if store.IsNotFound(err) {
-		return out, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	for _, ids := range msg.Shown {
-		for _, id := range ids {
-			out[id] = true
-		}
-	}
-	return out, nil
-}
-
-// menuCandidates ranks each dish by the later of the last day it was planned
-// or eaten and the last day the menu offered it: a dish offered and passed
-// over has been looked at, and letting it keep the rank of "never seen" would
-// bring it back every other morning for good.
-func (b *Bot) menuCandidates() ([]menu.Candidate, error) {
-	dishes, err := b.store.Dishes(model.DishActive, model.DishProposed)
-	if err != nil {
-		return nil, err
-	}
-	seen, err := b.store.LastSeen()
-	if err != nil {
-		return nil, err
-	}
-	shown, err := b.store.LastShown()
-	if err != nil {
-		return nil, err
-	}
-	cands := make([]menu.Candidate, 0, len(dishes))
-	for _, d := range dishes {
-		last := seen[d.ID]
-		if shown[d.ID].After(last) {
-			last = shown[d.ID]
-		}
-		cands = append(cands, menu.Candidate{Dish: d, LastSeen: last})
-	}
-	return cands, nil
-}
+func (b *Bot) kitchen() *kitchen.Service { return kitchen.New(b.store) }
 
 // dishesByID is the whole catalogue, any status, by id. The screens that
 // redraw from ids read it whole rather than per id: it is a few dozen rows.
@@ -514,6 +429,7 @@ func (b *Bot) menuStateFrom(refs menuRefs) (menuState, error) {
 		date:      refs.date,
 		leftovers: resolve(refs.leftovers),
 		offered:   map[menu.Meal][]menuDish{},
+		appURL:    b.miniAppURL(),
 	}
 	for _, meal := range menuMeals {
 		st.offered[meal] = resolve(refs.offered[meal])
@@ -532,18 +448,8 @@ func dishIDs(dishes []model.Dish) []int64 {
 	return out
 }
 
-func idSet(ids []int64) map[int64]bool {
-	out := make(map[int64]bool, len(ids))
-	for _, id := range ids {
-		out[id] = true
-	}
-	return out
-}
-
 // menuRand is a fresh source per message; only the tests need a fixed one.
-func menuRand() *rand.Rand {
-	return rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
-}
+func menuRand() *rand.Rand { return kitchen.Rand() }
 
 // sendMenu posts today's menu and records it, which is also what keeps a
 // restart from posting it again.
@@ -582,6 +488,45 @@ func menuShown(st menuState) map[string][]int64 {
 		}
 	}
 	return shown
+}
+
+// RedrawMenu redraws a day's posted menu from the store, for a plan made in
+// the Mini App: the message then says what was chosen, the way a tap on it
+// would have. The text keeps the morning's first picks; anything asked for
+// later in the app was asked for there. A day without a menu message has
+// nothing to redraw.
+func (b *Bot) RedrawMenu(date string) error {
+	msg, err := b.store.MenuMessage(date)
+	if store.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	day, err := model.ParseDate(date)
+	if err != nil {
+		return err
+	}
+	leftovers, err := b.kitchen().Leftovers(day)
+	if err != nil {
+		return err
+	}
+	refs := menuRefs{date: date, leftovers: leftovers, offered: map[menu.Meal][]int64{}}
+	for _, meal := range menuMeals {
+		ids := msg.Shown[string(meal)]
+		refs.offered[meal] = ids[:min(len(ids), menuOptions)]
+	}
+	st, err := b.menuStateFrom(refs)
+	if err != nil {
+		return err
+	}
+	text, markup := menuView(st)
+	where := tele.StoredMessage{MessageID: strconv.FormatInt(msg.MessageID, 10), ChatID: msg.ChatID}
+	if _, err := b.b.Edit(where, text, b.withAppButton([]any{markup, tele.ModeHTML})...); err != nil &&
+		!errors.Is(err, tele.ErrSameMessageContent) {
+		return err
+	}
+	return nil
 }
 
 func (b *Bot) onMenuPick(c tele.Context) error { return b.onMenuTap(c, menuPickUnique) }
@@ -685,17 +630,19 @@ func (s eveningState) eaten(meal menu.Meal) []model.MealEntry {
 
 // answerable is whether a meal has an answer besides "Не вдома".
 func (s eveningState) answerable(meal menu.Meal) bool {
-	_, planned := s.planned(meal)
-	return planned || len(s.yesterday) > 0 || s.other || s.appURL != ""
+	return len(s.plans(meal)) > 0 || len(s.yesterday) > 0 || s.other || s.appURL != ""
 }
 
-func (s eveningState) planned(meal menu.Meal) (model.MealEntry, bool) {
+// plans is the meal's plan — several dishes, since the menu is made in the
+// Mini App.
+func (s eveningState) plans(meal menu.Meal) []model.MealEntry {
+	var out []model.MealEntry
 	for _, m := range s.meals {
 		if m.Meal == string(meal) && m.Status == model.MealPlanned {
-			return m, true
+			out = append(out, m)
 		}
 	}
-	return model.MealEntry{}, false
+	return out
 }
 
 // eveningView renders the check. Once the last meal is answered the redraw
@@ -726,14 +673,21 @@ func eveningView(s eveningState) (string, *tele.ReplyMarkup) {
 		}
 		id := func(dishID int64) string { return strconv.FormatInt(dishID, 10) }
 
-		if p, ok := s.planned(meal); ok {
-			proposed := p.DishStatus == model.DishProposed
-			mark := ""
-			if proposed {
-				mark = "🆕 "
+		if plans := s.plans(meal); len(plans) > 0 {
+			names := make([]string, 0, len(plans))
+			var proposals []model.MealEntry
+			for _, p := range plans {
+				mark := ""
+				if p.DishStatus == model.DishProposed {
+					mark = "🆕 "
+					proposals = append(proposals, p)
+				}
+				names = append(names, mark+"<b>"+html.EscapeString(p.Dish)+"</b>")
 			}
-			fmt.Fprintf(&sb, "\n%s: %s<b>%s</b> — так?", meal.Title(), mark, html.EscapeString(p.Dish))
-			first := tele.Row{mk.Data("✓ Так · "+lower, eveYesUnique, s.date, string(meal), id(p.DishID))}
+			fmt.Fprintf(&sb, "\n%s: %s — так?", meal.Title(), strings.Join(names, " · "))
+			// "Так" confirms the whole plan. The dish in the data is only
+			// the first; it is what an older single-dish check carried.
+			first := tele.Row{mk.Data("✓ Так · "+lower, eveYesUnique, s.date, string(meal), id(plans[0].DishID))}
 			if s.appURL != "" {
 				first = append(first, mk.URL(pickLabel+" · "+lower, mealPickerURL(s.appURL, s.date, meal)))
 			}
@@ -743,8 +697,12 @@ func eveningView(s eveningState) (string, *tele.ReplyMarkup) {
 			}
 			second = append(second, mk.Data("Не вдома · "+lower, eveHomeUnique, s.date, string(meal)))
 			rows = append(rows, first, second)
-			if proposed {
-				rows = append(rows, tele.Row{mk.Data("✖ Ні, не наше", eveRejUnique, s.date, string(meal), id(p.DishID))})
+			for _, p := range proposals {
+				label := "✖ Ні, не наше"
+				if len(plans) > 1 {
+					label = "✖ " + shorten(p.Dish, menuButtonName) + " — не наше"
+				}
+				rows = append(rows, tele.Row{mk.Data(label, eveRejUnique, s.date, string(meal), id(p.DishID))})
 			}
 			continue
 		}
@@ -841,7 +799,45 @@ func (b *Bot) applyEveningTap(now time.Time, unique, data, who string, current *
 
 	var toast string
 	switch unique {
-	case eveYesUnique, evePickUnique:
+	case eveYesUnique:
+		// The whole plan was eaten. A meal answered since the check was drawn
+		// only redraws: confirming the plan beside it would put a second
+		// lunch on the day.
+		rows, err := b.store.MealsOn(date)
+		if err != nil {
+			return eveningState{}, "", false, err
+		}
+		var plan []int64
+		var names []string
+		for _, m := range rows {
+			if m.Meal != string(meal) {
+				continue
+			}
+			if m.Status == model.MealEaten {
+				toast = "Вже записано"
+				break
+			}
+			plan = append(plan, m.DishID)
+			names = append(names, m.Dish)
+		}
+		if toast != "" {
+			break
+		}
+		if len(plan) == 0 {
+			// The plan was dropped since; the button still names its dish.
+			plan = []int64{dishID}
+		}
+		if err := b.store.SetEaten(date, string(meal), who, plan, nil); store.IsNotFound(err) {
+			return eveningState{}, "Цієї страви вже немає", false, nil
+		} else if err != nil {
+			return eveningState{}, "", false, err
+		}
+		toast = meal.Title() + " ✓"
+		if len(names) > 0 {
+			toast = fmt.Sprintf("%s: %s ✓", meal.Title(), strings.Join(names, " · "))
+		}
+
+	case evePickUnique:
 		stale, err := b.eatenOtherThan(date, meal, dishID)
 		if err != nil {
 			return eveningState{}, "", false, err

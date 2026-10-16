@@ -828,9 +828,9 @@ menu" for why Mealie went).
 ### The menu
 
 What to cook today, asked the way the family actually decides it: in the
-morning the bot offers a few dishes per meal as buttons, in the evening it
-asks what was eaten after all, and once a week the model pitches a few new
-dishes. No ingredients, no shopping list, no plan for the week ahead. Three
+morning the bot posts a few dishes per meal and a link to the Mini App, where
+the day's menu is made; in the evening it asks what was eaten after all, and
+once a week the model pitches a few new dishes. No ingredients, no shopping list, no plan for the week ahead. Three
 clocks in `RunDigests`; the bot posts to the notify chat itself rather than
 leaving it to HA, because the answers are button taps and those come back to
 the bot. The choice is `internal/menu` (pure), the messages are
@@ -853,7 +853,29 @@ the bot. The choice is `internal/menu` (pure), the messages are
   dishes and meals, nothing more.
 - **A dish is what is put on the table** (see the cooking log): one button
   per plate, never a lone side.
-- **Plan and fact are two statuses of one row.** A morning tap writes a
+- **The menu is made in the Mini App, not on the keyboard.** A keyboard plans
+  one dish per tap and closes the meal, and a meal is often two dishes. So
+  the morning message lists the day's suggestions as text under one url
+  button, `🍽 Скласти меню` (`?startapp=menu_<date>`; `✏️ Змінити меню` once
+  both meals have a plan). The screen behind it (`GET`/`PUT
+  /mini/api/menu/{date}`, today only — an older link answers `past_menu`)
+  opens with yesterday's pot marked ↩ and the suggestions the message
+  showed, read from `menu_messages.shown`; each meal takes any number of
+  dishes, `🔀 Ще варіанти` (`POST .../{meal}/more`) appends a fresh row and
+  records it as shown, and the catalogue is searched in the browser. Saving
+  is `store.SetPlan` per meal, and the server then has the bot redraw the
+  message from the store (`Bot.RedrawMenu`, reached through
+  `mini.Config.Menu`) — the message id is in `menu_messages` — so the group
+  sees «✅ Обід: Борщ · Салат — Олег» as a tap used to produce. The
+  picking is `internal/kitchen`, shared by the bot and the Mini App: the
+  first picks of a day and a fresh row on request, so both offer the same.
+  The old keyboard is still drawn when the bot's username did not resolve,
+  and its buttons are still handled for a message posted before the link.
+  A message that already links into the app does not get the generic
+  `📱 Відкрити застосунок` button as well.
+- **Plan and fact are two statuses of one row.** The Mini App writes a meal's
+  plan as a set (`SetPlan`: the listed dishes planned, the others' plans
+  dropped, an eaten meal left alone). A morning tap on the old keyboard writes a
   `planned` row (`PlanMeal`, which replaces any other plan for that meal and
   never touches what was already eaten — a tap on a meal already reported
   eaten writes nothing and says what was eaten, because a plan next to an
@@ -933,10 +955,12 @@ the bot. The choice is `internal/menu` (pure), the messages are
   run concurrently — two people shuffling at once would lose each other's
   rows. The row that did not change is taken from the keyboard as it is.
 - **The evening check** asks about every meal of the day without an `eaten`
-  row. With a plan: «Обід: Борщ — так?» and `Так` / `🍽 Вибрати страви` /
-  `Інше` / `Не вдома`, plus `Ні, не наше` when the planned dish is a
-  proposal, which drops the plan, rejects the dish, and keeps asking about the
-  meal without it. Without a plan: `🍽 Вибрати страви`, then `Інше` and `Не
+  row. With a plan: «Обід: Борщ · Салат — так?» and `Так` / `🍽 Вибрати
+  страви` / `Інше` / `Не вдома`, plus `Ні, не наше` for each planned dish
+  that is a proposal, which drops that plan, rejects the dish, and keeps
+  asking about the meal without it. `Так` confirms the whole plan in one
+  `SetEaten`; its data still names one dish, the first, which is all an older
+  single-dish check carried. Without a plan: `🍽 Вибрати страви`, then `Інше` and `Не
   вдома`. `🍽 Вибрати страви` is a url button into the Mini App's picker for
   that meal (see Mini App), which takes several dishes at once; a keyboard
   tap answers one and closes the meal. Being a url button it carries no

@@ -14,6 +14,7 @@ import (
 	"familyhub/internal/actor"
 	"familyhub/internal/appointments"
 	"familyhub/internal/audit"
+	"familyhub/internal/kitchen"
 	"familyhub/internal/payments"
 	"familyhub/internal/reminders"
 	"familyhub/internal/schedule"
@@ -77,8 +78,16 @@ type Config struct {
 	// ICS feed so the three surfaces cannot disagree about what came due. Nil
 	// means the reminders tab is not mounted.
 	Reminders *reminders.Service
+	// Menu redraws the day's morning menu in the group after a plan is made
+	// here. The bot implements it; nil leaves the message as it was.
+	Menu MenuBoard
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
+}
+
+// MenuBoard is what the morning menu needs from the bot.
+type MenuBoard interface {
+	RedrawMenu(date string) error
 }
 
 func (c Config) devFixtureUser() int64 {
@@ -106,6 +115,8 @@ type Router struct {
 	reminders    *reminders.Service
 	audit        *audit.Service
 	notify       Notifier // nil — bot off; the send-to-group button stays hidden
+	kitchen      *kitchen.Service
+	menu         MenuBoard // nil — bot off; a plan is saved, nothing is redrawn
 	log          *slog.Logger
 	v            *verifier
 	loc          *time.Location
@@ -138,6 +149,8 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		reminders:    cfg.Reminders,
 		audit:        audit.NewService(st, func() time.Time { return cfg.Now().In(cfg.Loc) }),
 		notify:       cfg.Notifier,
+		kitchen:      kitchen.New(st),
+		menu:         cfg.Menu,
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
 		loc:          cfg.Loc,
@@ -175,6 +188,9 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/api/kitchen", rt.handleKitchen)
 	mux.HandleFunc("GET /mini/api/meals/{date}/{meal}", rt.handlePicker)
 	mux.HandleFunc("PUT /mini/api/meals/{date}/{meal}", rt.handlePickerSave)
+	mux.HandleFunc("GET /mini/api/menu/{date}", rt.handlePlanner)
+	mux.HandleFunc("PUT /mini/api/menu/{date}", rt.handlePlannerSave)
+	mux.HandleFunc("POST /mini/api/menu/{date}/{meal}/more", rt.handlePlannerMore)
 	mux.HandleFunc("PUT /mini/api/slots/{id}", rt.handleSlotUpdate)
 	mux.HandleFunc("DELETE /mini/api/slots/{id}", rt.handleSlotDelete)
 	// Reminders mount only when the service is wired. Without it the routes

@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"strings"
+
 	"familyhub/internal/menu"
 
 	tele "gopkg.in/telebot.v3"
@@ -36,6 +38,18 @@ func (b *Bot) miniAppURL() string {
 // pickLabel opens the meal picker from the evening check.
 const pickLabel = "🍽 Вибрати страви"
 
+// The morning menu's own way in: the day's menu is made in the app.
+const (
+	menuMakeLabel   = "🍽 Скласти меню"
+	menuChangeLabel = "✏️ Змінити меню"
+)
+
+// menuPlannerURL deep-links into the day's menu, the same way mealPickerURL
+// does for one meal.
+func menuPlannerURL(appURL, date string) string {
+	return appURL + "=menu_" + date
+}
+
 // mealPickerURL deep-links straight into the picker for one meal. The
 // parameter is what the Mini App reads as start_param, and Telegram allows it
 // only [A-Za-z0-9_-], which an ISO date and a meal name already are.
@@ -68,6 +82,15 @@ func (b *Bot) withAppButton(opts []any) []any {
 	btn := tele.Btn{Text: appButtonLabel, URL: url}
 	for _, o := range opts {
 		if m, ok := o.(*tele.ReplyMarkup); ok {
+			// A message that already links into the app — the menu, the
+			// evening check — does not need a second, vaguer way in.
+			for _, row := range m.InlineKeyboard {
+				for _, b := range row {
+					if strings.HasPrefix(b.URL, url) {
+						return opts
+					}
+				}
+			}
 			m.InlineKeyboard = append(m.InlineKeyboard, []tele.InlineButton{*btn.Inline()})
 			return opts
 		}

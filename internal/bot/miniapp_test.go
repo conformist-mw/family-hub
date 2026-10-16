@@ -80,3 +80,15 @@ func TestNoAppNoButton(t *testing.T) {
 		t.Errorf("appMarkup = %+v, want empty", m.InlineKeyboard)
 	}
 }
+
+// A message that already links into the app does not get the generic button
+// as well: two ways into the same app read as two different things.
+func TestWithAppButtonSkipsAMessageThatAlreadyLinks(t *testing.T) {
+	b := testBot("family_core_hub_bot")
+	m := &tele.ReplyMarkup{}
+	m.Inline(tele.Row{m.URL(menuMakeLabel, menuPlannerURL(b.miniAppURL(), "2026-10-17"))})
+	b.withAppButton([]any{m})
+	if len(m.InlineKeyboard) != 1 {
+		t.Errorf("keyboard = %+v, want the menu link alone", m.InlineKeyboard)
+	}
+}

@@ -10,7 +10,7 @@ import { Audit } from '/mini/assets/audit.js'
 import { Home } from '/mini/assets/home.js'
 import { ReminderList, ReminderForm } from '/mini/assets/reminders.js'
 import { ChoreHistory, OneChoreHistory } from '/mini/assets/history.js'
-import { Kitchen, MealPicker } from '/mini/assets/kitchen.js'
+import { Kitchen, MealPicker, MenuPlanner } from '/mini/assets/kitchen.js'
 
 // Navigation has two tiers, the same two the web grew: a space groups the tabs
 // that belong together, and a tab is a screen inside it. The hub is a space
@@ -185,14 +185,20 @@ function App() {
     boot()
     watchTheme()
 
-    // The evening check in the group links straight to one meal's picker:
-    // ?startapp=meal_2026-10-16_dinner arrives here as start_param. The
-    // server checks the date and the meal; this only routes.
+    // The menu messages in the group link straight into the kitchen: the
+    // morning one to the day's menu (?startapp=menu_2026-10-16), the evening
+    // one to one meal's picker (?startapp=meal_2026-10-16_dinner). They arrive
+    // here as start_param. The server checks the date and the meal; this only
+    // routes.
     const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || ''
-    const m = /^meal_(\d{4}-\d{2}-\d{2})_(lunch|dinner)$/.exec(start)
-    if (m) {
+    const meal = /^meal_(\d{4}-\d{2}-\d{2})_(lunch|dinner)$/.exec(start)
+    const plan = /^menu_(\d{4}-\d{2}-\d{2})$/.exec(start)
+    if (meal) {
       setTab('kitchen')
-      push({ name: 'mealPicker', date: m[1], meal: m[2] })
+      push({ name: 'mealPicker', date: meal[1], meal: meal[2] })
+    } else if (plan) {
+      setTab('kitchen')
+      push({ name: 'menuPlanner', date: plan[1] })
     }
 
     const onVisible = () => {
@@ -292,6 +298,14 @@ function App() {
         onCancel=${pop} />`
   }
 
+  if (screen && screen.name === 'menuPlanner') {
+    return html`
+      <${MenuPlanner}
+        date=${screen.date}
+        onSaved=${() => { closeAll(); setTab('kitchen'); loadKitchen() }}
+        onCancel=${() => { pop(); setTab('kitchen') }} />`
+  }
+
   if (screen && screen.name === 'mealPicker') {
     return html`
       <${MealPicker}
@@ -357,7 +371,8 @@ function App() {
       body = html`
         <${Kitchen}
           days=${kitchen.days}
-          onOpen=${(date, meal) => push({ name: 'mealPicker', date, meal })} />`
+          onOpen=${(date, meal) => push({ name: 'mealPicker', date, meal })}
+          onPlan=${(date) => push({ name: 'menuPlanner', date })} />`
   } else {
     if (courses.phase === 'loading') body = html`<${Loading} />`
     else if (courses.phase === 'error')

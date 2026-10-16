@@ -90,26 +90,46 @@ func costPromptText(appt string) string {
 
 func costPromptMarkup(apptID int64) *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
-	m.Inline(m.Row(m.Data("✗ Без суми", "appt_cost", "skip:"+strconv.FormatInt(apptID, 10))))
+	id := strconv.FormatInt(apptID, 10)
+	m.Inline(m.Row(
+		m.Data("Без суми", "appt_cost", "skip:"+id),
+		m.Data("✗ Скасовано", "appt_cost", "cancel:"+id),
+	))
 	return m
 }
 
-// onCostSkip closes the prompt without an amount. cost stays NULL — "nobody
-// wrote it down" and "it was free" are different things, and 0 is reserved for
-// the latter.
-func (b *Bot) onCostSkip(c tele.Context) error {
-	_, arg := splitData(c.Data())
+// onCostButton closes the prompt without an amount. cost stays NULL either way
+// — "nobody wrote it down" and "it was free" are different things, and 0 is
+// reserved for the latter.
+//
+// "skip" is a visit that happened and nobody knows the price. "cancel" is one
+// that never happened: the prompt is the first moment anyone is asked about a
+// visit after its time, so it is where a cancellation the bot never heard
+// about gets recorded. /list cannot do it — it only shows what is still ahead.
+func (b *Bot) onCostButton(c tele.Context) error {
+	action, arg := splitData(c.Data())
 	id, err := strconv.ParseInt(arg, 10, 64)
 	if err != nil {
 		_ = c.Respond()
 		return nil
 	}
-	_ = c.Respond()
 	a, err := b.store.GetAppointment(id)
 	if err != nil {
+		_ = c.Respond()
 		return c.Edit("Запис не знайдено.", b.appMarkup())
 	}
-	return c.Edit(b.formatAppt(a)+"\n\nБез суми.", b.appMarkup(), tele.ModeHTML)
+	if action != "cancel" {
+		_ = c.Respond()
+		return c.Edit(b.formatAppt(a)+"\n\nБез суми.", b.appMarkup(), tele.ModeHTML)
+	}
+	if err := b.store.SetAppointmentStatus(id, model.ApptStatusCancelled); err != nil {
+		b.logger.Error("bot: cancel appointment from cost prompt", "err", err, "id", id)
+		return c.Respond(&tele.CallbackResponse{Text: "Не вдалося скасувати 😕", ShowAlert: true})
+	}
+	_ = c.Respond()
+	// The prompt already sits in the group, so editing it is the announcement;
+	// a second "візит скасовано" message would say the same thing twice.
+	return c.Edit(b.groupCancelText(c, a), b.appMarkup(), tele.ModeHTML)
 }
 
 // costReply handles a reply to a cost prompt. It reports whether the message

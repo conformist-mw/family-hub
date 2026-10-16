@@ -162,6 +162,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/api/appointments", rt.handleAppointments)
 	mux.HandleFunc("POST /mini/api/appointments", rt.handleAppointmentCreate)
 	mux.HandleFunc("PUT /mini/api/appointments/{id}", rt.handleAppointmentUpdate)
+	mux.HandleFunc("PUT /mini/api/appointments/{id}/status", rt.handleAppointmentStatus)
 	mux.HandleFunc("DELETE /mini/api/appointments/{id}", rt.handleAppointmentDelete)
 	mux.HandleFunc("GET /mini/api/suggestions", rt.handleSuggestions)
 	mux.HandleFunc("GET /mini/api/courses", rt.handleCourses)

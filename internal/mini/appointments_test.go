@@ -144,10 +144,13 @@ func TestHandleAppointments(t *testing.T) {
 		t.Fatalf("decode: %v (%s)", err, rec.Body)
 	}
 
-	// Yesterday's row is behind the window and the cancelled one is filtered
-	// out by the store, so only today survives.
-	if len(body.Days) != 1 {
-		t.Fatalf("got %d days, want 1: %+v", len(body.Days), body.Days)
+	// Yesterday's row is behind the window. The cancelled one stays, dimmed
+	// by the client, so it can be restored from its card.
+	if len(body.Days) != 2 {
+		t.Fatalf("got %d days, want 2: %+v", len(body.Days), body.Days)
+	}
+	if got := body.Days[1].Items; len(got) != 1 || got[0].Status != model.ApptStatusCancelled {
+		t.Errorf("tomorrow = %+v, want the cancelled visit", got)
 	}
 	day := body.Days[0]
 	if day.Label != "Сьогодні, 6 серпня" {

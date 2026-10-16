@@ -163,7 +163,12 @@ function costLabel(cost) {
 // before offering to change it, and it keeps Delete off the screen a person
 // lands on by accident. It also shows the fields the form no longer has —
 // location and status are still stored, just not edited from a phone.
-export function AppointmentCard({ item, onEdit, onDelete, onClose }) {
+//
+// Status is the exception, as one button rather than a field: "it was called
+// off" is the one change that is made on a phone, often right after the call,
+// and deleting the row to say it would lose the visit.
+export function AppointmentCard({ item, onEdit, onDelete, onClose, onStatus }) {
+  const cancelled = item.status === 'cancelled'
   const when = [item.dayLabel, item.time].filter(Boolean).join(', ')
   const rows = [
     ['Хто', item.person],
@@ -196,6 +201,10 @@ export function AppointmentCard({ item, onEdit, onDelete, onClose }) {
         <button type="button" class="btn btn-primary" onClick=${onEdit}>Редагувати</button>
         <button type="button" class="btn" onClick=${onClose}>Закрити</button>
       </div>
+      <button type="button" class="btn"
+        onClick=${() => onStatus(cancelled ? 'planned' : 'cancelled')}>
+        ${cancelled ? 'Відновити візит' : 'Візит скасували'}
+      </button>
       <button type="button" class="btn-danger" onClick=${onDelete}>Видалити запис</button>
     </div>`
 }

@@ -222,6 +222,37 @@ func (s *Service) Update(id int64, f Form, by string) (model.Appointment, error)
 	return a, nil
 }
 
+// SetStatus changes only the status — the one-tap "it was called off" (and its
+// undo) from a phone, where re-sending the whole form to flip one field would
+// rewrite every other field with whatever the client last saw. The group is
+// told either way: a cancellation is news, and so is taking one back.
+func (s *Service) SetStatus(id int64, status, by string) (model.Appointment, error) {
+	if _, ok := model.ApptStatusLabels[status]; !ok {
+		return model.Appointment{}, InvalidField{Field: "status", Message: "вибери статус"}
+	}
+	a, err := s.store.GetAppointment(id)
+	if err != nil {
+		return a, err
+	}
+	if a.Status == status {
+		return a, nil // a double tap is not a second announcement
+	}
+	prev := a.Status
+	if err := s.store.SetAppointmentStatus(id, status); err != nil {
+		return a, err
+	}
+	a.Status = status
+	switch {
+	case status == model.ApptStatusCancelled:
+		s.announce(GroupCancelText(a, by, s.loc))
+	case prev == model.ApptStatusCancelled:
+		s.announce(GroupChangeText(a, "відновлено", by, s.loc))
+	default:
+		s.announce(GroupChangeText(a, "змінено", by, s.loc))
+	}
+	return a, nil
+}
+
 func (s *Service) Delete(id int64, by string) error {
 	a, err := s.store.GetAppointment(id)
 	if err != nil {

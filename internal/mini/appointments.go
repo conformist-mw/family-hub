@@ -117,6 +117,35 @@ func (rt *Router) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request
 	rt.writeJSON(w, http.StatusOK, map[string]int64{"id": id})
 }
 
+func (rt *Router) handleAppointmentStatus(w http.ResponseWriter, r *http.Request) {
+	who, bad := rt.v.authenticate(r)
+	if bad != nil {
+		rt.fail(w, bad)
+		return
+	}
+	id, bad := pathID(r)
+	if bad != nil {
+		rt.fail(w, bad)
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		rt.fail(w, errBadRequest)
+		return
+	}
+	if _, err := rt.appointments.Get(id); err != nil {
+		rt.fail(w, errNotFound)
+		return
+	}
+	if _, err := rt.appointments.SetStatus(id, body.Status, who.Name); err != nil {
+		rt.writeError(w, err, "set appointment status")
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]int64{"id": id})
+}
+
 func (rt *Router) handleAppointmentDelete(w http.ResponseWriter, r *http.Request) {
 	who, bad := rt.v.authenticate(r)
 	if bad != nil {
@@ -269,7 +298,9 @@ func (rt *Router) handleAppointments(w http.ResponseWriter, r *http.Request) {
 	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, rt.loc)
 
 	// One more than the cap, so reaching it is detectable rather than assumed.
-	items, err := rt.store.UpcomingAppointments(from.Format(model.LocalDatetime), maxAppointments+1)
+	// Cancelled rows stay in: they are dimmed on screen, and the card is where a
+	// cancellation is taken back.
+	items, err := rt.store.AppointmentsFrom(from.Format(model.LocalDatetime), maxAppointments+1)
 	if err != nil {
 		rt.log.Error("mini: upcoming appointments", "err", err)
 		rt.fail(w, errInternal)

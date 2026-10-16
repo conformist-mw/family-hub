@@ -397,7 +397,28 @@ links already mixed the daily (Баланс, Заняття) with the reference 
 - Screens: Головна (today, what comes next, balances, recent payments), Записи
   (upcoming list, read card, edit form), Заняття (courses, their editable schedule,
   recording a payment against one, and its reconciliation), Справи (recurring
-  chores: what is still open, what is coming, and the rule behind each).
+  chores: what is still open, what is coming, and the rule behind each), Кухня
+  (the last week of meals and the picker that records one).
+- **Кухня's picker records several dishes for one meal at once** (`GET`/`PUT
+  /mini/api/meals/{date}/{meal}`). It exists because a Telegram keyboard
+  answers one dish per tap: the evening check closed the meal on the first
+  one, so yesterday's mash with a different salad could not be said there.
+  The `PUT` carries the whole set — ticked dish ids plus names typed into the
+  search that the catalogue lacks — and `store.SetEaten` makes the meal's
+  eaten rows exactly that set in one transaction, every dish through the same
+  `recordEatenTx` the photo and the evening check use: a plan is confirmed
+  rather than doubled, a proposal eaten becomes active, and a dish eaten the
+  day before is marked a leftover. New names go through `EnsureDish` first,
+  outside that transaction, so a retry finds the dish by name. The picker
+  opens with the plan, yesterday's pot and the most-eaten dishes as chips;
+  the rest of the catalogue (all but the rejected) is searched in the
+  browser, since it is a few dozen names. A future date is refused. The
+  evening check links here per meal with `?startapp=meal_<date>_<meal>`,
+  which the app reads as `start_param` and routes to that picker.
+- Cancelled visits stay in the Записи list, dimmed, and the card cancels or
+  restores one with a single button (`PUT /mini/api/appointments/{id}/status`,
+  status only). A visit called off on the day is a phone action, and deleting
+  the row to say so would lose it.
 - Головна opens on the day from `internal/agenda` — the same day the web hub
   shows, with every string rendered server-side. Nothing in the frontend
   formats a time or names a weekday: two implementations of "Ср 16:00" is how
@@ -912,11 +933,17 @@ the bot. The choice is `internal/menu` (pure), the messages are
   run concurrently — two people shuffling at once would lose each other's
   rows. The row that did not change is taken from the keyboard as it is.
 - **The evening check** asks about every meal of the day without an `eaten`
-  row. With a plan: «Обід: Борщ — так?» and `Так` / `Інше` / `Не вдома`, plus
-  `Ні, не наше` when the planned dish is a proposal, which drops the plan,
-  rejects the dish, and keeps asking about the meal without it. Without a plan:
-  yesterday's dishes as buttons, since the pot most often lasts a second day,
-  then `Інше` and `Не вдома`. Every button names its meal, because the two
+  row. With a plan: «Обід: Борщ — так?» and `Так` / `🍽 Вибрати страви` /
+  `Інше` / `Не вдома`, plus `Ні, не наше` when the planned dish is a
+  proposal, which drops the plan, rejects the dish, and keeps asking about the
+  meal without it. Without a plan: `🍽 Вибрати страви`, then `Інше` and `Не
+  вдома`. `🍽 Вибрати страви` is a url button into the Mini App's picker for
+  that meal (see Mini App), which takes several dishes at once; a keyboard
+  tap answers one and closes the meal. Being a url button it carries no
+  callback, so the meals still asked about are read back from the others.
+  Only when the bot's username did not resolve, and so there is no link,
+  are yesterday's dishes offered as buttons instead, since the pot most often
+  lasts a second day. Every button names its meal, because the two
   rows sit one under the other. When every meal is already answered — the
   photo got there first — nothing is sent, and nothing either when no meal
   has an answer besides `Не вдома` (no plan, nothing from yesterday, no

@@ -360,6 +360,7 @@ func endTime(a model.Appointment, loc *time.Location) string {
 }
 
 // dayLabel names a day relative to now: "Сьогодні, 6 серпня", "Завтра, …",
+// "Вчора, …",
 // otherwise "Чт, 13 серпня".
 func dayLabel(day, now time.Time) string {
 	date := day.Format("2006-01-02")
@@ -368,6 +369,8 @@ func dayLabel(day, now time.Time) string {
 		return "Сьогодні, " + dayAndMonth(day)
 	case now.AddDate(0, 0, 1).Format("2006-01-02"):
 		return "Завтра, " + dayAndMonth(day)
+	case now.AddDate(0, 0, -1).Format("2006-01-02"):
+		return "Вчора, " + dayAndMonth(day)
 	}
 	return model.WeekdayLabels[int(day.Weekday())] + ", " + dayAndMonth(day)
 }

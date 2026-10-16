@@ -55,3 +55,9 @@ export const IconCheck = ({ size = 16 }) =>
 
 export const IconBack = ({ size = 22 }) =>
   svg(size, html`<path d="M15 5l-7 7 7 7" />`)
+
+export const IconBowl = ({ size = 22 }) =>
+  svg(size, html`
+    <path d="M3.5 11h17a8.5 8.5 0 0 1-17 0z" />
+    <path d="M9 7c0-1.2 1-1.6 1-2.8M13 7c0-1.2 1-1.6 1-2.8" />
+    <path d="M8 20.5h8" />`)

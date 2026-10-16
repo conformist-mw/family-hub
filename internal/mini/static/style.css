@@ -588,3 +588,23 @@ button { font-family: inherit; }
   padding: 0;
   cursor: pointer;
 }
+
+/* Kitchen ------------------------------------------------------------- */
+
+/* "Обід" / "Вечеря" in a fixed column, so the dishes line up down the week. */
+.meal-name { flex: 0 0 64px; color: var(--hint); font-size: 13px; }
+
+.search {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--r-chip);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.search:focus { outline: 2px solid var(--accent-weak); }
+
+/* The morning's pick among the shortcuts: the likeliest answer, marked
+   without looking already chosen. */
+.chip-plan { box-shadow: inset 0 0 0 1.5px var(--accent); }

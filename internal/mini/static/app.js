@@ -2,7 +2,7 @@ import { html, render, useState, useEffect, useCallback, useRef } from '/mini/as
 import { api, tg, boot } from '/mini/assets/api.js'
 import { watchTheme } from '/mini/assets/theme.js'
 import { Loading, Failure } from '/mini/assets/ui.js'
-import { IconHome, IconCalendar, IconBook, IconRepeat, IconBack } from '/mini/assets/icons.js'
+import { IconHome, IconCalendar, IconBook, IconRepeat, IconBack, IconBowl } from '/mini/assets/icons.js'
 import { AppointmentList, AppointmentCard, AppointmentForm } from '/mini/assets/appointments.js'
 import { CourseList, SlotForm } from '/mini/assets/courses.js'
 import { PaymentForm } from '/mini/assets/payments.js'
@@ -10,6 +10,7 @@ import { Audit } from '/mini/assets/audit.js'
 import { Home } from '/mini/assets/home.js'
 import { ReminderList, ReminderForm } from '/mini/assets/reminders.js'
 import { ChoreHistory, OneChoreHistory } from '/mini/assets/history.js'
+import { Kitchen, MealPicker } from '/mini/assets/kitchen.js'
 
 // Navigation has two tiers, the same two the web grew: a space groups the tabs
 // that belong together, and a tab is a screen inside it. The hub is a space
@@ -30,6 +31,7 @@ const SPACES = {
     { id: 'home', label: 'Головна', Icon: IconHome },
     { id: 'appointments', label: 'Записи', Icon: IconCalendar },
     { id: 'reminders', label: 'Справи', Icon: IconRepeat },
+    { id: 'kitchen', label: 'Кухня', Icon: IconBowl },
   ],
   [LESSONS]: [{ id: 'courses', label: 'Заняття', Icon: IconBook }],
 }
@@ -88,6 +90,7 @@ function App() {
   const [courses, setCourses] = useState({ phase: 'loading' })
   const [suggest, setSuggest] = useState({ titles: [], persons: [] })
   const [reminders, setReminders] = useState({ phase: 'loading' })
+  const [kitchen, setKitchen] = useState({ phase: 'loading' })
 
   const loadHome = useCallback(async () => {
     try {
@@ -127,6 +130,15 @@ function App() {
     }
   }, [])
 
+  const loadKitchen = useCallback(async () => {
+    try {
+      const d = await api('/kitchen')
+      setKitchen({ phase: 'ready', days: d.days || [] })
+    } catch (err) {
+      setKitchen({ phase: 'error', error: err })
+    }
+  }, [])
+
   const loadSuggestions = useCallback(async () => {
     try {
       const d = await api('/suggestions')
@@ -149,8 +161,9 @@ function App() {
       loadAppointments()
       loadReminders()
       loadSuggestions()
+      loadKitchen()
     },
-    [loadHome, loadAppointments, loadReminders, loadSuggestions, loadCourses],
+    [loadHome, loadAppointments, loadReminders, loadSuggestions, loadKitchen, loadCourses],
   )
 
   // Five requests used to go out on boot no matter which tab was open. Now the
@@ -171,6 +184,16 @@ function App() {
   useEffect(() => {
     boot()
     watchTheme()
+
+    // The evening check in the group links straight to one meal's picker:
+    // ?startapp=meal_2026-10-16_dinner arrives here as start_param. The
+    // server checks the date and the meal; this only routes.
+    const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || ''
+    const m = /^meal_(\d{4}-\d{2}-\d{2})_(lunch|dinner)$/.exec(start)
+    if (m) {
+      setTab('kitchen')
+      push({ name: 'mealPicker', date: m[1], meal: m[2] })
+    }
 
     const onVisible = () => {
       // Refresh the lists only. Reloading under a half-filled form would throw
@@ -269,6 +292,15 @@ function App() {
         onCancel=${pop} />`
   }
 
+  if (screen && screen.name === 'mealPicker') {
+    return html`
+      <${MealPicker}
+        date=${screen.date}
+        meal=${screen.meal}
+        onSaved=${() => { closeAll(); setTab('kitchen'); loadKitchen() }}
+        onCancel=${() => { pop(); setTab('kitchen') }} />`
+  }
+
   if (screen && screen.name === 'audit') {
     return html`<${Audit} course=${screen.course} onClose=${pop} />`
   }
@@ -317,6 +349,15 @@ function App() {
           onAdd=${() => push({ name: 'reminderForm', item: null })}
           onHistory=${() => push({ name: 'choreHistory' })}
           onMarked=${loadReminders} />`
+  } else if (tab === 'kitchen') {
+    if (kitchen.phase === 'loading') body = html`<${Loading} />`
+    else if (kitchen.phase === 'error')
+      body = html`<${Failure} error=${kitchen.error} onRetry=${loadKitchen} />`
+    else
+      body = html`
+        <${Kitchen}
+          days=${kitchen.days}
+          onOpen=${(date, meal) => push({ name: 'mealPicker', date, meal })} />`
   } else {
     if (courses.phase === 'loading') body = html`<${Loading} />`
     else if (courses.phase === 'error')

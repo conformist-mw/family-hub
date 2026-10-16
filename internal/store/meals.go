@@ -134,6 +134,76 @@ func recordEatenTx(tx *sql.Tx, dishID int64, date, meal, who string, leftover bo
 	return got, false, err
 }
 
+// SetEaten makes dishIDs exactly what was eaten at one meal — the Mini App's
+// picker, where several dishes are ticked at once and a tick can be taken
+// back. Eaten rows of other dishes are deleted; each listed dish goes through
+// the same path as RecordEaten, so a plan is confirmed rather than doubled and
+// a proposal becomes the family's. leftover marks the dishes that finish
+// yesterday's pot. All or nothing: a dish gone half way leaves the meal as it
+// was, and the error is sql.ErrNoRows.
+func (s *Store) SetEaten(date, meal, who string, dishIDs []int64, leftover map[int64]bool) error {
+	if err := checkMealKey(date, meal); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	keep := make([]any, 0, len(dishIDs)+2)
+	keep = append(keep, date, meal)
+	for _, id := range dishIDs {
+		keep = append(keep, id)
+	}
+	q := `DELETE FROM meals WHERE date = ? AND meal = ? AND status = 'eaten'`
+	if len(dishIDs) > 0 {
+		q += ` AND dish_id NOT IN (` + placeholders(len(dishIDs)) + `)`
+	}
+	if _, err := tx.Exec(q, keep...); err != nil {
+		return err
+	}
+	for _, id := range dishIDs {
+		if _, _, err := recordEatenTx(tx, id, date, meal, who, leftover[id]); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// MealsBetween returns every row of the days in [from, to], planned and
+// eaten, oldest first.
+func (s *Store) MealsBetween(from, to string) ([]model.MealEntry, error) {
+	return s.meals(mealCols+` WHERE m.date >= ? AND m.date <= ?`+mealOrder, from, to)
+}
+
+// FrequentDishes returns the dishes eaten most often, most first — the chips a
+// picker opens with before anybody searches. Rejected dishes are left out even
+// if they were once eaten: the family has said no to them since.
+func (s *Store) FrequentDishes(limit int) ([]model.Dish, error) {
+	rows, err := s.db.Query(`
+		SELECT d.id, d.name, d.meal, d.days, d.status, d.note, d.created_at
+		FROM dishes d
+		JOIN meals m ON m.dish_id = d.id AND m.status = 'eaten'
+		WHERE d.status <> ?
+		GROUP BY d.id
+		ORDER BY COUNT(*) DESC, MAX(m.date) DESC, d.id
+		LIMIT ?`, model.DishRejected, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Dish
+	for rows.Next() {
+		d, err := scanDish(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // DropPlans deletes the planned rows of one meal — of one dish, or of any
 // with dishID 0: "we did not eat at home". Eaten rows are never touched: a
 // photo that came in after the evening check went out still stands.

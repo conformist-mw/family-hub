@@ -3,13 +3,14 @@ import { api, haptic, guardUnsaved } from '/mini/assets/api.js'
 import { Loading, Failure, Actions } from '/mini/assets/ui.js'
 import { IconChevron } from '/mini/assets/icons.js'
 
-// Кухня: the week of meals, newest first, and the picker that records one.
+// Кухня: the week of meals, newest first; the morning menu, where today's
+// plan is made; and the picker that records what one meal turned out to be.
 // Every label arrives from the server; the client never parses a date.
 
 function MealRow({ meal, onOpen }) {
   let main
   if (meal.eaten.length > 0) main = html`<span class="title">${meal.eaten.join(' · ')}</span>`
-  else if (meal.planned) main = html`<span class="note">план: ${meal.planned}</span>`
+  else if (meal.planned.length > 0) main = html`<span class="note">план: ${meal.planned.join(' · ')}</span>`
   else main = html`<span class="note">—</span>`
   return html`
     <button class="row" onClick=${onOpen}>
@@ -19,10 +20,11 @@ function MealRow({ meal, onOpen }) {
     </button>`
 }
 
-export function Kitchen({ days, onOpen }) {
+export function Kitchen({ days, onOpen, onPlan }) {
   return html`
     <main class="screen">
       <h1 class="screen-title">Кухня</h1>
+      <button class="btn btn-primary" style=${{ flex: 'none' }} onClick=${() => onPlan(days[0].date)}>Меню на сьогодні</button>
       ${days.map((day) => {
         const at = day.label.indexOf(', ')
         const head = at < 0 ? day.label : day.label.slice(0, at)
@@ -51,26 +53,108 @@ const nameKey = (s) =>
 
 const MAX_RESULTS = 30
 
-// The picker is many dishes for one meal, which is why it exists: the group's
-// keyboard answers one dish per tap and then closes the meal. Ticked dishes
-// sit on top and untick on a tap; below them are the shortcuts — the plan,
-// yesterday's pot, the usual — or, once something is typed, the catalogue
-// searched. A name the catalogue does not have becomes a "+" chip and is
-// created on save.
+const dishLabel = (d) => (d.proposed ? `🆕 ${d.name}` : d.name)
+
+// A set of dishes being chosen: ids from the catalogue plus names typed that
+// it does not have yet. Both screens hold one per meal.
+function useDishSet(initial) {
+  const [picked, setPicked] = useState(initial)
+  const [fresh, setFresh] = useState([])
+  const touch = () => guardUnsaved(true)
+  return {
+    picked, fresh,
+    reset(ids) { setPicked(ids); setFresh([]) },
+    toggle(id) { touch(); setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id])) },
+    addFresh(name) {
+      const clean = name.replace(/\s+/g, ' ').trim()
+      if (!clean) return
+      touch()
+      setFresh((f) => (f.some((x) => nameKey(x) === nameKey(clean)) ? f : [...f, clean]))
+    },
+    dropFresh(name) { touch(); setFresh((f) => f.filter((x) => x !== name)) },
+    body() { return { dishIds: picked, newNames: fresh } },
+  }
+}
+
+// DishChooser is the chips for one set: the chosen ones on top, which untick
+// on a tap; under them the offer — or, once something is typed, the catalogue
+// searched — and a "+" chip for a name the catalogue does not have.
+// `marked` are offered dishes drawn with an outline (the plan, on the evening
+// picker); `prefix` puts a mark before some of them (↩ for yesterday's pot);
+// `extra` is one more chip at the end of the offer (more suggestions).
+function DishChooser({ set, byId, dishes, offered, marked = [], prefix = {}, extra, hint }) {
+  const [query, setQuery] = useState('')
+  const q = nameKey(query)
+  let shown = q
+    ? dishes.filter((d) => nameKey(d.name).includes(q)).slice(0, MAX_RESULTS).map((d) => d.id)
+    : offered
+  shown = shown.filter((id) => !set.picked.includes(id))
+  const exact = q && (dishes.some((d) => nameKey(d.name) === q) || set.fresh.some((f) => nameKey(f) === q))
+  const nothing = set.picked.length === 0 && set.fresh.length === 0
+
+  return html`
+    ${!nothing && html`
+      <div class="chips">
+        ${set.picked.map((id) => {
+          const d = byId.get(id)
+          return d && html`
+            <button type="button" key=${id} class="chip chip-on" onClick=${() => set.toggle(id)}>
+              ${dishLabel(d)} ✕
+            </button>`
+        })}
+        ${set.fresh.map(
+          (name) => html`
+            <button type="button" key=${'new:' + name} class="chip chip-on" onClick=${() => set.dropFresh(name)}>
+              + ${name} ✕
+            </button>`,
+        )}
+      </div>`}
+    <input class="search" type="search" value=${query} placeholder="Пошук або нова страва"
+      onInput=${(e) => setQuery(e.target.value)}
+      onKeyDown=${(e) => {
+        if (e.key !== 'Enter') return
+        e.preventDefault()
+        if (shown.length === 1) { set.toggle(shown[0]); setQuery('') }
+        else if (q && !exact) { set.addFresh(query); setQuery('') }
+      }} />
+    <div class="chips">
+      ${shown.map((id) => {
+        const d = byId.get(id)
+        return d && html`
+          <button type="button" key=${id}
+            class="chip ${marked.includes(id) ? 'chip-plan' : ''}"
+            onClick=${() => { set.toggle(id); setQuery('') }}>${prefix[id] || ''}${dishLabel(d)}</button>`
+      })}
+      ${q && !exact &&
+      html`<button type="button" class="chip chip-add" onClick=${() => { set.addFresh(query); setQuery('') }}>+ ${query.trim()}</button>`}
+      ${!q && extra}
+    </div>
+    ${!q && hint && html`<span class="help">${hint}</span>`}
+    ${q && shown.length === 0 && exact && html`<span class="help">Уже вибрано</span>`}`
+}
+
+function useCatalogue(data) {
+  return useMemo(() => {
+    const m = new Map()
+    if (data) for (const d of data.dishes) m.set(d.id, d)
+    return m
+  }, [data])
+}
+
+// The evening picker: what one meal turned out to be, any number of dishes.
+// It exists because the group's keyboard answers one dish per tap and then
+// closes the meal.
 export function MealPicker({ date, meal, onSaved, onCancel }) {
   const [state, setState] = useState({ phase: 'loading' })
-  const [picked, setPicked] = useState([]) // dish ids
-  const [fresh, setFresh] = useState([]) // new names
-  const [query, setQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const set = useDishSet([])
 
   const load = async () => {
     setState({ phase: 'loading' })
     try {
       const data = await api(`/meals/${date}/${meal}`)
-      setPicked(data.selected || [])
-      setFresh([])
+      set.reset(data.selected || [])
       setState({ phase: 'ready', data })
     } catch (err) {
       setState({ phase: 'error', error: err })
@@ -78,44 +162,11 @@ export function MealPicker({ date, meal, onSaved, onCancel }) {
   }
   useEffect(() => { load() }, [date, meal])
   useEffect(() => () => guardUnsaved(false), [])
-
-  const byId = useMemo(() => {
-    const m = new Map()
-    if (state.data) for (const d of state.data.dishes) m.set(d.id, d)
-    return m
-  }, [state.data])
+  const byId = useCatalogue(state.data)
 
   if (state.phase === 'loading') return html`<${Loading} />`
   if (state.phase === 'error') return html`<${Failure} error=${state.error} onRetry=${load} />`
   const data = state.data
-
-  const touch = () => guardUnsaved(true)
-  const toggle = (id) => {
-    touch()
-    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
-  }
-  const addFresh = (name) => {
-    touch()
-    const clean = name.replace(/\s+/g, ' ').trim()
-    if (clean && !fresh.some((f) => nameKey(f) === nameKey(clean))) setFresh((f) => [...f, clean])
-    setQuery('')
-  }
-  const dropFresh = (name) => {
-    touch()
-    setFresh((f) => f.filter((x) => x !== name))
-  }
-
-  const q = nameKey(query)
-  let offered
-  if (q) {
-    offered = data.dishes.filter((d) => nameKey(d.name).includes(q)).slice(0, MAX_RESULTS).map((d) => d.id)
-  } else {
-    offered = data.quick
-  }
-  offered = offered.filter((id) => !picked.includes(id))
-  const exact = q && (data.dishes.some((d) => nameKey(d.name) === q) || fresh.some((f) => nameKey(f) === q))
-
-  const label = (d) => (d.proposed ? `🆕 ${d.name}` : d.name)
 
   const submit = async (e) => {
     e.preventDefault()
@@ -123,7 +174,7 @@ export function MealPicker({ date, meal, onSaved, onCancel }) {
     setSaving(true)
     setError(null)
     try {
-      await api(`/meals/${date}/${meal}`, { method: 'PUT', body: { dishIds: picked, newNames: fresh } })
+      await api(`/meals/${date}/${meal}`, { method: 'PUT', body: set.body() })
       haptic()
       guardUnsaved(false)
       onSaved()
@@ -133,60 +184,136 @@ export function MealPicker({ date, meal, onSaved, onCancel }) {
     }
   }
 
-  const nothing = picked.length === 0 && fresh.length === 0
   return html`
     <form class="form" onSubmit=${submit}>
       <p class="form-head">
         <span class="form-head-title">${data.title}</span>
         <span class="form-head-when">${data.dayLabel}</span>
       </p>
-
       <div class="card">
         <span class="label">Що їли</span>
-        ${nothing
-          ? html`<span class="help">Нічого не вибрано — тапни страву нижче</span>`
-          : html`
-            <div class="chips">
-              ${picked.map((id) => {
-                const d = byId.get(id)
-                return d && html`
-                  <button type="button" key=${id} class="chip chip-on" onClick=${() => toggle(id)}>
-                    ${label(d)} ✕
-                  </button>`
-              })}
-              ${fresh.map(
-                (name) => html`
-                  <button type="button" key=${'new:' + name} class="chip chip-on" onClick=${() => dropFresh(name)}>
-                    + ${name} ✕
-                  </button>`,
-              )}
-            </div>`}
+        <${DishChooser} set=${set} byId=${byId} dishes=${data.dishes}
+          offered=${data.quick} marked=${data.planned}
+          hint="План, вчорашнє й те, що їдять найчастіше. Решта — через пошук." />
       </div>
+      ${error && html`<p class="field-error">${error.message}</p>`}
+      <${Actions} saving=${saving} onCancel=${() => { guardUnsaved(false); onCancel() }} />
+    </form>`
+}
 
+// One meal of the morning menu. A meal already eaten is not planned — the
+// server would refuse it too — so it says what was eaten instead.
+function PlannerMeal({ meal, set, byId, dishes, leftovers, offered, onMore, more }) {
+  if (meal.eaten.length > 0) {
+    return html`
       <div class="card">
-        <input class="search" type="search" value=${query} placeholder="Пошук або нова страва"
-          onInput=${(e) => setQuery(e.target.value)}
-          onKeyDown=${(e) => {
-            if (e.key !== 'Enter') return
-            e.preventDefault()
-            if (offered.length === 1) { toggle(offered[0]); setQuery('') }
-            else if (q && !exact) addFresh(query)
-          }} />
-        <div class="chips">
-          ${offered.map((id) => {
-            const d = byId.get(id)
-            return d && html`
-              <button type="button" key=${id}
-                class="chip ${id === data.planned ? 'chip-plan' : ''}"
-                onClick=${() => { toggle(id); setQuery('') }}>${label(d)}</button>`
-          })}
-          ${q && !exact &&
-          html`<button type="button" class="chip chip-add" onClick=${() => addFresh(query)}>+ ${query.trim()}</button>`}
-        </div>
-        ${!q && html`<span class="help">План, вчорашнє й те, що їдять найчастіше. Решта — через пошук.</span>`}
-        ${q && offered.length === 0 && exact && html`<span class="help">Уже вибрано</span>`}
-      </div>
+        <span class="label">${meal.title}</span>
+        <span>✅ ${meal.eaten.join(' · ')}</span>
+        <span class="help">Уже їли — змінити можна в Кухні</span>
+      </div>`
+  }
+  const prefix = {}
+  for (const id of leftovers) prefix[id] = '↩ '
+  const offer = [...leftovers, ...offered.filter((id) => !leftovers.includes(id))]
+  return html`
+    <div class="card">
+      <span class="label">${meal.title}</span>
+      <${DishChooser} set=${set} byId=${byId} dishes=${dishes} offered=${offer} prefix=${prefix}
+        extra=${html`
+          <button type="button" class="chip chip-add" disabled=${more === 'loading'} onClick=${onMore}>
+            ${more === 'empty' ? 'Більше нічого' : '🔀 Ще варіанти'}
+          </button>`} />
+    </div>`
+}
 
+// The morning menu: today's plan, both meals on one screen. It opens with
+// what the group message offered — yesterday's pot (↩) and the suggestions —
+// and each meal takes any number of dishes. Saving writes the plan and has the
+// bot redraw its message.
+export function MenuPlanner({ date, onSaved, onCancel }) {
+  const [state, setState] = useState({ phase: 'loading' })
+  const [offered, setOffered] = useState({ lunch: [], dinner: [] })
+  const [more, setMore] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const lunch = useDishSet([])
+  const dinner = useDishSet([])
+  const sets = { lunch, dinner }
+
+  const load = async () => {
+    setState({ phase: 'loading' })
+    try {
+      const data = await api(`/menu/${date}`)
+      const off = {}
+      for (const m of data.meals) {
+        off[m.meal] = m.offered
+        sets[m.meal].reset(m.planned)
+      }
+      setOffered(off)
+      setMore({})
+      setState({ phase: 'ready', data })
+    } catch (err) {
+      setState({ phase: 'error', error: err })
+    }
+  }
+  useEffect(() => { load() }, [date])
+  useEffect(() => () => guardUnsaved(false), [])
+  const byId = useCatalogue(state.data)
+
+  if (state.phase === 'loading') return html`<${Loading} />`
+  if (state.phase === 'error') return html`<${Failure} error=${state.error} onRetry=${load} />`
+  const data = state.data
+
+  const askMore = async (meal) => {
+    setMore((m) => ({ ...m, [meal]: 'loading' }))
+    const alsoOut = [...data.leftovers, ...Object.entries(offered).filter(([k]) => k !== meal).flatMap(([, v]) => v)]
+    try {
+      const { ids } = await api(`/menu/${date}/${meal}/more`, {
+        method: 'POST', body: { offer: offered[meal], alsoOut },
+      })
+      if (ids.length === 0) {
+        setMore((m) => ({ ...m, [meal]: 'empty' }))
+        return
+      }
+      setOffered((o) => ({ ...o, [meal]: [...o[meal], ...ids] }))
+      setMore((m) => ({ ...m, [meal]: null }))
+    } catch (err) {
+      setError(err)
+      setMore((m) => ({ ...m, [meal]: null }))
+    }
+  }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (saving) return
+    setSaving(true)
+    setError(null)
+    const body = {}
+    for (const m of data.meals) if (m.eaten.length === 0) body[m.meal] = sets[m.meal].body()
+    try {
+      await api(`/menu/${date}`, { method: 'PUT', body })
+      haptic()
+      guardUnsaved(false)
+      onSaved()
+    } catch (err) {
+      setError(err)
+      setSaving(false)
+    }
+  }
+
+  return html`
+    <form class="form" onSubmit=${submit}>
+      <p class="form-head">
+        <span class="form-head-title">Меню на сьогодні</span>
+        <span class="form-head-when">${data.dayLabel}</span>
+      </p>
+      ${data.meals.map(
+        (m) => html`
+          <${PlannerMeal} key=${m.meal} meal=${m} set=${sets[m.meal]} byId=${byId} dishes=${data.dishes}
+            leftovers=${data.leftovers} offered=${offered[m.meal] || []}
+            more=${more[m.meal]} onMore=${() => askMore(m.meal)} />`,
+      )}
+      <span class="help">↩ — доїдаємо вчорашнє. Тапни скільки завгодно страв.</span>
       ${error && html`<p class="field-error">${error.message}</p>`}
       <${Actions} saving=${saving} onCancel=${() => { guardUnsaved(false); onCancel() }} />
     </form>`

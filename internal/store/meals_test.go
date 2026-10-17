@@ -513,3 +513,58 @@ func TestFrequentDishesRankByUseAndSkipRejected(t *testing.T) {
 		t.Errorf("frequent = %+v, want Плов then Удон", got)
 	}
 }
+
+func TestSetPlanMakesThePlanExact(t *testing.T) {
+	st := testStore(t)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	salad := seedDish(t, st, "Салат", model.DishActive)
+	plov := seedDish(t, st, "Плов", model.DishActive)
+
+	if _, err := st.PlanMeal(plov.ID, today, model.MealLunch, "Оля", false); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := st.PlanMeal(soup.ID, today, model.MealDinner, "Оля", false); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	ok, err := st.SetPlan(today, model.MealLunch, "Олег", []int64{soup.ID, salad.ID}, map[int64]bool{soup.ID: true})
+	if err != nil || !ok {
+		t.Fatalf("set plan: ok=%v err=%v", ok, err)
+	}
+	var lunch []string
+	for _, m := range mealsOn(t, st, today) {
+		if m.Meal == model.MealLunch {
+			if m.Status != model.MealPlanned {
+				t.Errorf("lunch row not a plan: %+v", m)
+			}
+			if m.DishID == soup.ID && !m.Leftover {
+				t.Errorf("leftover mark lost: %+v", m)
+			}
+			lunch = append(lunch, m.Dish)
+		} else if m.DishID != soup.ID {
+			t.Errorf("dinner touched: %+v", m)
+		}
+	}
+	if len(lunch) != 2 || lunch[0] != "Борщ" || lunch[1] != "Салат" {
+		t.Errorf("lunch = %v, want Борщ and Салат, the Плов plan gone", lunch)
+	}
+}
+
+func TestSetPlanLeavesAnEatenMealAlone(t *testing.T) {
+	st := testStore(t)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	plov := seedDish(t, st, "Плов", model.DishActive)
+	if _, _, err := st.RecordEaten(soup.ID, today, model.MealLunch, "", false); err != nil {
+		t.Fatalf("eat: %v", err)
+	}
+	ok, err := st.SetPlan(today, model.MealLunch, "Олег", []int64{plov.ID}, nil)
+	if err != nil || ok {
+		t.Fatalf("set plan on an eaten meal: ok=%v err=%v, want nothing written", ok, err)
+	}
+	if got := mealsOn(t, st, today); len(got) != 1 || got[0].DishID != soup.ID {
+		t.Errorf("rows = %+v", got)
+	}
+
+	if _, err := st.SetPlan(today, model.MealDinner, "", []int64{9999}, nil); !store.IsNotFound(err) {
+		t.Errorf("missing dish err = %v", err)
+	}
+}

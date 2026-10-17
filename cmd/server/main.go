@@ -109,6 +109,8 @@ func main() {
 	// send: a nil *bot.Bot stuffed into an interface would be non-nil and
 	// the send button would render against a dead bot.
 	var notifier web.Notifier
+	// The same reason: the Mini App redraws the morning menu through the bot.
+	var menuBoard mini.MenuBoard
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token != "" {
 		notifyChat, _ := strconv.ParseInt(os.Getenv("TELEGRAM_NOTIFY_CHAT"), 10, 64)
@@ -220,6 +222,7 @@ func main() {
 		go lessonsBot.RunBillingReminders(ctx)
 		if notifyChat != 0 {
 			notifier = lessonsBot
+			menuBoard = lessonsBot
 		}
 	} else {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
@@ -245,6 +248,7 @@ func main() {
 			// Same value the web UI gets: a visit added on a phone must reach the
 			// family group exactly like one captured by the bot.
 			Notifier:  notifier,
+			Menu:      menuBoard,
 			Reminders: remindersSvc,
 		})
 		if err != nil {

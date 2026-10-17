@@ -72,6 +72,61 @@ func (s *Store) PlanMeal(dishID int64, date, meal, who string, leftover bool) (m
 	return got, tx.Commit()
 }
 
+// SetPlan makes dishIDs exactly the plan for one meal — the Mini App's
+// morning menu, where several dishes are ticked at once. Planned rows of
+// other dishes go; eaten rows are never touched. A meal already eaten is not
+// planned, for PlanMeal's reason: a plan beside an eaten row is never closed.
+// It reports whether the plan was written. leftover marks yesterday's pot.
+// A missing dish is sql.ErrNoRows, and then nothing is written.
+func (s *Store) SetPlan(date, meal, who string, dishIDs []int64, leftover map[int64]bool) (bool, error) {
+	if err := checkMealKey(date, meal); err != nil {
+		return false, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var eaten bool
+	if err := tx.QueryRow(`
+		SELECT EXISTS (SELECT 1 FROM meals WHERE date = ? AND meal = ? AND status = 'eaten')`,
+		date, meal).Scan(&eaten); err != nil {
+		return false, err
+	}
+	if eaten {
+		return false, nil
+	}
+
+	keep := make([]any, 0, len(dishIDs)+2)
+	keep = append(keep, date, meal)
+	for _, id := range dishIDs {
+		keep = append(keep, id)
+	}
+	q := `DELETE FROM meals WHERE date = ? AND meal = ? AND status = 'planned'`
+	if len(dishIDs) > 0 {
+		q += ` AND dish_id NOT IN (` + placeholders(len(dishIDs)) + `)`
+	}
+	if _, err := tx.Exec(q, keep...); err != nil {
+		return false, err
+	}
+	for _, id := range dishIDs {
+		if _, err := dishStatusTx(tx, id); err != nil {
+			return false, err
+		}
+		// A dish already in the plan keeps its row, and its planner: ticking
+		// the soup again while adding a salad is not a new decision about it.
+		if _, err := tx.Exec(`
+			INSERT INTO meals (dish_id, date, meal, who, status, leftover)
+			VALUES (?, ?, ?, ?, 'planned', ?)
+			ON CONFLICT(dish_id, date, meal) DO NOTHING`,
+			id, date, meal, who, leftover[id]); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
+}
+
 // RecordEaten records that dishID was eaten at this meal — from the evening
 // check or a photo of the plate. already is true only when that exact row was
 // eaten before, and then nothing is written: the photo and the evening answer

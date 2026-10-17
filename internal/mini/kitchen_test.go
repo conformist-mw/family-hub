@@ -140,7 +140,7 @@ func TestKitchenListsTheWeekNewestFirst(t *testing.T) {
 		t.Fatalf("days = %d, want %d", len(body.Days), kitchenDays)
 	}
 	today, yesterday := body.Days[0], body.Days[1]
-	if today.Date != kitchenToday || today.Meals[1].Planned != "Плов" || len(today.Meals[1].Eaten) != 0 {
+	if today.Date != kitchenToday || len(today.Meals[1].Planned) != 1 || today.Meals[1].Planned[0] != "Плов" || len(today.Meals[1].Eaten) != 0 {
 		t.Errorf("today = %+v", today)
 	}
 	if yesterday.Label != "Вчора, 5 серпня" || len(yesterday.Meals[0].Eaten) != 1 || yesterday.Meals[0].Eaten[0] != "Борщ" {

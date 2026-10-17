@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"familyhub/internal/model"
@@ -152,4 +153,66 @@ func encodeShown(shown map[string][]int64) (string, error) {
 	}
 	b, err := json.Marshal(shown)
 	return string(b), err
+}
+
+// EveningMessage returns the evening check posted on date; none is
+// sql.ErrNoRows (IsNotFound).
+func (s *Store) EveningMessage(date string) (model.EveningMessage, error) {
+	var m model.EveningMessage
+	var away string
+	err := s.db.QueryRow(`
+		SELECT date, chat_id, message_id, away FROM evening_messages WHERE date = ?`, date).
+		Scan(&m.Date, &m.ChatID, &m.MessageID, &away)
+	if err != nil {
+		return model.EveningMessage{}, err
+	}
+	if away != "" {
+		m.Away = strings.Split(away, ",")
+	}
+	return m, nil
+}
+
+// SaveEveningMessage records the check just posted. A second one for the same
+// day replaces the first and starts with nobody away: it is a new question.
+func (s *Store) SaveEveningMessage(m model.EveningMessage) error {
+	if _, err := model.ParseDate(m.Date); err != nil {
+		return fmt.Errorf("store: bad evening date %q", m.Date)
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO evening_messages (date, chat_id, message_id)
+		VALUES (?, ?, ?)
+		ON CONFLICT(date) DO UPDATE
+		SET chat_id = excluded.chat_id, message_id = excluded.message_id, away = ''`,
+		m.Date, m.ChatID, m.MessageID)
+	return err
+}
+
+// MarkAway records «Не вдома» for one meal of a day's check. A day without a
+// recorded check is sql.ErrNoRows: its message, if any, keeps the answer in
+// its keyboard as before.
+func (s *Store) MarkAway(date, meal string) error {
+	if err := checkMealKey(date, meal); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var away string
+	if err := tx.QueryRow(`SELECT away FROM evening_messages WHERE date = ?`, date).Scan(&away); err != nil {
+		return err
+	}
+	meals := []string{}
+	if away != "" {
+		meals = strings.Split(away, ",")
+	}
+	if slices.Contains(meals, meal) {
+		return nil
+	}
+	meals = append(meals, meal)
+	if _, err := tx.Exec(`UPDATE evening_messages SET away = ? WHERE date = ?`, strings.Join(meals, ","), date); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

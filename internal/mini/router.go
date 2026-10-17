@@ -78,16 +78,19 @@ type Config struct {
 	// ICS feed so the three surfaces cannot disagree about what came due. Nil
 	// means the reminders tab is not mounted.
 	Reminders *reminders.Service
-	// Menu redraws the day's morning menu in the group after a plan is made
-	// here. The bot implements it; nil leaves the message as it was.
+	// Menu redraws the day's menu messages in the group after a plan or a
+	// meal is recorded here. The bot implements it; nil leaves them as they
+	// were.
 	Menu MenuBoard
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
 }
 
-// MenuBoard is what the morning menu needs from the bot.
+// MenuBoard is what the kitchen screens need from the bot: redrawing the
+// day's morning menu and evening check after an answer given here.
 type MenuBoard interface {
 	RedrawMenu(date string) error
+	RedrawEvening(date string) error
 }
 
 func (c Config) devFixtureUser() int64 {

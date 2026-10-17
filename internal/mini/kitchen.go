@@ -264,6 +264,17 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errInternal)
 		return
 	}
+	// Both messages say what was eaten — the evening check asks it, the
+	// morning menu shows it in its ✅ lines. Best-effort: the meal is saved,
+	// and a Telegram hiccup must not be reported as a failed save.
+	if rt.menu != nil {
+		if err := rt.menu.RedrawEvening(date); err != nil {
+			rt.log.Error("mini: redraw evening check", "err", err)
+		}
+		if err := rt.menu.RedrawMenu(date); err != nil {
+			rt.log.Error("mini: redraw menu", "err", err)
+		}
+	}
 	rt.writeJSON(w, http.StatusOK, map[string]int{"saved": len(ids)})
 }
 

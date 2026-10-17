@@ -864,6 +864,11 @@ func (b *Bot) applyEveningTap(now time.Time, unique, data, who string, current *
 		if err := b.store.DropPlans(date, string(meal), 0); err != nil {
 			return eveningState{}, "", false, err
 		}
+		// Kept in the store as well as the keyboard, for a redraw from the
+		// Mini App. A check posted before that was recorded has no row.
+		if err := b.store.MarkAway(date, string(meal)); err != nil && !store.IsNotFound(err) {
+			return eveningState{}, "", false, err
+		}
 		open[meal] = false
 		toast = fmt.Sprintf("%s: не вдома", meal.Title())
 
@@ -952,9 +957,50 @@ func (b *Bot) sendEveningCheck(now time.Time) {
 		return
 	}
 	text, markup := eveningView(st)
-	if _, err := b.sendToGroup(text, markup, tele.ModeHTML); err != nil {
+	msg, err := b.sendToGroup(text, markup, tele.ModeHTML)
+	if err != nil {
 		b.logger.Error("bot: send evening check", "err", err)
+		return
 	}
+	if msg == nil {
+		return
+	}
+	// Remembered so an answer from the Mini App can redraw it.
+	if err := b.store.SaveEveningMessage(model.EveningMessage{
+		Date: st.date, ChatID: msg.Chat.ID, MessageID: int64(msg.ID),
+	}); err != nil {
+		b.logger.Error("bot: save evening message", "date", st.date, "err", err)
+	}
+}
+
+// RedrawEvening redraws a day's evening check from the store, after the Mini
+// App's picker recorded a meal: the check then says what was eaten, the way a
+// tap on it would have. A meal answered «Не вдома» stays answered — that is
+// kept in evening_messages, the keyboard being out of the server's reach. A
+// day without a recorded check has nothing to redraw.
+func (b *Bot) RedrawEvening(date string) error {
+	msg, err := b.store.EveningMessage(date)
+	if store.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	open := map[menu.Meal]bool{}
+	for _, meal := range menuMeals {
+		open[meal] = !slices.Contains(msg.Away, string(meal))
+	}
+	st, err := b.eveningStateFrom(date, open)
+	if err != nil {
+		return err
+	}
+	text, markup := eveningView(st)
+	where := tele.StoredMessage{MessageID: strconv.FormatInt(msg.MessageID, 10), ChatID: msg.ChatID}
+	if _, err := b.b.Edit(where, text, b.withAppButton([]any{markup, tele.ModeHTML})...); err != nil &&
+		!errors.Is(err, tele.ErrSameMessageContent) {
+		return err
+	}
+	return nil
 }
 
 func (b *Bot) onEveningYes(c tele.Context) error  { return b.onEveningTap(c, eveYesUnique) }

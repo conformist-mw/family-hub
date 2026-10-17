@@ -44,12 +44,21 @@ func ValidMeal(m string) bool {
 // menu, so a dish nobody picks does not sit in the window for ever.
 type MenuMessage struct {
 	Date string // YYYY-MM-DD, local
-	// ChatID and MessageID are written and never read by the code: a tap
-	// carries its own message. They are kept so that a menu can be found in
-	// the chat by hand when something about it needs looking into.
+	// ChatID and MessageID are where the menu was posted, so a plan made in
+	// the Mini App can redraw it; a tap carries its own message.
 	ChatID    int64
 	MessageID int64
 	// Shown maps MealLunch/MealDinner to dish ids in the order they were
 	// first offered, each once.
 	Shown map[string][]int64
+}
+
+// EveningMessage is the evening check of one day: where it was posted, so an
+// answer from the Mini App can redraw it, and which meals were answered «Не
+// вдома» — the one answer that writes no meal row.
+type EveningMessage struct {
+	Date      string // YYYY-MM-DD, local
+	ChatID    int64
+	MessageID int64
+	Away      []string // MealLunch / MealDinner
 }

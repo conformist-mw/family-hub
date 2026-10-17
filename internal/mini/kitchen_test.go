@@ -156,3 +156,22 @@ func mealsOnDay(t *testing.T, st *store.Store, date string) []model.MealEntry {
 	}
 	return got
 }
+
+// A meal recorded here is news for both messages in the group: the evening
+// check that asked about it, and the morning menu that shows it.
+func TestPickerSaveRedrawsTheDaysMessages(t *testing.T) {
+	st := testStore(t)
+	b := &board{}
+	h := menuRouter(t, st, b)
+	soup := dish(t, st, "Борщ", model.DishActive)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jsonRequest(http.MethodPut, "/mini/api/meals/"+kitchenToday+"/lunch",
+		`{"dishIds":[`+itoa(soup.ID)+`]}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if !slices.Equal(b.evenings, []string{kitchenToday}) || !slices.Equal(b.redrawn, []string{kitchenToday}) {
+		t.Errorf("evenings = %v, menus = %v, want today's of each", b.evenings, b.redrawn)
+	}
+}

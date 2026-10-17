@@ -168,3 +168,38 @@ func TestLastShownKeepsTheLatestDay(t *testing.T) {
 		}
 	}
 }
+
+func TestEveningMessageKeepsWhoWasAway(t *testing.T) {
+	st := testStore(t)
+	const day = "2026-09-24"
+	if _, err := st.EveningMessage(day); !store.IsNotFound(err) {
+		t.Fatalf("no check yet: err = %v", err)
+	}
+	if err := st.MarkAway(day, model.MealLunch); !store.IsNotFound(err) {
+		t.Fatalf("away without a check: err = %v, want not found", err)
+	}
+
+	if err := st.SaveEveningMessage(model.EveningMessage{Date: day, ChatID: -5, MessageID: 42}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	for range 2 { // a second tap on the same answer changes nothing
+		if err := st.MarkAway(day, model.MealDinner); err != nil {
+			t.Fatalf("away: %v", err)
+		}
+	}
+	got, err := st.EveningMessage(day)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.ChatID != -5 || got.MessageID != 42 || len(got.Away) != 1 || got.Away[0] != model.MealDinner {
+		t.Errorf("check = %+v", got)
+	}
+
+	// A check posted again is a new question: nobody is away from it yet.
+	if err := st.SaveEveningMessage(model.EveningMessage{Date: day, ChatID: -5, MessageID: 43}); err != nil {
+		t.Fatalf("resave: %v", err)
+	}
+	if got, _ := st.EveningMessage(day); got.MessageID != 43 || len(got.Away) != 0 {
+		t.Errorf("after resave = %+v", got)
+	}
+}

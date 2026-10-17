@@ -12,10 +12,15 @@ import (
 	"familyhub/internal/store"
 )
 
-type board struct{ redrawn []string }
+type board struct{ redrawn, evenings []string }
 
 func (b *board) RedrawMenu(date string) error {
 	b.redrawn = append(b.redrawn, date)
+	return nil
+}
+
+func (b *board) RedrawEvening(date string) error {
+	b.evenings = append(b.evenings, date)
 	return nil
 }
 

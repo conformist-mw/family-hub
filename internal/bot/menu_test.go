@@ -1408,3 +1408,22 @@ func TestEveningConfirmsAWholePlan(t *testing.T) {
 		t.Errorf("eaten proposal = %q, want active", d.Status)
 	}
 }
+
+// «Не вдома» writes no meal, so a check that may be redrawn from the server
+// keeps it in its row; otherwise a redraw after the Mini App answered the
+// other meal would ask again about the one nobody was home for.
+func TestEveningAwayIsKeptForARedraw(t *testing.T) {
+	b := menuBot(t)
+	if err := b.store.SaveEveningMessage(model.EveningMessage{Date: menuToday, ChatID: -1, MessageID: 9}); err != nil {
+		t.Fatal(err)
+	}
+	b.cfg.Dish = dish.New("http://127.0.0.1:0", "k", "m")
+	kb := sentEvening(t, b)
+	if _, _, _, err := b.applyEveningTap(menuEvening, eveHomeUnique, menuToday+"|dinner", "Олег", kb); err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.store.EveningMessage(menuToday)
+	if err != nil || !slices.Equal(got.Away, []string{model.MealDinner}) {
+		t.Fatalf("away = %v (err %v), want dinner", got.Away, err)
+	}
+}

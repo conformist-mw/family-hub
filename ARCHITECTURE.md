@@ -178,6 +178,10 @@ menu" under Bot for why these live here rather than in Mealie.
   land on the same row.
 - **`menu_messages`** — one row per day's morning menu: where it was posted,
   and `shown`, every dish the day offered per meal, shuffles included.
+- **`evening_messages`** — one row per day's evening check: where it was
+  posted, and `away`, the meals answered «Не вдома». That answer writes no
+  meal row, and the check is now redrawn from the server (see the menu), which
+  cannot read a message's keyboard back.
 
 ## Repository layout
 
@@ -967,7 +971,10 @@ the bot. The choice is `internal/menu` (pure), the messages are
   callback, so the meals still asked about are read back from the others.
   Only when the bot's username did not resolve, and so there is no link,
   are yesterday's dishes offered as buttons instead, since the pot most often
-  lasts a second day. Every button names its meal, because the two
+  lasts a second day. A meal saved in the picker redraws the check in the
+  group (`Bot.RedrawEvening`) and the morning menu, whose ✅ lines show what
+  was eaten: the check's message id is kept in `evening_messages`, and so is
+  `Не вдома`, which a redraw from the store would otherwise forget. Every button names its meal, because the two
   rows sit one under the other. When every meal is already answered — the
   photo got there first — nothing is sent, and nothing either when no meal
   has an answer besides `Не вдома` (no plan, nothing from yesterday, no

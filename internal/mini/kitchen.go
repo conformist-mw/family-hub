@@ -1,7 +1,10 @@
 package mini
 
 import (
+	"fmt"
+	"html"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -210,9 +213,19 @@ func (rt *Router) picker(date string, meal menu.Meal, day time.Time) (pickerDTO,
 
 type pickerWrite struct {
 	DishIDs []int64 `json:"dishIds"`
-	// NewNames are dishes typed into the search that the catalogue does not
-	// have. They are created here, active: the family just ate them.
-	NewNames []string `json:"newNames"`
+	// NewDishes are dishes the catalogue does not have, named the way
+	// /mini/api/dishes/resolve named them (or as typed, without a model).
+	// They are created here, active: the family just ate or chose them.
+	NewDishes []newDish `json:"newDishes"`
+}
+
+// newDish carries what a dish is created with. Meal and Days decide when the
+// morning menu may offer it, so a delivery the model marked weekend-only does
+// not turn up on a Tuesday; empty means any.
+type newDish struct {
+	Name string `json:"name"`
+	Meal string `json:"meal"`
+	Days string `json:"days"`
 }
 
 func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
@@ -255,6 +268,12 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 		leftover[m.DishID] = true
 	}
 
+	before, err := rt.store.MealsOn(date)
+	if err != nil {
+		rt.log.Error("mini: meals before save", "err", err)
+		rt.fail(w, errInternal)
+		return
+	}
 	if err := rt.store.SetEaten(date, string(meal), who.Name, ids, leftover); err != nil {
 		if store.IsNotFound(err) {
 			rt.writeError(w, errDishGone, "save meal")
@@ -275,17 +294,21 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 			rt.log.Error("mini: redraw menu", "err", err)
 		}
 	}
+	rt.announceDay(date, meal, day, who.Name, before)
 	rt.writeJSON(w, http.StatusOK, map[string]int{"saved": len(ids)})
 }
 
 // check keeps one meal's set within reason before anything is written.
 func (p pickerWrite) check() error {
-	if len(p.DishIDs)+len(p.NewNames) > maxPickedDishes {
+	if len(p.DishIDs)+len(p.NewDishes) > maxPickedDishes {
 		return valid.FieldError{Field: "dishes", Message: "забагато страв для одного разу"}
 	}
-	for _, name := range p.NewNames {
-		if n := len([]rune(strings.TrimSpace(name))); n == 0 || n > maxDishName {
+	for _, d := range p.NewDishes {
+		if n := len([]rune(strings.TrimSpace(d.Name))); n == 0 || n > maxDishName {
 			return valid.FieldError{Field: "dishes", Message: "назва страви порожня або задовга"}
+		}
+		if (d.Meal != "" && !model.ValidDishMeal(d.Meal)) || (d.Days != "" && !model.ValidDishDays(d.Days)) {
+			return valid.FieldError{Field: "dishes", Message: "невідомий час для страви"}
 		}
 	}
 	return nil
@@ -296,7 +319,7 @@ func (p pickerWrite) check() error {
 // still a dish the family named, and saving again finds it by name instead of
 // creating a second one.
 func (rt *Router) dishIDs(p pickerWrite) ([]int64, error) {
-	ids := make([]int64, 0, len(p.DishIDs)+len(p.NewNames))
+	ids := make([]int64, 0, len(p.DishIDs)+len(p.NewDishes))
 	seen := map[int64]bool{}
 	pick := func(id int64) {
 		if !seen[id] {
@@ -307,8 +330,8 @@ func (rt *Router) dishIDs(p pickerWrite) ([]int64, error) {
 	for _, id := range p.DishIDs {
 		pick(id)
 	}
-	for _, name := range p.NewNames {
-		d, _, err := rt.store.EnsureDish(model.Dish{Name: name})
+	for _, nd := range p.NewDishes {
+		d, _, err := rt.store.EnsureDish(model.Dish{Name: nd.Name, Meal: nd.Meal, Days: nd.Days})
 		if err != nil {
 			return nil, err
 		}
@@ -331,4 +354,67 @@ func (rt *Router) catalogue() ([]pickerDishDTO, map[int64]bool, error) {
 		listed[d.ID] = true
 	}
 	return out, listed, nil
+}
+
+// announceDay tells the group what the day was, once every meal is answered:
+// eaten, or «Не вдома» on the evening check. The redraws above are edits, and
+// an edit in Telegram is silent — filling the day in before the evening check
+// meant the group heard nothing at all, the check then having nothing to ask.
+// A save that changed nothing says nothing. Best-effort, like every group
+// message.
+func (rt *Router) announceDay(date string, meal menu.Meal, day time.Time, by string, before []model.MealEntry) {
+	if rt.notify == nil {
+		return
+	}
+	after, err := rt.store.MealsOn(date)
+	if err != nil {
+		rt.log.Error("mini: meals after save", "err", err)
+		return
+	}
+	if slices.Equal(eatenIDs(before, meal), eatenIDs(after, meal)) {
+		return
+	}
+	var away []string
+	if msg, err := rt.store.EveningMessage(date); err == nil {
+		away = msg.Away
+	} else if !store.IsNotFound(err) {
+		rt.log.Error("mini: evening message", "err", err)
+		return
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🍽 <b>Що їли · %s</b>", html.EscapeString(dayLabel(day, rt.now().In(rt.loc))))
+	if by != "" {
+		fmt.Fprintf(&sb, " (%s)", html.EscapeString(by))
+	}
+	for _, m := range []menu.Meal{menu.Lunch, menu.Dinner} {
+		var names []string
+		for _, row := range after {
+			if row.Meal == string(m) && row.Status == model.MealEaten {
+				names = append(names, html.EscapeString(row.Dish))
+			}
+		}
+		switch {
+		case len(names) > 0:
+			fmt.Fprintf(&sb, "\n%s: %s", m.Title(), strings.Join(names, " · "))
+		case slices.Contains(away, string(m)):
+			fmt.Fprintf(&sb, "\n%s: не вдома", m.Title())
+		default:
+			return // a meal still open: the day is not done
+		}
+	}
+	if err := rt.notify.NotifyHTML(sb.String()); err != nil {
+		rt.log.Error("mini: announce day", "err", err)
+	}
+}
+
+func eatenIDs(rows []model.MealEntry, meal menu.Meal) []int64 {
+	var ids []int64
+	for _, m := range rows {
+		if m.Meal == string(meal) && m.Status == model.MealEaten {
+			ids = append(ids, m.DishID)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }

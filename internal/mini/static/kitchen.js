@@ -55,8 +55,8 @@ const MAX_RESULTS = 30
 
 const dishLabel = (d) => (d.proposed ? `🆕 ${d.name}` : d.name)
 
-// A set of dishes being chosen: ids from the catalogue plus names typed that
-// it does not have yet. Both screens hold one per meal.
+// A set of dishes being chosen: ids from the catalogue plus dishes it does
+// not have yet ({name, meal, days}). Both screens hold one per meal.
 function useDishSet(initial) {
   const [picked, setPicked] = useState(initial)
   const [fresh, setFresh] = useState([])
@@ -65,14 +65,36 @@ function useDishSet(initial) {
     picked, fresh,
     reset(ids) { setPicked(ids); setFresh([]) },
     toggle(id) { touch(); setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id])) },
-    addFresh(name) {
-      const clean = name.replace(/\s+/g, ' ').trim()
-      if (!clean) return
+    pick(id) { touch(); setPicked((p) => (p.includes(id) ? p : [...p, id])) },
+    addFresh(d) {
+      const name = d.name.replace(/\s+/g, ' ').trim()
+      if (!name) return
       touch()
-      setFresh((f) => (f.some((x) => nameKey(x) === nameKey(clean)) ? f : [...f, clean]))
+      setFresh((f) => (f.some((x) => nameKey(x.name) === nameKey(name)) ? f : [...f, { ...d, name }]))
     },
-    dropFresh(name) { touch(); setFresh((f) => f.filter((x) => x !== name)) },
-    body() { return { dishIds: picked, newNames: fresh } },
+    dropFresh(name) { touch(); setFresh((f) => f.filter((x) => x.name !== name)) },
+    body() { return { dishIds: picked, newDishes: fresh } },
+  }
+}
+
+// What was typed is read by the model that reads a photo of the plate: it
+// matches the catalogue ("морковь по-корейски" is the "Морква по-корейськи"
+// already there), names a new dish in Ukrainian, and splits a line naming
+// several. Without a model the name goes in as typed.
+async function resolveTyped(set, text) {
+  try {
+    const { items } = await api('/dishes/resolve', { method: 'POST', body: { text } })
+    for (const it of items) {
+      if (it.id) set.pick(it.id)
+      else set.addFresh({ name: it.name, meal: it.meal, days: it.days })
+    }
+    return items.length > 0 ? null : 'Не зрозумів, що це за страва'
+  } catch (err) {
+    if (err.code === 'no_model') {
+      set.addFresh({ name: text })
+      return null
+    }
+    return err.message || 'Не вдалося розпізнати'
   }
 }
 
@@ -84,12 +106,23 @@ function useDishSet(initial) {
 // `extra` is one more chip at the end of the offer (more suggestions).
 function DishChooser({ set, byId, dishes, offered, marked = [], prefix = {}, extra, hint }) {
   const [query, setQuery] = useState('')
+  const [resolving, setResolving] = useState(false)
+  const [miss, setMiss] = useState(null)
   const q = nameKey(query)
+  const resolve = async () => {
+    if (resolving) return
+    setResolving(true)
+    setMiss(null)
+    const problem = await resolveTyped(set, query.trim())
+    setResolving(false)
+    if (problem) setMiss(problem)
+    else setQuery('')
+  }
   let shown = q
     ? dishes.filter((d) => nameKey(d.name).includes(q)).slice(0, MAX_RESULTS).map((d) => d.id)
     : offered
   shown = shown.filter((id) => !set.picked.includes(id))
-  const exact = q && (dishes.some((d) => nameKey(d.name) === q) || set.fresh.some((f) => nameKey(f) === q))
+  const exact = q && (dishes.some((d) => nameKey(d.name) === q) || set.fresh.some((f) => nameKey(f.name) === q))
   const nothing = set.picked.length === 0 && set.fresh.length === 0
 
   return html`
@@ -103,19 +136,19 @@ function DishChooser({ set, byId, dishes, offered, marked = [], prefix = {}, ext
             </button>`
         })}
         ${set.fresh.map(
-          (name) => html`
-            <button type="button" key=${'new:' + name} class="chip chip-on" onClick=${() => set.dropFresh(name)}>
-              + ${name} ✕
+          (d) => html`
+            <button type="button" key=${'new:' + d.name} class="chip chip-on" onClick=${() => set.dropFresh(d.name)}>
+              + ${d.name} ✕
             </button>`,
         )}
       </div>`}
     <input class="search" type="search" value=${query} placeholder="Пошук або нова страва"
-      onInput=${(e) => setQuery(e.target.value)}
+      onInput=${(e) => { setQuery(e.target.value); setMiss(null) }}
       onKeyDown=${(e) => {
         if (e.key !== 'Enter') return
         e.preventDefault()
         if (shown.length === 1) { set.toggle(shown[0]); setQuery('') }
-        else if (q && !exact) { set.addFresh(query); setQuery('') }
+        else if (q && !exact) resolve()
       }} />
     <div class="chips">
       ${shown.map((id) => {
@@ -126,11 +159,14 @@ function DishChooser({ set, byId, dishes, offered, marked = [], prefix = {}, ext
             onClick=${() => { set.toggle(id); setQuery('') }}>${prefix[id] || ''}${dishLabel(d)}</button>`
       })}
       ${q && !exact &&
-      html`<button type="button" class="chip chip-add" onClick=${() => { set.addFresh(query); setQuery('') }}>+ ${query.trim()}</button>`}
+      html`<button type="button" class="chip chip-add" disabled=${resolving} onClick=${resolve}>
+        ${resolving ? 'Розпізнаю…' : `+ ${query.trim()}`}
+      </button>`}
       ${!q && extra}
     </div>
     ${!q && hint && html`<span class="help">${hint}</span>`}
-    ${q && shown.length === 0 && exact && html`<span class="help">Уже вибрано</span>`}`
+    ${q && shown.length === 0 && exact && html`<span class="help">Уже вибрано</span>`}
+    ${miss && html`<span class="field-error">${miss}</span>`}`
 }
 
 function useCatalogue(data) {

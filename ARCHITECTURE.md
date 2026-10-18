@@ -974,7 +974,20 @@ the bot. The choice is `internal/menu` (pure), the messages are
   lasts a second day. A meal saved in the picker redraws the check in the
   group (`Bot.RedrawEvening`) and the morning menu, whose ✅ lines show what
   was eaten: the check's message id is kept in `evening_messages`, and so is
-  `Не вдома`, which a redraw from the store would otherwise forget. Every button names its meal, because the two
+  `Не вдома`, which a redraw from the store would otherwise forget.
+  Those redraws are edits, and Telegram edits silently, so the picker also
+  posts the day — «🍽 Що їли · Сьогодні, …» with every meal — once its last
+  meal is answered (eaten, or `Не вдома` on the check); a save that changed
+  nothing posts nothing. Filling the day in before 20:15 otherwise left the
+  group with no message at all, the check then having nothing to ask.
+- **A typed dish name goes through the model** (`POST
+  /mini/api/dishes/resolve`, the same `dish.Recognizer.Identify` the caption
+  path uses, given the catalogue). Stored as typed, "морковь по-корейски"
+  became a second dish beside "Морква по-корейськи" and a line naming three
+  dishes became one. The screen ticks the catalogue dishes the model matched
+  and adds the new ones under the model's Ukrainian name with its `meal` and
+  `days`, which the save passes to `EnsureDish` (`newDishes`). Without
+  `AI_API_KEY` the answer is `no_model` and the name goes in as typed. Every button names its meal, because the two
   rows sit one under the other. When every meal is already answered — the
   photo got there first — nothing is sent, and nothing either when no meal
   has an answer besides `Не вдома` (no plan, nothing from yesterday, no

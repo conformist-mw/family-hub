@@ -14,6 +14,7 @@ import (
 	"familyhub/internal/actor"
 	"familyhub/internal/appointments"
 	"familyhub/internal/audit"
+	"familyhub/internal/dish"
 	"familyhub/internal/kitchen"
 	"familyhub/internal/payments"
 	"familyhub/internal/reminders"
@@ -78,6 +79,10 @@ type Config struct {
 	// ICS feed so the three surfaces cannot disagree about what came due. Nil
 	// means the reminders tab is not mounted.
 	Reminders *reminders.Service
+	// Dish reads a dish name typed in a picker the way the bot reads a
+	// caption: matched to the catalogue or named in Ukrainian. Nil adds a
+	// name as typed.
+	Dish *dish.Recognizer
 	// Menu redraws the day's menu messages in the group after a plan or a
 	// meal is recorded here. The bot implements it; nil leaves them as they
 	// were.
@@ -120,6 +125,7 @@ type Router struct {
 	notify       Notifier // nil — bot off; the send-to-group button stays hidden
 	kitchen      *kitchen.Service
 	menu         MenuBoard // nil — bot off; a plan is saved, nothing is redrawn
+	dish         *dish.Recognizer
 	log          *slog.Logger
 	v            *verifier
 	loc          *time.Location
@@ -154,6 +160,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		notify:       cfg.Notifier,
 		kitchen:      kitchen.New(st),
 		menu:         cfg.Menu,
+		dish:         cfg.Dish,
 		log:          logger,
 		v:            newVerifier(cfg.BotToken, cfg, logger, cfg.Now),
 		loc:          cfg.Loc,
@@ -191,6 +198,7 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 	mux.HandleFunc("GET /mini/api/kitchen", rt.handleKitchen)
 	mux.HandleFunc("GET /mini/api/meals/{date}/{meal}", rt.handlePicker)
 	mux.HandleFunc("PUT /mini/api/meals/{date}/{meal}", rt.handlePickerSave)
+	mux.HandleFunc("POST /mini/api/dishes/resolve", rt.handleResolveDish)
 	mux.HandleFunc("GET /mini/api/menu/{date}", rt.handlePlanner)
 	mux.HandleFunc("PUT /mini/api/menu/{date}", rt.handlePlannerSave)
 	mux.HandleFunc("POST /mini/api/menu/{date}/{meal}/more", rt.handlePlannerMore)

@@ -57,10 +57,10 @@ func TestPlannerOffersTheMorningAndSavesSeveralDishes(t *testing.T) {
 	b := &board{}
 	h := menuRouter(t, st, b)
 
-	soup := dish(t, st, "Борщ", model.DishActive)
-	plov := dish(t, st, "Плов", model.DishActive)
-	udon := dish(t, st, "Удон", model.DishActive)
-	mash := dish(t, st, "Пюре з котлетами", model.DishActive)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	plov := seedDish(t, st, "Плов", model.DishActive)
+	udon := seedDish(t, st, "Удон", model.DishActive)
+	mash := seedDish(t, st, "Пюре з котлетами", model.DishActive)
 	if _, _, err := st.RecordEaten(mash.ID, kitchenYesterday, model.MealDinner, "", false); err != nil {
 		t.Fatalf("seed yesterday: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestPlannerOffersTheMorningAndSavesSeveralDishes(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, jsonRequest(http.MethodPut, "/mini/api/menu/"+kitchenToday,
-		`{"lunch":{"dishIds":[`+itoa(mash.ID)+`,`+itoa(soup.ID)+`],"newNames":["Салат з редиски"]}}`))
+		`{"lunch":{"dishIds":[`+itoa(mash.ID)+`,`+itoa(soup.ID)+`],"newDishes":[{"name":"Салат з редиски"}]}}`))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save: status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -117,7 +117,7 @@ func TestPlannerMoreMovesOn(t *testing.T) {
 	h := menuRouter(t, st, nil)
 	var ids []int64
 	for _, n := range []string{"Борщ", "Плов", "Удон", "Деруни", "Вареники", "Омлет", "Гречка"} {
-		ids = append(ids, dish(t, st, n, model.DishActive).ID)
+		ids = append(ids, seedDish(t, st, n, model.DishActive).ID)
 	}
 	if err := st.SaveMenuMessage(model.MenuMessage{
 		Date: kitchenToday, ChatID: -1, MessageID: 7,
@@ -154,8 +154,8 @@ func TestPlannerMoreMovesOn(t *testing.T) {
 func TestPlannerKeepsItsHandsOffAnEatenMealAndThePast(t *testing.T) {
 	st := testStore(t)
 	h := menuRouter(t, st, nil)
-	soup := dish(t, st, "Борщ", model.DishActive)
-	plov := dish(t, st, "Плов", model.DishActive)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	plov := seedDish(t, st, "Плов", model.DishActive)
 	if _, _, err := st.RecordEaten(soup.ID, kitchenToday, model.MealLunch, "", false); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

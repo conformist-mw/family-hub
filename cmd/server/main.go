@@ -111,6 +111,9 @@ func main() {
 	var notifier web.Notifier
 	// The same reason: the Mini App redraws the morning menu through the bot.
 	var menuBoard mini.MenuBoard
+	// Declared out here because the Mini App reads typed dish names through
+	// it too; nil when AI_API_KEY is unset.
+	var recognizer *dish.Recognizer
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token != "" {
 		notifyChat, _ := strconv.ParseInt(os.Getenv("TELEGRAM_NOTIFY_CHAT"), 10, 64)
@@ -143,7 +146,6 @@ func main() {
 		// The cooking log needs a model to look at the photograph; what it
 		// sees is written to the local store. A missing key leaves the
 		// recognizer nil, which the bot reads as "not configured" and skips.
-		var recognizer *dish.Recognizer
 		if aiKey := os.Getenv("AI_API_KEY"); aiKey != "" {
 			// The model tier matters: on a plate holding a main dish plus side
 			// salads, the cheaper tiers consistently answered with the whole
@@ -249,6 +251,7 @@ func main() {
 			// family group exactly like one captured by the bot.
 			Notifier:  notifier,
 			Menu:      menuBoard,
+			Dish:      recognizer,
 			Reminders: remindersSvc,
 		})
 		if err != nil {

@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"familyhub/internal/model"
 	"familyhub/internal/store"
@@ -17,7 +19,7 @@ const (
 	kitchenToday     = "2026-08-06"
 )
 
-func dish(t *testing.T, st *store.Store, name, status string) model.Dish {
+func seedDish(t *testing.T, st *store.Store, name, status string) model.Dish {
 	t.Helper()
 	d, _, err := st.CreateDish(model.Dish{Name: name, Status: status})
 	if err != nil {
@@ -46,9 +48,9 @@ func TestPickerRecordsSeveralDishesAtOnce(t *testing.T) {
 	st := testStore(t)
 	h := testRouter(t, st, []int64{42}, 42)
 
-	mash := dish(t, st, "Пюре з котлетами", model.DishActive)
-	soup := dish(t, st, "Борщ", model.DishActive)
-	dish(t, st, "Печінка", model.DishRejected)
+	mash := seedDish(t, st, "Пюре з котлетами", model.DishActive)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	seedDish(t, st, "Печінка", model.DishRejected)
 	if _, _, err := st.RecordEaten(mash.ID, kitchenYesterday, model.MealDinner, "", false); err != nil {
 		t.Fatalf("seed yesterday: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestPickerRecordsSeveralDishesAtOnce(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, jsonRequest(http.MethodPut, path,
-		`{"dishIds":[`+itoa(mash.ID)+`],"newNames":["Салат з редиски"]}`))
+		`{"dishIds":[`+itoa(mash.ID)+`],"newDishes":[{"name":"Салат з редиски"}]}`))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save: status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -116,8 +118,8 @@ func TestKitchenListsTheWeekNewestFirst(t *testing.T) {
 	st := testStore(t)
 	h := testRouter(t, st, []int64{42}, 42)
 
-	soup := dish(t, st, "Борщ", model.DishActive)
-	plov := dish(t, st, "Плов", model.DishActive)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	plov := seedDish(t, st, "Плов", model.DishActive)
 	if _, _, err := st.RecordEaten(soup.ID, kitchenYesterday, model.MealLunch, "", false); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -163,7 +165,7 @@ func TestPickerSaveRedrawsTheDaysMessages(t *testing.T) {
 	st := testStore(t)
 	b := &board{}
 	h := menuRouter(t, st, b)
-	soup := dish(t, st, "Борщ", model.DishActive)
+	soup := seedDish(t, st, "Борщ", model.DishActive)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, jsonRequest(http.MethodPut, "/mini/api/meals/"+kitchenToday+"/lunch",
@@ -173,5 +175,45 @@ func TestPickerSaveRedrawsTheDaysMessages(t *testing.T) {
 	}
 	if !slices.Equal(b.evenings, []string{kitchenToday}) || !slices.Equal(b.redrawn, []string{kitchenToday}) {
 		t.Errorf("evenings = %v, menus = %v, want today's of each", b.evenings, b.redrawn)
+	}
+}
+
+// The group hears about the day once, when its last meal is answered — not
+// for every meal, and not again for a save that changed nothing.
+func TestPickerAnnouncesTheFinishedDay(t *testing.T) {
+	st := testStore(t)
+	fam := &group{}
+	h, err := NewRouter(st, discardLogger(), Config{
+		BotToken: testToken, AllowedUsers: []int64{42}, DevUser: 0,
+		Loc: time.UTC, Now: func() time.Time { return testNow }, Notifier: fam,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	soup := seedDish(t, st, "Борщ", model.DishActive)
+	steak := seedDish(t, st, "Стейк", model.DishActive)
+	salad := seedDish(t, st, "Салат", model.DishActive)
+
+	save := func(meal, ids string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, signedRequest(t, http.MethodPut, "/mini/api/meals/"+kitchenToday+"/"+meal, `{"dishIds":[`+ids+`]}`))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("save %s: status = %d, body = %s", meal, rec.Code, rec.Body)
+		}
+	}
+	save("lunch", itoa(soup.ID))
+	if len(fam.sent) != 0 {
+		t.Fatalf("announced half a day: %q", fam.sent)
+	}
+	save("dinner", itoa(steak.ID)+","+itoa(salad.ID))
+	save("dinner", itoa(salad.ID)+","+itoa(steak.ID))
+	if len(fam.sent) != 1 {
+		t.Fatalf("group got %d messages, want 1: %q", len(fam.sent), fam.sent)
+	}
+	for _, want := range []string{"Що їли · Сьогодні, 6 серпня", "(Тест)", "Обід: Борщ", "Вечеря: Стейк · Салат"} {
+		if !strings.Contains(fam.sent[0], want) {
+			t.Errorf("message lacks %q: %s", want, fam.sent[0])
+		}
 	}
 }

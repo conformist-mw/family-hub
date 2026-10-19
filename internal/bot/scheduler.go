@@ -103,8 +103,8 @@ func (b *Bot) remindSlot(now time.Time, sl store.SlotWithEnrollment, today strin
 // when a lesson is coming up and there is nothing paid to cover it: zero or
 // negative remaining lessons (per-lesson) or no pass covering today
 // (monthly). It fires only inside the [slot−notice, slot) window — once the
-// lesson has started, the warning is just noise — and carries no buttons:
-// the post-slot reminder owns the marking flow.
+// lesson has started, the warning is just noise. Its only buttons record a
+// payment (see topUpMarkup); the post-slot reminder owns the marking flow.
 //
 // The lead is the course's own payment_notice_min. Anything longer than the
 // slot's time of day just means "from midnight", because the scheduler only
@@ -146,7 +146,12 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 		return
 	}
 
-	if _, err := b.sendToGroup(balanceWarningText(bal, sl.Slot.Time, b.topUpOptionsFor(bal, now))); err != nil {
+	opts := b.topUpOptionsFor(bal, now)
+	var sendOpts []any
+	if m := topUpMarkup(bal, opts); m != nil {
+		sendOpts = append(sendOpts, m)
+	}
+	if _, err := b.sendToGroup(balanceWarningText(bal, sl.Slot.Time, opts), sendOpts...); err != nil {
 		b.logger.Error("bot: send balance warning", "err", err, "eid", eid)
 		return
 	}

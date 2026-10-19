@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -156,6 +157,11 @@ type Bot struct {
 	// suggestRunning guards the weekly dish suggestions the same way: the
 	// model call leaves the ticker's goroutine too.
 	suggestRunning atomic.Bool
+
+	// paidTaps holds the warnings whose "оплатив" button has been taken, so a
+	// double tap records one payment, not two. In memory only: the tap edits
+	// the buttons away, so after a restart there is nothing left to tap.
+	paidTaps sync.Map
 }
 
 // ParseChatIDs parses a comma-separated list of int64 chat ids.
@@ -235,6 +241,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: "add_cancel"}, bot.onAddCancel)
 	tb.Handle(&tele.Btn{Unique: "vis_reason"}, bot.onReasonTap)
 	tb.Handle(&tele.Btn{Unique: "rem_chore"}, bot.onChoreTap)
+	tb.Handle(&tele.Btn{Unique: paidUnique}, bot.onPaidTap)
 
 	// The morning menu reads the local catalogue and needs no model, so its
 	// buttons are live on every deploy — including one that sent a menu

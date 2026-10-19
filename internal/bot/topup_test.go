@@ -1,10 +1,13 @@
 package bot
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	tele "gopkg.in/telebot.v3"
 
 	"familyhub/internal/model"
 )
@@ -111,5 +114,103 @@ func TestBalanceWarningShowsMonthlyPrice(t *testing.T) {
 	text := balanceWarningText(bal, "18:30", nil)
 	if !strings.Contains(text, "\nДо оплати 1200 ₴ за місяць.") {
 		t.Errorf("got:\n%s", text)
+	}
+}
+
+// Each option gets its button, carrying the amount the message showed.
+func TestTopUpMarkupCarriesTheShownAmount(t *testing.T) {
+	bal := perLessonEmpty(450, -1)
+	bal.ID = 42
+	m := topUpMarkup(bal, topUpOptions(bal, tueThu, nil, at("2026-10-22")))
+	if m == nil || len(m.InlineKeyboard) != 1 || len(m.InlineKeyboard[0]) != 2 {
+		t.Fatalf("want one row of two buttons, got %+v", m)
+	}
+	btn := m.InlineKeyboard[0][1]
+	if btn.Text != "✓ Оплатив 6" {
+		t.Errorf("text = %q", btn.Text)
+	}
+	if !strings.HasSuffix(btn.Data, "42:6:2700") {
+		t.Errorf("data = %q", btn.Data)
+	}
+	if topUpMarkup(bal, nil) != nil {
+		t.Error("no options, no buttons")
+	}
+}
+
+func TestParsePaidData(t *testing.T) {
+	eid, lessons, amount, err := parsePaidData("42:5:2250.50")
+	if err != nil || eid != 42 || lessons != 5 || amount != "2250.50" {
+		t.Errorf("got %d %d %q %v", eid, lessons, amount, err)
+	}
+	for _, bad := range []string{"", "42:5", "x:5:100", "42:0:100", "42:5:abc"} {
+		if _, _, _, err := parsePaidData(bad); err == nil {
+			t.Errorf("%q should not parse", bad)
+		}
+	}
+}
+
+// paidCtx is the slice of a callback context onPaidTap reads and writes.
+type paidCtx struct {
+	tele.Context
+	data      string
+	msg       *tele.Message
+	responses []string
+	edited    string
+}
+
+func (c *paidCtx) Data() string           { return c.data }
+func (c *paidCtx) Message() *tele.Message { return c.msg }
+func (c *paidCtx) Sender() *tele.User     { return &tele.User{ID: 7, FirstName: "Аня"} }
+func (c *paidCtx) Edit(what any, _ ...any) error {
+	c.edited = fmt.Sprint(what)
+	return nil
+}
+func (c *paidCtx) Respond(r ...*tele.CallbackResponse) error {
+	if len(r) > 0 {
+		c.responses = append(c.responses, r[0].Text)
+	}
+	return nil
+}
+
+// A tap records the payment and turns the warning into its answer; a second
+// tap on the same message records nothing.
+func TestPaidTapRecordsOnePayment(t *testing.T) {
+	b := menuBot(t)
+	eid, err := b.store.CreateEnrollment(model.Enrollment{
+		Person: "Дитина", Name: "Курс", BillingType: model.BillingPerLesson,
+		CurrentPrice: 450, AttendanceMode: model.AttendancePerSession, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("create enrollment: %v", err)
+	}
+	warning := "🔴 Дитина · Курс сьогодні у 13:35: немає оплачених занять\nДо оплати…\nРеквізити: …"
+	msg := &tele.Message{ID: 10, Chat: &tele.Chat{ID: -100}, Text: warning}
+	data := fmt.Sprintf("%d:5:2250", eid)
+
+	c := &paidCtx{data: data, msg: msg}
+	if err := b.onPaidTap(c); err != nil {
+		t.Fatalf("tap: %v", err)
+	}
+	if !strings.HasPrefix(c.edited, "✅ Дитина · Курс сьогодні у 13:35: немає оплачених занять\nОплачено 5 зан. = 2250 ₴ · Аня") {
+		t.Errorf("edited = %q", c.edited)
+	}
+	if strings.Contains(c.edited, "Реквізити") {
+		t.Errorf("the answered warning should drop the details: %q", c.edited)
+	}
+
+	again := &paidCtx{data: data, msg: msg}
+	if err := b.onPaidTap(again); err != nil {
+		t.Fatalf("second tap: %v", err)
+	}
+	if again.edited != "" || len(again.responses) != 1 || again.responses[0] != "Вже записано" {
+		t.Errorf("second tap: edited %q, responses %v", again.edited, again.responses)
+	}
+
+	bal, err := b.store.BalanceFor(eid)
+	if err != nil {
+		t.Fatalf("balance: %v", err)
+	}
+	if bal.Paid != 5 {
+		t.Errorf("paid = %d, want 5 from one payment", bal.Paid)
 	}
 }

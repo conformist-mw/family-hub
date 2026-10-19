@@ -102,7 +102,7 @@ func TestBalanceWarningCarriesPaymentDetails(t *testing.T) {
 		Paid: 4, Done: 4, Remaining: 0,
 	}
 
-	text := balanceWarningText(bal, "17:00")
+	text := balanceWarningText(bal, "17:00", nil)
 
 	for _, want := range []string{"Демид", "Логопед", "17:00", "немає оплачених занять", "UA12 3456"} {
 		if !strings.Contains(text, want) {
@@ -128,7 +128,7 @@ func TestBalanceWarningWordsAMonthlyCourseDifferently(t *testing.T) {
 			Person: "Демид", Name: "Карате", BillingType: model.BillingMonthly,
 		},
 	}
-	text := balanceWarningText(bal, "18:30")
+	text := balanceWarningText(bal, "18:30", nil)
 
 	if !strings.Contains(text, "немає активного абонемента") {
 		t.Errorf("got:\n%s", text)
@@ -161,7 +161,7 @@ func TestBothPaymentMessagesShareTheDetailsWording(t *testing.T) {
 	if !strings.Contains(billingReminderText(monthly), line) {
 		t.Errorf("monthly reminder lost the shared wording:\n%s", billingReminderText(monthly))
 	}
-	if !strings.Contains(balanceWarningText(perLesson, "17:00"), line) {
-		t.Errorf("pre-lesson warning lost the shared wording:\n%s", balanceWarningText(perLesson, "17:00"))
+	if !strings.Contains(balanceWarningText(perLesson, "17:00", nil), line) {
+		t.Errorf("pre-lesson warning lost the shared wording:\n%s", balanceWarningText(perLesson, "17:00", nil))
 	}
 }

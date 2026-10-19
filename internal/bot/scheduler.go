@@ -146,7 +146,7 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 		return
 	}
 
-	if _, err := b.sendToGroup(balanceWarningText(bal, sl.Slot.Time)); err != nil {
+	if _, err := b.sendToGroup(balanceWarningText(bal, sl.Slot.Time, b.topUpOptionsFor(bal, now))); err != nil {
 		b.logger.Error("bot: send balance warning", "err", err, "eid", eid)
 		return
 	}
@@ -160,10 +160,33 @@ func (b *Bot) warnEmptyBalance(now time.Time, sl store.SlotWithEnrollment, today
 // The payment details ride along: this is the moment the money is actually
 // needed, and looking the payee up in the web UI is the step that gets
 // skipped. The monthly reminder has carried them since it was written; this
-// half was the one that forgot.
-func balanceWarningText(bal model.Balance, slotTime string) string {
-	return fmt.Sprintf("🔴 %s · %s сьогодні у %s: %s",
-		bal.Person, bal.Name, slotTime, emptyBalanceText(bal)) + paymentDetailsLine(bal)
+// half was the one that forgot. So does the amount, for the same reason.
+func balanceWarningText(bal model.Balance, slotTime string, opts []topUpOption) string {
+	text := fmt.Sprintf("🔴 %s · %s сьогодні у %s: %s",
+		bal.Person, bal.Name, slotTime, emptyBalanceText(bal))
+	if bal.BillingType == model.BillingMonthly && bal.CurrentPrice > 0 {
+		text += fmt.Sprintf("\nДо оплати %s ₴ за місяць.", formatAmount(bal.CurrentPrice))
+	}
+	return text + topUpLines(bal, opts) + paymentDetailsLine(bal)
+}
+
+// topUpOptionsFor loads what topUpOptions needs. A failed read costs the
+// amounts, not the warning: it still says money is due and where to send it.
+func (b *Bot) topUpOptionsFor(bal model.Balance, now time.Time) []topUpOption {
+	if bal.BillingType == model.BillingMonthly || bal.CurrentPrice <= 0 {
+		return nil
+	}
+	slots, err := b.store.ListSlots(bal.ID)
+	if err != nil {
+		b.logger.Error("bot: slots for top-up", "err", err, "eid", bal.ID)
+		return nil
+	}
+	absences, err := b.store.AbsencesForEnrollment(bal.ID)
+	if err != nil {
+		b.logger.Error("bot: absences for top-up", "err", err, "eid", bal.ID)
+		return nil
+	}
+	return topUpOptions(bal, slots, absences, now)
 }
 
 func emptyBalanceText(bal model.Balance) string {

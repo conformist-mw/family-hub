@@ -348,8 +348,23 @@ func TestAnEmptyMeterFieldRendersEmpty(t *testing.T) {
 	if !strings.Contains(body, `name="curr1" value=""`) {
 		t.Errorf("an unread meter is not an empty field:\n%s", body)
 	}
+}
+
+// A new reading is dated today: the meter is read the day it is entered, and
+// picking the same date by hand on every reading is the chore this removes.
+// Editing keeps whatever date was stored, including none.
+func TestANewReadingIsDatedToday(t *testing.T) {
+	router, _ := metersDB(t)
+	body := metersBody(t, router, "/meters/readings/new?utility_id=2&period=2026-06")
+	if !strings.Contains(body, `name="reading_date" value="`+today()+`"`) {
+		t.Errorf("the reading date does not start as today:\n%s", body)
+	}
+
+	post(t, router, "/meters/readings/new",
+		url.Values{"utility_id": {"2"}, "period": {"2026-06"}, "reading_date": {""}})
+	body = metersBody(t, router, "/meters/readings/1")
 	if !strings.Contains(body, `name="reading_date" value=""`) {
-		t.Error("an absent reading date is not an empty field")
+		t.Error("a reading saved without a date gained one on edit")
 	}
 }
 

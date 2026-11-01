@@ -170,8 +170,11 @@ func (a *App) newReadingForm(utilityID int64, period string) (readingFormData, e
 	if !isPeriod(period) {
 		period = currentPeriod()
 	}
+	// The meter is read the day it is entered nearly every time, so the date
+	// starts as today rather than as a field to fill on every reading.
+	readDate := today()
 	d := readingFormData{
-		Reading: model.Reading{UtilityID: utilityID, Period: period},
+		Reading: model.Reading{UtilityID: utilityID, Period: period, ReadingDate: &readDate},
 		Utility: u,
 		Tariff:  t,
 		Address: addr,

@@ -287,10 +287,9 @@ func (b *Bot) suggestDishesFrom(refs suggestRefs) ([]suggestDish, error) {
 
 // sendDishSuggestions asks the model for new dishes and posts the card.
 //
-// The call runs in its own goroutine for the reason sendSchoolWeekReview's
-// collect does: the model can take up to a minute, and time.Ticker drops the
-// ticks RunDigests spends waiting — whatever else was due in them would be
-// lost.
+// The call runs in its own goroutine: the model can take up to a minute, and
+// time.Ticker drops the ticks RunDigests spends waiting — whatever else was
+// due in them would be lost.
 func (b *Bot) sendDishSuggestions(ctx context.Context, now time.Time) {
 	// RunDigests only calls this when dishSuggestEnabled, which requires a
 	// recognizer; the check stays because a nil one reached from that

@@ -20,7 +20,6 @@ import (
 	"familyhub/internal/dish"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
-	"familyhub/internal/schooltoday"
 	"familyhub/internal/store"
 )
 
@@ -59,24 +58,6 @@ type Config struct {
 	// unfinished — it reads a calendar, not the record of what was closed.
 	ReminderNagTime string
 
-	// SchoolDigestTime is when the bot sends tomorrow's school timetable.
-	// "" disables it. Not behind NotificationsEnabled either, and for a
-	// sharper reason than the nag: HA's calendar API hands a template only
-	// summary/start/end/description, so it cannot tell a lesson from the
-	// after-school block and cannot say when the child is actually free.
-	SchoolDigestTime string
-
-	// SchoolWeekReviewDOW/Time is when the bot posts the review of the school
-	// week just gone: the topics, the teacher's notes, the homework and the
-	// marks, per subject. DOW is 0=Sun..6=Sat and <0 disables, matching
-	// WeeklyDigestDOW; "" for the time disables it too.
-	//
-	// Exempt from NotificationsEnabled for the same reason as SchoolDigestTime,
-	// and set fifteen minutes after it so the two school messages do not land
-	// in the group at the same moment.
-	SchoolWeekReviewDOW  int
-	SchoolWeekReviewTime string
-
 	// MenuTime is when the bot posts today's menu to choose from, and
 	// MenuEveningTime when it asks what was actually eaten. "" disables
 	// either. Not behind NotificationsEnabled: HA has no part in these — the
@@ -93,11 +74,6 @@ type Config struct {
 	// Reminders answers what came due and was left open. nil disables the nag
 	// regardless of ReminderNagTime.
 	Reminders *reminders.Service
-
-	// School collects the week from the portal for the review above. nil —
-	// which is what a deploy without portal credentials gets — disables the
-	// review regardless of the times, because there would be nothing to read.
-	School *schooltoday.Service
 
 	// People names the family by Telegram user id, so that "Я" in a captured
 	// note and the byline on a cooking entry both resolve to the same person
@@ -123,9 +99,8 @@ func (c Config) menuEveningEnabled() bool {
 	return c.MenuEveningTime != ""
 }
 
-// dishSuggestEnabled needs the recognizer as well as a day and a time, the way
-// schoolWeekReviewEnabled needs School: the suggestions come from the model,
-// and arming the clock without one would call a nil receiver in RunDigests'
+// dishSuggestEnabled needs the recognizer as well as a day and a time: the
+// suggestions come from the model, and arming the clock without one would call a nil receiver in RunDigests'
 // goroutine and take the whole server down with it.
 func (c Config) dishSuggestEnabled() bool {
 	return c.DishSuggestTime != "" && c.DishSuggestDOW >= 0 && c.Dish != nil
@@ -149,13 +124,9 @@ type Bot struct {
 	// recognition and the taps that correct and confirm it.
 	cookedCards *cookedPending
 
-	// reviewRunning guards the Friday school review, which is the only message
-	// that leaves the ticker's goroutine. Without it a portal crawling badly
-	// enough to outlast a minute would have a second collect started on top of
-	// the first, and the group would get the week twice.
-	reviewRunning atomic.Bool
-	// suggestRunning guards the weekly dish suggestions the same way: the
-	// model call leaves the ticker's goroutine too.
+	// suggestRunning guards the weekly dish suggestions, the only message
+	// that leaves the ticker's goroutine: without it a model call slow enough
+	// to outlast a minute would have a second one started on top of the first.
 	suggestRunning atomic.Bool
 
 	// paidTaps holds the warnings whose "оплатив" button has been taken, so a
@@ -264,9 +235,6 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	// the parser gates.
 	tb.Handle("/week", bot.cmdWeek)
 	tb.Handle("/list", bot.cmdList)
-	// Reads stored rows like the two above, so it needs neither a parser nor a
-	// configured portal — the records outlive the credentials that collected them.
-	tb.Handle("/schoolweek", bot.cmdSchoolWeek)
 	tb.Handle(&tele.Btn{Unique: "lst_nav"}, bot.onNav)
 	tb.Handle(&tele.Btn{Unique: "lst_arm"}, bot.onArm)
 	tb.Handle(&tele.Btn{Unique: "lst_del"}, bot.onDel)
@@ -314,7 +282,6 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		{Text: "add", Description: "Відмітити заняття"},
 		{Text: "balance", Description: "Баланс по курсах"},
 		{Text: "stats", Description: "Скільки витрачено"},
-		{Text: "schoolweek", Description: "Огляд шкільного тижня: /schoolweek 1"},
 	}
 	if parser != nil {
 		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записати візит: /visit завтра 15:00 педикюр"})
@@ -376,16 +343,10 @@ func (b *Bot) NotifyHTML(text string) error { return b.notify(text, tele.ModeHTM
 // its own tags, so chunking cannot cut HTML in half. No notify chat means
 // nowhere to post, which is not an error.
 func (b *Bot) notify(text string, opts ...any) error {
-	return b.notifyChunks(audit.SplitMessage(text, 4000), opts...)
-}
-
-// notifyChunks posts a message that is already split — the school week review,
-// which breaks between subjects rather than wherever 4000 bytes happen to
-// land, and so cannot let this function choose for it.
-func (b *Bot) notifyChunks(chunks []string, opts ...any) error {
 	if b.cfg.NotifyChat == 0 {
 		return nil
 	}
+	chunks := audit.SplitMessage(text, 4000)
 	for i, chunk := range chunks {
 		// Only the last chunk carries the app button: one per chunk would put
 		// three of them under a long reconciliation.

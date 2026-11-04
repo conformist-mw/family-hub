@@ -69,8 +69,7 @@ to look when picking it back up after a break.
 
   The shape of an extra (no lessons, no coverage, a non-empty label) is
   enforced in `payments.Form.Parse` — the single door both surfaces write
-  through — and not by a `CHECK`. That is a deliberate departure from
-  `0010_school_lesson_details.sql`, which does use `CHECK (kind IN (...))`:
+  through — and not by a `CHECK` such as `CHECK (kind IN (...))`:
   the invariant here is more than a list of allowed values, and SQLite cannot
   drop a `CHECK` without rebuilding the table. `Form.Parse` also sets `kind`
   on the course path rather than leaning on the column default, and the store
@@ -206,8 +205,7 @@ internal/
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
   dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions
   menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
-  ics/         # the VCALENDAR feeds HA polls (family + school)
-  schooltoday/ # mirrors the school portal timetable; feeds /school.ics
+  ics/         # the VCALENDAR feed HA polls
 data/          # local SQLite (gitignored)
 ```
 
@@ -292,66 +290,6 @@ links already mixed the daily (Баланс, Заняття) with the reference 
     A reminder's uid carries the whole instant rather than the date, because a
     full RRULE can put two occurrences on one day. Calendars key on the uid, so
     it must stay stable. Token-guarded via `ICS_TOKEN`.
-  - `/school.ics` — a SECOND, separate feed: the child's academic school day,
-    mirrored from the school-today.com parent portal by `internal/schooltoday`
-    (login + the portal's own `TimetableApi`) into `school_lessons`, and served
-    from that cache so HA's poll never waits on a portal login. Kept apart from
-    `/calendar.ics` because a school subject is not a billed course — see the
-    `school_lessons` migration. UIDs are `school-<eventID>@familyhub`. Which
-    portal categories reach it (lesson / meal / daycare / routine) is
-    `SCHOOL_ICS_INCLUDE`, lessons-only by default; token-guarded via
-    `SCHOOL_ICS_TOKEN`. Empty when the sync is unconfigured. The feed is a
-    calendar, not the evening digest's source: it deliberately shows only the
-    academic day, and the digest needs the rest of it, so the digest reads
-    `school_lessons` directly (below).
-
-    The Friday week review is the one school message that reads neither the
-    feed nor the mirror. What happened at a lesson — the topic, the teacher's
-    notes, the homework, the marks, and what the teacher wrote about this child
-    in particular — is published only on the portal's own lesson detail page
-    (`POST /Timetable/LessonView`, HTML), never in the timetable JSON, which
-    carries a bare `hasMarks` boolean. So the review logs in, re-fetches the
-    week live, walks ~29 lesson pages and records what it read in
-    `school_lesson_details` / `_marks` / `_files` — tables kept
-    deliberately apart from `school_lessons`, because that mirror is a rolling
-    window `ReplaceSchoolLessons` wipes every sync and these are a record that
-    must outlive it. No FK for the same reason: the lesson row is expected to
-    vanish. `/schoolweek N` replays any recorded week from those tables and
-    never touches the portal.
-
-    That page is four tab panes and all four are read. Three of them describe
-    the class — one topic, one set of notes, one homework for the room — and
-    the fourth, `id="pupil"`, is a table with a row per pupil: attendance,
-    lateness, "Заохочення" and "Коментар". The last two are the only per-child
-    text the portal publishes, so they are their own columns (`praise`,
-    `pupil_comment`, migration 0012) rather than more prose appended to
-    `notes`, and the review marks them 🌟 and 💬 instead of italicising them
-    like the class notes — a parent has to be able to tell which half is about
-    their child. Attendance and lateness are not read; the pupil tab's cells
-    are keyed by their header rather than counted, so picking those up later
-    is a case in one switch.
-
-    A field the teacher left blank arrives from the portal as a dash run
-    ("---"), not as nothing. `model.PortalText` is the one place that knows
-    this: the mirror applies it on the way in so no consumer stores a
-    placeholder, and the week review applies it again on the way out, because
-    rows synced earlier are still in the database. The review's heading carries
-    the week's own lesson total for that reason — with the blank lines gone,
-    the counts are what says how big the week was — and a subject's marks are
-    labelled, since the heading already ends in a number.
-
-    A full week is more than one Telegram message, so the review is rendered
-    as a heading plus one block per subject and packed into as few messages as
-    fit, breaking only between subjects: a message that ends mid-subject opens
-    the next one on a teacher's comment with nothing above it to say whose
-    lesson it was. Every message repeats the week in its heading, the ones
-    after the first marked «продовження», and only the first carries the
-    week's total. The limit is counted in UTF-16 code units, the way Telegram
-    counts it rather than in bytes — every Cyrillic letter is two bytes and
-    one unit, so a byte-measured review is cut twice as often as it needs to
-    be. A single subject longer than a whole message falls back to the line
-    split (`audit.SplitMessage`), which is blunt but never cuts a tag in
-    half.
   - `/static/…`, `/healthz`
 - Templates and static assets are embedded into the binary
   (`//go:embed`), so the image carries everything except the SQLite file.
@@ -612,39 +550,19 @@ for exactly that reason.
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`),
   `RunCostPrompts` for the above, and `RunBillingReminders` (below). All four
   need a configured notify chat.
-- `RunDigests` hosts eight wall-clock messages with **separate** gates: the
+- `RunDigests` hosts six wall-clock messages with **separate** gates: the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
   prod — HA owns those summaries), the evening chore nag, gated by
-  `REMINDER_NAG_TIME` alone, tomorrow's school timetable
-  (`internal/bot/school.go`), gated by `SCHOOL_DIGEST_TIME` alone, the
-  Friday review of the school week just gone, gated by
-  `SCHOOL_WEEK_REVIEW_DOW`/`_TIME` **and** a configured portal (below), and the
-  three menu messages — the morning menu (`MENU_TIME`), the evening check
+  `REMINDER_NAG_TIME` alone, and the three menu messages — the morning menu (`MENU_TIME`), the evening check
   (`MENU_EVENING_TIME`) and the weekly dish suggestions
   (`DISH_SUGGEST_DOW`/`_TIME` **and** a configured model), see "The menu". They
   are split because HA can send the first and cannot send the others. It reads
-  a calendar, so it knows nothing about what was closed; and its calendar API
-  hands a template only summary/start/end/description, dropping the category
-  that separates a lesson from the after-school block — so it cannot say when
-  the child is actually free. The menu messages have a plainer reason: their
+  a calendar, so it knows nothing about what was closed. The menu messages have a plainer reason: their
   buttons are answered by the bot, not by HA. One shared flag would have left
   all of them permanently silent in prod, the only place they matter. Which
   clocks are due in a minute is `Config.dueThisMinute`, and whether the loop
   runs at all is `Config.anyDigestEnabled` — both pulled out of the loop so
   that a new clock forgotten in either is a failing test, not a silent one.
-- The school digest reports the day the timetable really describes, which is
-  why it does not read `/school.ics`. Everything runs in time order — a slot's
-  place in the day is its place in the message — with a blank line wherever the
-  day crosses between lessons and the rest of it, and a glyph per category
-  instead of a heading: a heading would have to claim the breakfast comes after
-  the afternoon, or that a midday walk between two lessons ends the day.
-  Lessons carry both ends, adjacent same-subject non-lesson blocks merge, and a
-  closing line gives the end of the *last* slot of the day. A
-  lessons-only reading of a Tuesday stops at 13:10 while the child is at school
-  until 15:40. A day holding slots but no lessons — the school fills in meals
-  before subjects — says the timetable is not published yet rather than sending
-  nothing, because silence is indistinguishable from a broken sync. A day
-  holding nothing at all stays quiet.
 - A fifth ticker lives outside the bot entirely — `reminders.RunMaterialiser`,
   started from `main.go`. It records what came due, which is data rather than a
   message, so it must not answer to a notification flag or to a notify chat
@@ -1028,13 +946,12 @@ the bot. The choice is `internal/menu` (pure), the messages are
   whatever it was, so a changed mind is one more tap — except that no leaves
   alone a dish the family has eaten since, which is its own by then; maybe
   writes nothing and is kept as the ✓ on its button. The call runs in its own goroutine behind an
-  atomic guard, like the school week review, because the model can take a
+  atomic guard, because the model can take a
   minute and the ticker drops the ticks it waits through. A failed call, or
   nothing new left after the filter, is logged and sends nothing.
 - **Gates.** `MENU_TIME` and `MENU_EVENING_TIME` alone — the menu reads the
   local catalogue and needs no model. The suggestions need
-  `DISH_SUGGEST_DOW`/`_TIME` **and** `AI_API_KEY`, the way the week review
-  needs a portal: a nil recognizer reached from the `RunDigests` goroutine
+  `DISH_SUGGEST_DOW`/`_TIME` **and** `AI_API_KEY`: a nil recognizer reached from the `RunDigests` goroutine
   would take the whole server down. An unset `DISH_SUGGEST_DOW` is `-1`, off,
   not Sunday. None of the three is behind `NOTIFICATIONS_ENABLED`.
 - **The catalogue came from Mealie once**, by a one-off import that has since
@@ -1144,9 +1061,6 @@ a person can pick that the app refuses.
     On the compound routers the host alternation must stay parenthesized:
     `(Host(a) || Host(b)) && PathPrefix(...)` — `||` binds looser than `&&`,
     and an unparenthesized rule would expose the whole app without auth.
-  - the school ICS router — host plus `PathPrefix(/school.ics)` →
-    `no-auth-chain@file`, guarded by `SCHOOL_ICS_TOKEN`, so HA can poll the
-    academic timetable on its own Remote Calendar.
 - No GitHub Actions. Master on GitHub is upstream history; deploy is a
   local Ansible run.
 
@@ -1166,11 +1080,6 @@ a person can pick that the app refuses.
   - `family_hub_notify_chat`
   - `family_hub_gemini_api_key`
   - `family_hub_reminder_hour` (optional override)
-  - `family_hub_school_today_email`, `family_hub_school_today_password`,
-    `family_hub_school_today_pupil_id` — parent portal login + pupil id
-  - `family_hub_school_ics_token` — shared secret for `/school.ics`
-  - `family_hub_school_week_review_dow`, `family_hub_school_week_review_time` —
-    when the Friday week review goes out (0=Sun..6=Sat; unset disables)
   - `family_hub_ai_api_key` — the model that reads a photograph of a plate
     and pitches the weekly new dishes
   - `family_hub_people` — `<telegram id>:<name>` pairs, the family by user id.

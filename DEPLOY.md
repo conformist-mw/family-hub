@@ -55,7 +55,7 @@ just deploy-hetzner-tag family-hub
   replies to the "how much was it?" prompt both arrive that way.
 - Prod env (bot token, webhook secret/path, `TELEGRAM_NOTIFY_CHAT`,
   `TELEGRAM_REMINDER_DELAY_MIN`, `GEMINI_API_KEY`, `VISIT_PEOPLE`,
-  `SCHOOL_DIGEST_TIME=19:30`, `TZ=Europe/Kyiv`) comes from the role +
+  `TZ=Europe/Kyiv`) comes from the role +
   `roles/family-hub/vars/secrets.sops.yaml`. Reminders only fire on prod
   because `TELEGRAM_NOTIFY_CHAT` is unset locally.
 - The appointment digests stay off in prod (`NOTIFICATIONS_ENABLED` unset):
@@ -69,7 +69,7 @@ just deploy-hetzner-tag family-hub
   None of the four is a secret: they go into the role as plain variables in
   `defaults/main.yml` (`family_hub_menu_time`, `family_hub_menu_evening_time`,
   `family_hub_dish_suggest_dow`, `family_hub_dish_suggest_time`) wired into
-  the container env next to `SCHOOL_DIGEST_TIME`, not into SOPS.
+  the container env, not into SOPS.
   None of them answers to `NOTIFICATIONS_ENABLED` — HA has no part in the
   menu, its buttons come back to the bot. The server no longer reads
   `MEALPLAN_FILL_TIME`, `MEALPLAN_SLOTS`, `MEALPLAN_HORIZON_DAYS`,
@@ -106,14 +106,14 @@ A working scheduler logs `bot: scheduler started notify_chat=... reminder_delay_
 on boot. `scheduler disabled` means `TELEGRAM_NOTIFY_CHAT` is missing. The
 digest ticker hosts several wall-clock messages with separate gates, so its
 boot line reports each: `bot: digests started appointment_digests=false
-… reminder_nag=20:00 reminder_push=true school_digest=19:30 … menu=true
+… reminder_nag=20:00 reminder_push=true menu=true
 menu_time=07:00 menu_evening=true menu_evening_time=20:00 dish_suggest=true
 dish_suggest_dow=6 dish_suggest_time=10:00` is the expected prod shape — the
 appointment summaries stay off because Home Assistant sends those, while the
-chore nag, the school timetable and the menu run from here. `dish_suggest=false`
+chore nag and the menu run from here. `dish_suggest=false`
 with a day and time set means `AI_API_KEY` is missing, which the boot log also
 says as `bot: cooking log disabled (AI_API_KEY not set)`. It only falls back to
-`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder, school or menu clocks)` when none
+`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder or menu clocks)` when none
 is configured. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
 `bot: billing reminders started`. Neither that one nor the pre-lesson warning

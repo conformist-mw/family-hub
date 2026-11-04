@@ -29,8 +29,8 @@ appointments and open chores above all of them, because "what is happening now"
 belongs over the domains rather than inside one.
 
 Three ways in, one SQLite file behind them: a web UI for the desk, a Telegram
-bot in the family group, and a Telegram Mini App for the phone. Two ICS feeds
-carry the family's events and the school timetable to Home Assistant.
+bot in the family group, and a Telegram Mini App for the phone. An ICS feed
+carries the family's events to Home Assistant.
 
 Every morning the bot posts what to cook today: three dishes for lunch and
 three for dinner as buttons, yesterday's pot under «Доїдаємо», and a 🔀 per
@@ -41,11 +41,6 @@ yesterday's otherwise — unless a photo of the plate already said. A photo, or
 `/cooked драники`, is read by a vision model against the catalogue and comes
 back as a card to confirm; once a week the same model suggests a few new dishes
 to add, think about, or turn down.
-
-On Friday evening the bot also posts a review of the school week — per subject,
-the topics covered, the teacher's notes, the homework and the marks, collected
-from the school portal's lesson pages. It is kept, so `/schoolweek 2` replays a
-week from a fortnight ago after the message has scrolled away.
 
 ## Why
 

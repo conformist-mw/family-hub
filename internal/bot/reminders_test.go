@@ -125,7 +125,7 @@ func TestEachMessageLatchesSeparatelyPerDay(t *testing.T) {
 	if daily, weekly, nag := d.daily, d.weekly, d.nag; !daily || !weekly || !nag {
 		t.Fatalf("first tick: daily=%v weekly=%v nag=%v, want all", daily, weekly, nag)
 	}
-	d = cfg.dueThisMinute(now, lastFired{daily: today, weekly: today, nag: today, school: today})
+	d = cfg.dueThisMinute(now, lastFired{daily: today, weekly: today, nag: today})
 	if d.daily || d.weekly || d.nag {
 		t.Fatalf("re-fired within the same day: daily=%v weekly=%v nag=%v", d.daily, d.weekly, d.nag)
 	}

@@ -22,7 +22,6 @@ import (
 	"familyhub/internal/mini"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
-	"familyhub/internal/schooltoday"
 	"familyhub/internal/store"
 	"familyhub/internal/web"
 )
@@ -67,40 +66,6 @@ func main() {
 	// messages: switch the digests off and the history silently stops.
 	remindersSvc := reminders.NewService(st, time.Local, logger, time.Now)
 	go remindersSvc.RunMaterialiser(ctx)
-
-	// The school-today syncer mirrors the child's academic timetable into the
-	// store for the /school.ics feed. Independent of the bot and of
-	// notifications — it only writes the cache HA reads — and off unless a
-	// portal account and a pupil id are configured.
-	// Held beyond the block below because the bot's Friday week review collects
-	// through it too, not just the syncer. nil — no portal configured — is what
-	// disables the review.
-	var schoolSvc *schooltoday.Service
-	if email := os.Getenv("SCHOOL_TODAY_EMAIL"); email != "" {
-		pupilID, _ := strconv.ParseInt(os.Getenv("SCHOOL_TODAY_PUPIL_ID"), 10, 64)
-		password := os.Getenv("SCHOOL_TODAY_PASSWORD")
-		if password == "" || pupilID == 0 {
-			logger.Warn("schooltoday: disabled (SCHOOL_TODAY_PASSWORD or SCHOOL_TODAY_PUPIL_ID missing)")
-		} else {
-			baseURL := os.Getenv("SCHOOL_TODAY_BASE_URL")
-			if baseURL == "" {
-				baseURL = "https://school-today.com"
-			}
-			schoolSvc = schooltoday.NewService(
-				st, schooltoday.NewClient(baseURL),
-				schooltoday.Config{
-					Email:      email,
-					Password:   password,
-					PupilID:    pupilID,
-					WeeksAhead: envInt("SCHOOL_TODAY_WEEKS_AHEAD", 3),
-					Interval:   envDuration("SCHOOL_TODAY_SYNC_INTERVAL", 12*time.Hour),
-				},
-				time.Local, logger, time.Now)
-			go schoolSvc.RunSyncer(ctx)
-		}
-	} else {
-		logger.Info("schooltoday: disabled (SCHOOL_TODAY_EMAIL not set)")
-	}
 
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
@@ -180,18 +145,9 @@ func main() {
 			// because HA sends the appointment summaries, and HA has nothing
 			// to say about what went unfinished.
 			ReminderNagTime: os.Getenv("REMINDER_NAG_TIME"),
-			// Same exemption, sharper reason: HA's calendar API drops the
-			// category, so it cannot tell a lesson from after-school care.
-			SchoolDigestTime: os.Getenv("SCHOOL_DIGEST_TIME"),
-			// The week review is exempt from NOTIFICATIONS_ENABLED for the same
-			// reason, and needs the portal service as well as a time: it reads
-			// the portal directly rather than the mirror the syncer fills.
-			SchoolWeekReviewDOW:  parseDOW(os.Getenv("SCHOOL_WEEK_REVIEW_DOW")),
-			SchoolWeekReviewTime: os.Getenv("SCHOOL_WEEK_REVIEW_TIME"),
-			Reminders:            remindersSvc,
-			School:               schoolSvc,
-			People:               people,
-			Dish:                 recognizer,
+			Reminders:       remindersSvc,
+			People:          people,
+			Dish:            recognizer,
 		}
 		cfg = withMenuEnv(cfg, os.Getenv)
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()

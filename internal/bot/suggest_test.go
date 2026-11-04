@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	tele "gopkg.in/telebot.v3"
 
@@ -446,4 +447,18 @@ func TestSendDishSuggestionsRunsOneAtATime(t *testing.T) {
 	if all, err := b.store.Dishes(model.DishProposed); err != nil || len(all) != 3 {
 		t.Fatalf("proposed = %d, %v; want one run's three", len(all), err)
 	}
+}
+
+// waitFor polls until cond holds, because the model call deliberately runs off
+// the caller's goroutine.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }

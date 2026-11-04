@@ -11,8 +11,7 @@ import (
 
 // RunDigests ticks once a minute and fires the wall-clock messages (in
 // cfg.Loc): the daily and weekly appointment digests, the evening list of
-// recurring chores nobody closed, tomorrow's school timetable, the Friday
-// review of the school week just gone, the morning menu, the evening check of
+// recurring chores nobody closed, the morning menu, the evening check of
 // what was actually eaten, and the weekly suggestion of new dishes. It blocks
 // until ctx is done; meant to run in its own goroutine alongside
 // polling/webhook.
@@ -20,10 +19,8 @@ import (
 // They have separate gates on purpose. The appointment digests are off in
 // prod because Home Assistant sends those summaries from the ICS feed; the
 // chore nag is not something HA can send, since HA reads a calendar and knows
-// nothing about what was closed, and neither is the school digest, since HA's
-// calendar API drops the category that separates a lesson from after-school
-// care. Gating either on the same flag would have left it permanently silent
-// in the one place it matters. The menu messages are the bot's own for a
+// nothing about what was closed. Gating it on the same flag would have left it
+// permanently silent in the one place it matters. The menu messages are the bot's own for a
 // plainer reason: their buttons are answered by the bot, not by HA.
 func (b *Bot) RunDigests(ctx context.Context) {
 	if b.cfg.NotifyChat == 0 {
@@ -31,7 +28,7 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		return
 	}
 	if !b.cfg.anyDigestEnabled() {
-		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder, school or menu clocks)")
+		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder or menu clocks)")
 		return
 	}
 	pushOn := b.cfg.reminderPushEnabled()
@@ -43,9 +40,6 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		"weekly_time", b.cfg.WeeklyDigestTime,
 		"reminder_nag", b.cfg.ReminderNagTime,
 		"reminder_push", pushOn,
-		"school_digest", b.cfg.SchoolDigestTime,
-		"school_week_review_dow", b.cfg.SchoolWeekReviewDOW,
-		"school_week_review_time", b.cfg.SchoolWeekReviewTime,
 		"menu", b.cfg.menuEnabled(),
 		"menu_time", b.cfg.MenuTime,
 		"menu_evening", b.cfg.menuEveningEnabled(),
@@ -87,14 +81,6 @@ func (b *Bot) RunDigests(ctx context.Context) {
 				b.sendReminderNag(now)
 				last.nag = today
 			}
-			if d.school {
-				b.sendSchoolDigest(now)
-				last.school = today
-			}
-			if d.review {
-				b.sendSchoolWeekReview(ctx, now)
-				last.review = today
-			}
 			if d.menu {
 				b.sendMenu(now)
 				last.menu = today
@@ -120,8 +106,7 @@ func (b *Bot) RunDigests(ctx context.Context) {
 // on only that clock with a ticker that never starts.
 func (c Config) anyDigestEnabled() bool {
 	return c.appointmentDigestsEnabled() || c.reminderNagEnabled() ||
-		c.reminderPushEnabled() || c.schoolDigestEnabled() ||
-		c.schoolWeekReviewEnabled() || c.menuEnabled() ||
+		c.reminderPushEnabled() || c.menuEnabled() ||
 		c.menuEveningEnabled() || c.dishSuggestEnabled()
 }
 
@@ -149,15 +134,15 @@ func (c Config) reminderPushEnabled() bool {
 }
 
 // due says which wall-clock messages fire on a tick, and lastFired the date
-// each one last went out. Structs rather than positional results: with eight
+// each one last went out. Structs rather than positional results: with six
 // clocks, a positional signature meant every new one touched every call in the
 // tests, and two adjacent strings swapped by mistake still compiled.
 type due struct {
-	daily, weekly, nag, school, review, menu, evening, suggest bool
+	daily, weekly, nag, menu, evening, suggest bool
 }
 
 type lastFired struct {
-	daily, weekly, nag, school, review, menu, evening, suggest string
+	daily, weekly, nag, menu, evening, suggest string
 }
 
 // dueThisMinute decides which of the wall-clock messages fire on this tick,
@@ -179,11 +164,7 @@ func (c Config) dueThisMinute(now time.Time, last lastFired) due {
 		weekly: digestsOn && c.WeeklyDigestDOW >= 0 &&
 			dow == c.WeeklyDigestDOW &&
 			hm == c.WeeklyDigestTime && last.weekly != today,
-		nag:    c.reminderNagEnabled() && hm == c.ReminderNagTime && last.nag != today,
-		school: c.schoolDigestEnabled() && hm == c.SchoolDigestTime && last.school != today,
-		review: c.schoolWeekReviewEnabled() &&
-			dow == c.SchoolWeekReviewDOW &&
-			hm == c.SchoolWeekReviewTime && last.review != today,
+		nag:     c.reminderNagEnabled() && hm == c.ReminderNagTime && last.nag != today,
 		menu:    c.menuEnabled() && hm == c.MenuTime && last.menu != today,
 		evening: c.menuEveningEnabled() && hm == c.MenuEveningTime && last.evening != today,
 		suggest: c.dishSuggestEnabled() &&

@@ -294,111 +294,23 @@ func seedUtility(t *testing.T, database *sql.DB) {
 		`INSERT INTO utilities (id, address_id, name, current_tariff_id) VALUES (1, 1, 'Газ', 2)`)
 }
 
-// Same reason as the reminder and utility tables: a migration goose does not
-// pick up fails silently as "table missing" much later, in the Friday review.
-func TestSchoolDetailTablesExistAfterMigration(t *testing.T) {
+// The school-today mirror and its week-review record went with the
+// integration. Pinned for the same reason as the delivery log: tables nothing
+// writes are easy to add back by reflex.
+func TestTheSchoolTodayTablesAreGone(t *testing.T) {
 	database := migrated(t)
+
 	for _, table := range []string{
-		"school_lesson_details", "school_lesson_marks", "school_lesson_files"} {
+		"school_lessons", "school_lesson_details", "school_lesson_marks", "school_lesson_files"} {
 		var name string
 		err := database.QueryRow(
 			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
-		if err != nil {
-			t.Fatalf("table %q missing after migrate: %v", table, err)
+		if err == nil {
+			t.Fatalf("%s is back; nothing writes it", table)
 		}
-	}
-}
-
-// 0012 adds the pupil tab's two columns to a table that already holds rows.
-// An ALTER that goose does not pick up fails as "no such column: praise" on
-// the next Friday collect, three days after the deploy that was supposed to
-// add it.
-func TestSchoolDetailPupilColumnsExistAfterMigration(t *testing.T) {
-	database := migrated(t)
-
-	mustExec(t, database, `
-		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
-		VALUES (1, 79311, '2026-09-03T09:50', 'Біологія [9]')`)
-
-	var praise, comment string
-	if err := database.QueryRow(
-		`SELECT praise, pupil_comment FROM school_lesson_details WHERE event_id = 1`).
-		Scan(&praise, &comment); err != nil {
-		t.Fatalf("pupil columns missing after migrate: %v", err)
-	}
-	// A row written before the teacher wrote anything reads as blank, not as
-	// NULL: every consumer takes these as plain strings.
-	if praise != "" || comment != "" {
-		t.Fatalf("praise = %q, comment = %q, want both blank", praise, comment)
-	}
-}
-
-// A detail row with no subject or no start is unrenderable and unselectable —
-// it would sit in the table forever, invisible to the week query that keys on
-// starts_at. Cheaper to refuse it at the schema than to filter it at read.
-func TestSchoolDetailRejectsEmptyIdentityFields(t *testing.T) {
-	database := migrated(t)
-
-	if _, err := database.Exec(`
-		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
-		VALUES (1, 79311, '', 'Алгебра [9]')`); err == nil {
-		t.Fatal("an empty starts_at was accepted")
-	}
-	if _, err := database.Exec(`
-		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
-		VALUES (2, 79311, '2026-09-03T09:50', '')`); err == nil {
-		t.Fatal("an empty subject was accepted")
-	}
-}
-
-// An empty mark is not "no mark" — it renders as a subject that was graded
-// with nothing. Absence is expressed by having no row at all.
-func TestSchoolMarkRejectsEmptyKindOrValue(t *testing.T) {
-	database := migrated(t)
-
-	if _, err := database.Exec(
-		`INSERT INTO school_lesson_marks (event_id, kind, value) VALUES (1, '', '9,00')`); err == nil {
-		t.Fatal("an empty mark kind was accepted")
-	}
-	if _, err := database.Exec(
-		`INSERT INTO school_lesson_marks (event_id, kind, value) VALUES (1, 'Поточна', '')`); err == nil {
-		t.Fatal("an empty mark value was accepted")
-	}
-}
-
-// kind says which tab the file hung on, and the renderer will branch on it.
-// A third value would silently render as neither.
-func TestSchoolFileRejectsAnUnknownKind(t *testing.T) {
-	database := migrated(t)
-
-	if _, err := database.Exec(`
-		INSERT INTO school_lesson_files (event_id, kind, url)
-		VALUES (1, 'video', 'https://example.com/a.png')`); err == nil {
-		t.Fatal("an unknown file kind passed the CHECK constraint")
-	}
-	if _, err := database.Exec(`
-		INSERT INTO school_lesson_files (event_id, kind, url)
-		VALUES (1, 'homework', '')`); err == nil {
-		t.Fatal("an empty url was accepted")
-	}
-}
-
-// fetched_at answers "how stale is this record" and nothing sets it explicitly
-// — the collector inserts without it, so the default has to be there.
-func TestSchoolDetailStampsFetchedAtByDefault(t *testing.T) {
-	database := migrated(t)
-
-	mustExec(t, database, `
-		INSERT INTO school_lesson_details (event_id, pupil_id, starts_at, subject)
-		VALUES (1, 79311, '2026-09-03T09:50', 'Українська мова [9]')`)
-
-	var fetchedAt string
-	if err := database.QueryRow(
-		`SELECT fetched_at FROM school_lesson_details WHERE event_id = 1`).Scan(&fetchedAt); err != nil {
-		t.Fatalf("read fetched_at: %v", err)
-	}
-	if len(fetchedAt) != len("2006-01-02T15:04:05") {
-		t.Fatalf("fetched_at = %q, want a local datetime stamp", fetchedAt)
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("checking for %s: %v", table, err)
+		}
 	}
 }
 

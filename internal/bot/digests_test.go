@@ -69,7 +69,7 @@ func TestTheMenuClocksFireOncePerDayAtTheirMinute(t *testing.T) {
 
 func countDue(d due) int {
 	n := 0
-	for _, on := range []bool{d.daily, d.weekly, d.nag, d.school, d.review, d.menu, d.evening, d.suggest} {
+	for _, on := range []bool{d.daily, d.weekly, d.nag, d.menu, d.evening, d.suggest} {
 		if on {
 			n++
 		}
@@ -146,8 +146,7 @@ func TestEachMenuClockAloneKeepsTheDigestLoopAlive(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := tc.cfg
-			if c.appointmentDigestsEnabled() || c.reminderNagEnabled() || c.reminderPushEnabled() ||
-				c.schoolDigestEnabled() || c.schoolWeekReviewEnabled() {
+			if c.appointmentDigestsEnabled() || c.reminderNagEnabled() || c.reminderPushEnabled() {
 				t.Fatal("the fixture is not the menu-only shape")
 			}
 			if !c.anyDigestEnabled() {

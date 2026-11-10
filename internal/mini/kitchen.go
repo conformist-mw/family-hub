@@ -79,7 +79,7 @@ func (rt *Router) handleKitchen(w http.ResponseWriter, r *http.Request) {
 	days := make([]kitchenDayDTO, 0, kitchenDays)
 	for d := today; !d.Before(from); d = d.AddDate(0, 0, -1) {
 		date := d.Format(time.DateOnly)
-		day := kitchenDayDTO{Date: date, Label: dayLabel(d, now)}
+		day := kitchenDayDTO{Date: date, Label: model.DayLabel(d, now)}
 		for _, meal := range []menu.Meal{menu.Lunch, menu.Dinner} {
 			dto := kitchenMealDTO{Meal: string(meal), Title: meal.Title(), Eaten: []string{}, Planned: []string{}}
 			for _, m := range byMeal[key{date, string(meal)}] {
@@ -155,7 +155,7 @@ func (rt *Router) handlePicker(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) picker(date string, meal menu.Meal, day time.Time) (pickerDTO, error) {
 	dto := pickerDTO{
 		Date: date, Meal: string(meal), Title: meal.Title(),
-		DayLabel: dayLabel(day, rt.now().In(rt.loc)),
+		DayLabel: model.DayLabel(day, rt.now().In(rt.loc)),
 		Selected: []int64{}, Planned: []int64{}, Quick: []int64{},
 	}
 
@@ -383,7 +383,7 @@ func (rt *Router) announceDay(date string, meal menu.Meal, day time.Time, by str
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🍽 <b>Що їли · %s</b>", html.EscapeString(dayLabel(day, rt.now().In(rt.loc))))
+	fmt.Fprintf(&sb, "🍽 <b>Що їли · %s</b>", html.EscapeString(model.DayLabel(day, rt.now().In(rt.loc))))
 	if by != "" {
 		fmt.Fprintf(&sb, " (%s)", html.EscapeString(by))
 	}

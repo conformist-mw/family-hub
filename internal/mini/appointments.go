@@ -329,7 +329,7 @@ func groupByDay(items []model.Appointment, now time.Time, loc *time.Location) []
 		}
 		date := start.Format("2006-01-02")
 		if len(days) == 0 || days[len(days)-1].Date != date {
-			days = append(days, dayDTO{Date: date, Label: dayLabel(start, now)})
+			days = append(days, dayDTO{Date: date, Label: model.DayLabel(start, now)})
 		}
 		d := &days[len(days)-1]
 		d.Items = append(d.Items, itemDTO{
@@ -357,24 +357,4 @@ func endTime(a model.Appointment, loc *time.Location) string {
 		return ""
 	}
 	return end.Format("15:04")
-}
-
-// dayLabel names a day relative to now: "Сьогодні, 6 серпня", "Завтра, …",
-// "Вчора, …",
-// otherwise "Чт, 13 серпня".
-func dayLabel(day, now time.Time) string {
-	date := day.Format("2006-01-02")
-	switch date {
-	case now.Format("2006-01-02"):
-		return "Сьогодні, " + dayAndMonth(day)
-	case now.AddDate(0, 0, 1).Format("2006-01-02"):
-		return "Завтра, " + dayAndMonth(day)
-	case now.AddDate(0, 0, -1).Format("2006-01-02"):
-		return "Вчора, " + dayAndMonth(day)
-	}
-	return model.WeekdayLabels[int(day.Weekday())] + ", " + dayAndMonth(day)
-}
-
-func dayAndMonth(t time.Time) string {
-	return strconv.Itoa(t.Day()) + " " + model.MonthsGenitive[int(t.Month())]
 }

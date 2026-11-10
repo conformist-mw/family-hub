@@ -316,3 +316,22 @@ func (b Balance) NoticeDue() bool {
 func ParseDate(s string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02", s, time.Local)
 }
+
+// DayLabel names a day relative to now: "Сьогодні, 6 серпня", "Завтра, …",
+// "Вчора, …", otherwise "Чт, 13 серпня".
+func DayLabel(day, now time.Time) string {
+	switch day.Format(time.DateOnly) {
+	case now.Format(time.DateOnly):
+		return "Сьогодні, " + DayAndMonth(day)
+	case now.AddDate(0, 0, 1).Format(time.DateOnly):
+		return "Завтра, " + DayAndMonth(day)
+	case now.AddDate(0, 0, -1).Format(time.DateOnly):
+		return "Вчора, " + DayAndMonth(day)
+	}
+	return WeekdayLabels[int(day.Weekday())] + ", " + DayAndMonth(day)
+}
+
+// DayAndMonth is "6 серпня".
+func DayAndMonth(t time.Time) string {
+	return strconv.Itoa(t.Day()) + " " + MonthsGenitive[int(t.Month())]
+}

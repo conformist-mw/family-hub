@@ -40,7 +40,9 @@ In the evening it asks what was actually eaten — the planned dish by name,
 yesterday's otherwise — unless a photo of the plate already said. A photo, or
 `/cooked драники`, is read by a vision model against the catalogue and comes
 back as a card to confirm; once a week the same model suggests a few new dishes
-to add, think about, or turn down.
+to add, think about, or turn down. `/menu` asks the day ahead — tomorrow by default — and
+answers with three whole-day menus chosen with the last weeks in view; one tap
+makes a variant the day's plan, which the next morning's menu then opens with.
 
 ## Why
 
@@ -58,7 +60,7 @@ The original spreadsheet had a few sharp edges this app removes:
 | | Where | What it is for |
 | --- | --- | --- |
 | Web UI | behind oauth2-proxy | the whole data model: courses, payments, journal, reconciliation, recurring chores and what actually got done |
-| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, the evening list of chores nobody closed, the morning menu and evening meal check, weekly dish suggestions, and the cooking log from a photo or `/cooked` |
+| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, the evening list of chores nobody closed, the morning menu and evening meal check, weekly dish suggestions, `/menu` for the day ahead, and the cooking log from a photo or `/cooked` |
 | Mini App | `/mini`, inside Telegram | what is going on today, the week's visits, the weekly lesson schedule, recording a payment, reconciling a course, managing recurring chores and reviewing how they are going |
 
 The Mini App authenticates the person who opened it — an HMAC over Telegram's

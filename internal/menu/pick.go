@@ -98,7 +98,7 @@ func Pick(cands []Candidate, date time.Time, meal Meal, shown Exclude, n int, wi
 	}
 	var active, proposed []Candidate
 	for _, c := range cands {
-		if !fits(c.Dish, date, meal) {
+		if !Fits(c.Dish, date, meal) {
 			continue
 		}
 		switch c.Dish.Status {
@@ -135,10 +135,10 @@ func Pick(cands []Candidate, date time.Time, meal Meal, shown Exclude, n int, wi
 	return out
 }
 
-// fits is the part of the pool rule that does not change with what was shown:
+// Fits is the part of the pool rule that does not change with what was shown:
 // the dish is for this meal (or either), and weekend-only dishes stay out on
 // weekdays.
-func fits(d model.Dish, date time.Time, meal Meal) bool {
+func Fits(d model.Dish, date time.Time, meal Meal) bool {
 	if d.Meal != string(meal) && d.Meal != model.DishMealAny {
 		return false
 	}

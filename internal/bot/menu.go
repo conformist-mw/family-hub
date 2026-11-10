@@ -165,32 +165,7 @@ func menuView(s menuState) (string, *tele.ReplyMarkup) {
 	}
 	if shown := s.choiceLines(); len(shown) > 0 {
 		sb.WriteString("\n")
-		// One line per meal, however many dishes it has: "✅ Обід: Борщ ·
-		// Салат — Олег".
-		for _, meal := range menuMeals {
-			var names, whos []string
-			for _, m := range shown {
-				if m.Meal != string(meal) {
-					continue
-				}
-				name := html.EscapeString(m.Dish)
-				if m.Leftover {
-					name += " (доїдаємо)"
-				}
-				names = append(names, name)
-				if m.Who != "" && !slices.Contains(whos, m.Who) {
-					whos = append(whos, m.Who)
-				}
-			}
-			if len(names) == 0 {
-				continue
-			}
-			fmt.Fprintf(&sb, "✅ %s: %s", meal.Title(), strings.Join(names, " · "))
-			if len(whos) > 0 {
-				fmt.Fprintf(&sb, " — %s", html.EscapeString(strings.Join(whos, ", ")))
-			}
-			sb.WriteString("\n")
-		}
+		writeChoiceLines(&sb, shown)
 	}
 
 	mk := &tele.ReplyMarkup{}
@@ -226,6 +201,36 @@ func menuView(s menuState) (string, *tele.ReplyMarkup) {
 	}
 	mk.Inline(rows...)
 	return strings.TrimRight(sb.String(), "\n"), mk
+}
+
+// writeChoiceLines writes one line per meal, however many dishes it has:
+// "✅ Обід: Борщ · Салат — Олег". The morning menu and the menu asked for
+// with /menu both close on these lines.
+func writeChoiceLines(sb *strings.Builder, shown []model.MealEntry) {
+	for _, meal := range menuMeals {
+		var names, whos []string
+		for _, m := range shown {
+			if m.Meal != string(meal) {
+				continue
+			}
+			name := html.EscapeString(m.Dish)
+			if m.Leftover {
+				name += " (доїдаємо)"
+			}
+			names = append(names, name)
+			if m.Who != "" && !slices.Contains(whos, m.Who) {
+				whos = append(whos, m.Who)
+			}
+		}
+		if len(names) == 0 {
+			continue
+		}
+		fmt.Fprintf(sb, "✅ %s: %s", meal.Title(), strings.Join(names, " · "))
+		if len(whos) > 0 {
+			fmt.Fprintf(sb, " — %s", html.EscapeString(strings.Join(whos, ", ")))
+		}
+		sb.WriteString("\n")
+	}
 }
 
 func newMark(d menuDish) string {

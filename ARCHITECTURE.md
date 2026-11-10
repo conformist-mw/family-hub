@@ -203,7 +203,7 @@ internal/
   valid/       # the field-level validation error both write layers return
   bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
-  dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions
+  dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions; /menu day menus
   menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
   ics/         # the VCALENDAR feed HA polls
 data/          # local SQLite (gitignored)
@@ -949,6 +949,28 @@ the bot. The choice is `internal/menu` (pure), the messages are
   atomic guard, because the model can take a
   minute and the ticker drops the ticks it waits through. A failed call, or
   nothing new left after the filter, is logged and sends nothing.
+- **`/menu` is the day ahead, asked on purpose** (`internal/bot/dayplan.go`,
+  `dish.Recognizer.PlanDay`). The morning menu is for today because that is
+  when the family decides by default; `/menu` is the other moment — the
+  evening before, "what do we cook tomorrow" — and so defaults to tomorrow
+  (`сьогодні`, `післязавтра` also). It answers with three whole-day menus,
+  lunch and dinner together, because the two are decided together: a soup at
+  lunch makes a soup at dinner wrong. The model gets each open meal's pool as
+  `id | name` — already filtered by `menu.Fits`, so the meal and weekend rules
+  stay the menu's — the last three weeks per meal (eaten, else the plan, as
+  the rotation reads it) and the day before's pot, and chooses up to two
+  dishes per meal with a line of why. An id outside the pool is dropped, as is
+  a variant left without a dish for an open meal or repeating another.
+  Without `AI_API_KEY`, or when the call fails, the rotation fills the
+  variants instead (`menu.Pick`, a dish per meal), so the command needs no
+  model to work. A meal already eaten that day is shown, not planned. Each
+  variant's dishes travel in its `✅ N` button (`date|1.2|3`, inside
+  Telegram's 64 bytes), and `🔀 Інші варіанти` reads them back as what not to
+  repeat. A tap is `SetPlan` per meal, the Mini App's own write, with a dish
+  from the day before marked a leftover; the message collapses to the ✅
+  lines. Nothing else is needed for the plan to carry: tomorrow's morning menu
+  opens with both meals decided and the evening check asks about them. A plan
+  for today also redraws the morning menu. A past day writes nothing.
 - **Gates.** `MENU_TIME` and `MENU_EVENING_TIME` alone — the menu reads the
   local catalogue and needs no model. The suggestions need
   `DISH_SUGGEST_DOW`/`_TIME` **and** `AI_API_KEY`: a nil recognizer reached from the `RunDigests` goroutine

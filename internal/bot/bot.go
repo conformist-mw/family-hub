@@ -220,6 +220,11 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	tb.Handle(&tele.Btn{Unique: menuPickUnique}, bot.onMenuPick)
 	tb.Handle(&tele.Btn{Unique: menuShufUnique}, bot.onMenuShuf)
 	tb.Handle(&tele.Btn{Unique: menuLeftUnique}, bot.onMenuLeft)
+	// /menu composes with the model when there is one and falls back to the
+	// rotation when there is not, so it is live on every deploy as well.
+	tb.Handle("/menu", bot.cmdMenu)
+	tb.Handle(&tele.Btn{Unique: planPickUnique}, bot.onPlanPick)
+	tb.Handle(&tele.Btn{Unique: planMoreUnique}, bot.onPlanMore)
 	// The evening check's answers only write rows, so they are live on every
 	// deploy as well; "Інше" is the exception, registered with the cooking
 	// log below, because its answer goes to the recognizer.
@@ -286,6 +291,7 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	if parser != nil {
 		cmds = append(cmds, tele.Command{Text: "visit", Description: "Записати візит: /visit завтра 15:00 педикюр"})
 	}
+	cmds = append(cmds, tele.Command{Text: "menu", Description: "Що готувати завтра: кілька варіантів меню"})
 	if cfg.Dish != nil {
 		cmds = append(cmds, tele.Command{Text: "cooked", Description: "Що приготували: фото тарілки або /cooked драники"})
 	}

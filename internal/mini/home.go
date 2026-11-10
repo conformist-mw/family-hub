@@ -140,7 +140,7 @@ func (rt *Router) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt.writeJSON(w, http.StatusOK, homeDTO{
-		Date:     model.WeekdayFull[int(now.Weekday())] + ", " + dayAndMonth(now),
+		Date:     model.WeekdayFull[int(now.Weekday())] + ", " + model.DayAndMonth(now),
 		Today:    agendaRows(day.Today),
 		Upcoming: agendaRows(head(day.Upcoming, homeUpcoming)),
 		Courses:  homeCourses(balances, absences, scheduleLines(slots)),

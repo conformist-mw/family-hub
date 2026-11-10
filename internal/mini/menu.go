@@ -77,7 +77,7 @@ func (rt *Router) handlePlanner(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rt *Router) planner(date string, now time.Time) (plannerDTO, error) {
-	dto := plannerDTO{Date: date, DayLabel: dayLabel(now, now)}
+	dto := plannerDTO{Date: date, DayLabel: model.DayLabel(now, now)}
 
 	var offered map[menu.Meal][]int64
 	msg, err := rt.store.MenuMessage(date)

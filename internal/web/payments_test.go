@@ -35,7 +35,7 @@ func paymentsFixture(t *testing.T) (http.Handler, *store.Store, int64) {
 	if err != nil {
 		t.Fatalf("seed enrollment: %v", err)
 	}
-	h := NewRouter(database, slog.New(slog.NewTextHandler(io.Discard, nil)), "", nil, nil, nil)
+	h := NewRouter(database, slog.New(slog.NewTextHandler(io.Discard, nil)), "", nil, nil, nil, nil)
 	return h, st, id
 }
 

@@ -186,7 +186,7 @@ func main() {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
 	}
 
-	webHandler := web.NewRouter(database, logger, webhookPath, webhookHandler, notifier, remindersSvc)
+	webHandler := web.NewRouter(database, logger, webhookPath, webhookHandler, notifier, remindersSvc, menuBoard)
 
 	// initData verification is an HMAC keyed by the bot token, so with no token
 	// there is nothing to mount — the same shape as free-text capture without

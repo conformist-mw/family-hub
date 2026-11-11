@@ -529,3 +529,42 @@ body.bare main { max-width: 460px; margin: 0 auto; padding: 20px 16px; }
   margin: 0 4px 0 10px;
   vertical-align: baseline;
 }
+
+/* Kitchen --------------------------------------------------------------- */
+
+.meal-days { display: flex; flex-direction: column; gap: 12px; }
+.meal-day {
+  background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow-card);
+  padding: 12px 14px; border-left: 3px solid transparent;
+}
+.meal-day.is-today { border-left-color: var(--accent); }
+h2.meal-day-label { margin: 0 0 6px; }
+.meal-rows { list-style: none; margin: 0; padding: 0; }
+.meal-rows li {
+  display: grid; grid-template-columns: 5.5em 1fr auto; align-items: center; gap: 10px;
+  padding: 7px 0; border-top: 1px solid var(--line);
+}
+.meal-rows li:first-child { border-top: none; }
+.meal-title { color: var(--muted); font-size: 14px; }
+.meal-plan { color: var(--hint); font-style: italic; }
+.meal-day-menu { display: inline-block; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+
+form.stack.wide { max-width: none; }
+.menu-meal { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; background: var(--card); }
+.menu-meal legend { font-weight: 600; color: var(--text); }
+.menu-meal > .btn { align-self: flex-start; }
+.dish-pick { display: flex; flex-direction: column; gap: 10px; }
+.dish-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+label.dish-chip { flex-direction: row; gap: 0; color: var(--text); cursor: pointer; }
+label.dish-chip[hidden] { display: none; }
+.dish-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.dish-chip span {
+  font-size: 14px; padding: 7px 12px; border: 1px solid var(--line-strong);
+  border-radius: 999px; background: var(--card);
+}
+.dish-chip:hover span { border-color: var(--muted); }
+.dish-chip input:checked + span { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.dish-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dish-all summary { cursor: pointer; color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+.dish-filter { margin-bottom: 8px; max-width: 320px; }
+.default-submit { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }

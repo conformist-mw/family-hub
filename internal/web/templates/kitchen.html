@@ -1,0 +1,47 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Що їли</h1>
+  <a class="btn primary" href="/kitchen/menu">Скласти меню</a>
+</div>
+
+{{/* A day per card, newest first. A meal shows what was eaten; while nothing
+     is, the plan in grey, so a menu nobody confirmed reads as a plan and not
+     as a meal. The days ahead appear only once they have a plan. */}}
+<div class="meal-days">
+  {{range $d.Days}}
+  {{$day := .}}
+  <section class="meal-day{{if eq .Date $d.Today}} is-today{{end}}" id="d-{{.Date}}">
+    <h2 class="meal-day-label">{{.Label}}</h2>
+    <ul class="meal-rows">
+      {{range .Meals}}
+      <li>
+        <span class="meal-title">{{.Title}}</span>
+        <span class="meal-what">
+          {{if .Eaten}}
+            {{range $i, $m := .Eaten}}{{if $i}} · {{end}}{{if $m.Leftover}}<span title="доїдали вчорашнє">↩ </span>{{end}}{{$m.Dish}}{{end}}
+          {{else if .Planned}}
+            <span class="meal-plan">план: {{range $i, $m := .Planned}}{{if $i}} · {{end}}{{$m.Dish}}{{end}}</span>
+          {{else if .Away}}
+            <span class="muted">не вдома</span>
+          {{else}}
+            <span class="muted">—</span>
+          {{end}}
+        </span>
+        <span class="meal-actions">
+          {{if $day.Past}}<a class="btn small" href="/kitchen/meals/{{$day.Date}}/{{.Meal}}" title="що їли">✎</a>{{end}}
+        </span>
+      </li>
+      {{end}}
+    </ul>
+    {{if .Plannable}}<a class="meal-day-menu" href="/kitchen/menu/{{.Date}}">меню на цей день →</a>{{end}}
+  </section>
+  {{end}}
+</div>
+
+<div class="pager">
+  <a class="btn small" href="/kitchen?to={{$d.Older}}">← раніше</a>
+  {{if $d.NewerFirst}}<a class="btn small" href="/kitchen">пізніше →</a>
+  {{else if $d.Newer}}<a class="btn small" href="/kitchen?to={{$d.Newer}}">пізніше →</a>{{end}}
+</div>
+{{end}}

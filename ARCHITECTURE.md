@@ -205,13 +205,14 @@ internal/
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
   dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions; /menu day menus
   menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
+  kitchen/     # the menu against the store, and the plan/eaten write path the Mini App and web share
   ics/         # the VCALENDAR feed HA polls
 data/          # local SQLite (gitignored)
 ```
 
 ## Worlds
 
-The app is a hub and three worlds, not one flat site. A single row of eight
+The app is a hub and four worlds, not one flat site. A single row of eight
 links already mixed the daily (Баланс, Заняття) with the reference (Курси,
 Тренери), and the four utilities screens could not be added to it at all.
 
@@ -226,7 +227,7 @@ links already mixed the daily (Баланс, Заняття) with the reference 
 - `/appointments` and `/reminders` sit in the header beside it rather than
   inside a world. They are not a domain you administer; they are what is
   happening.
-- `/lessons/*`, `/meters/*` and `/stats/*` are the three worlds. The header
+- `/lessons/*`, `/meters/*`, `/kitchen/*` and `/stats/*` are the four worlds. The header
   picks one, the second row picks a page inside it. `pageData.Space` is derived
   from `Active` through `spaceOf` (`render.go`) rather than passed, because a
   page's world is a property of the page, not of the request that reached it —
@@ -270,6 +271,20 @@ links already mixed the daily (Баланс, Заняття) with the reference 
     `internal/web` never imports telebot and the button hides when the bot
     is off.
   - `/lessons/trainers` — trainers with their absences; add/delete an absence
+  - `/kitchen` — the Кухня world: a journal of what was eaten, two weeks a
+    page (`?to=` pages back), a day per card, a meal's plan shown in grey while
+    nothing is eaten, the days ahead listed once they have a plan.
+    `/kitchen/meals/{date}/{meal}` records what was eaten (today or earlier)
+    and `/kitchen/menu/{date}` makes a day's menu (today through a week
+    ahead), both meals in one form. They are plain forms — a checkbox per
+    dish, the usual ones first, the rest of the catalogue behind a filter —
+    and write through `kitchen.Recorder`, the Mini App's own write path, so a
+    meal saved at a desk redraws the bot's messages and announces the finished
+    day exactly as one saved on a phone. Today's menu offers what the morning
+    message showed; another day gets fresh picks, not remembered. `🔀` posts
+    the same form and re-renders it with every tick kept, the suggestions on
+    screen carried as hidden fields. A name typed in «Інша страва» is created
+    as typed: the desk has no model to read it through
   - `/stats` — the Статистика world's landing page: each world's totals side by
     side. Only Заняття has figures so far; the utilities row joins it when its
     statistics exist rather than standing as an empty promise
@@ -789,7 +804,7 @@ the bot. The choice is `internal/menu` (pure), the messages are
   message from the store (`Bot.RedrawMenu`, reached through
   `mini.Config.Menu`) — the message id is in `menu_messages` — so the group
   sees «✅ Обід: Борщ · Салат — Олег» as a tap used to produce. The
-  picking is `internal/kitchen`, shared by the bot and the Mini App: the
+  picking is `internal/kitchen`, shared by the bot, the Mini App and the web: the
   first picks of a day and a fresh row on request, so both offer the same.
   The old keyboard is still drawn when the bot's username did not resolve,
   and its buttons are still handled for a message posted before the link.

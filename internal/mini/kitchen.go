@@ -1,17 +1,12 @@
 package mini
 
 import (
-	"fmt"
-	"html"
 	"net/http"
-	"slices"
-	"strings"
 	"time"
 
+	"familyhub/internal/kitchen"
 	"familyhub/internal/menu"
 	"familyhub/internal/model"
-	"familyhub/internal/store"
-	"familyhub/internal/valid"
 )
 
 // Кухня is what was eaten, a meal at a time, and the picker that records it.
@@ -21,9 +16,7 @@ import (
 // cutlets from yesterday, and a different salad" could not be said. Here any
 // number of dishes are ticked, the whole catalogue can be searched, and a dish
 // nobody has named yet is created by typing it. Writes go through
-// store.SetEaten, the same RecordEaten path the photo and the evening check
-// take, so a plan is confirmed rather than doubled and a proposal that was
-// eaten becomes the family's.
+// kitchen.Recorder, shared with the web form.
 
 // kitchenDays is how far back the Кухня screen reaches: a week, enough to fill
 // in a dinner nobody answered and short enough to read on one screen.
@@ -31,15 +24,6 @@ const kitchenDays = 7
 
 // maxQuickDishes caps the chips the picker opens with, before any search.
 const maxQuickDishes = 12
-
-// maxPickedDishes is a fuse on one meal; a real dinner is two or three.
-const maxPickedDishes = 20
-
-// maxDishName keeps a typed name a name, not a paragraph.
-const maxDishName = 80
-
-// errDishGone answers a set naming a dish deleted since the screen loaded.
-var errDishGone = valid.FieldError{Field: "dishes", Message: "однієї зі страв уже немає — онови сторінку"}
 
 type kitchenMealDTO struct {
 	Meal    string   `json:"meal"`
@@ -215,17 +199,23 @@ type pickerWrite struct {
 	DishIDs []int64 `json:"dishIds"`
 	// NewDishes are dishes the catalogue does not have, named the way
 	// /mini/api/dishes/resolve named them (or as typed, without a model).
-	// They are created here, active: the family just ate or chose them.
+	// They are created on save, active: the family just ate or chose them.
 	NewDishes []newDish `json:"newDishes"`
 }
 
-// newDish carries what a dish is created with. Meal and Days decide when the
-// morning menu may offer it, so a delivery the model marked weekend-only does
-// not turn up on a Tuesday; empty means any.
+// newDish carries what a dish is created with; see kitchen.NewDish.
 type newDish struct {
 	Name string `json:"name"`
 	Meal string `json:"meal"`
 	Days string `json:"days"`
+}
+
+func (p pickerWrite) set() kitchen.Set {
+	s := kitchen.Set{DishIDs: p.DishIDs}
+	for _, d := range p.NewDishes {
+		s.NewDishes = append(s.NewDishes, kitchen.NewDish{Name: d.Name, Meal: d.Meal, Days: d.Days})
+	}
+	return s
 }
 
 func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +224,7 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, bad)
 		return
 	}
-	date, meal, day, bad := rt.mealKey(r)
+	date, meal, _, bad := rt.mealKey(r)
 	if bad != nil {
 		rt.fail(w, bad)
 		return
@@ -244,100 +234,12 @@ func (rt *Router) handlePickerSave(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errBadRequest)
 		return
 	}
-	if err := body.check(); err != nil {
+	n, err := rt.meals.Eaten(date, meal, who.Name, body.set())
+	if err != nil {
 		rt.writeError(w, err, "save meal")
 		return
 	}
-	ids, err := rt.dishIDs(body)
-	if err != nil {
-		rt.log.Error("mini: create dish", "err", err)
-		rt.fail(w, errInternal)
-		return
-	}
-
-	// Yesterday's dish eaten again is yesterday's pot — the same mark the
-	// evening check's "↩" buttons and the morning's «Доїдаємо» leave.
-	yesterday, err := rt.store.EatenOn(day.AddDate(0, 0, -1).Format(time.DateOnly))
-	if err != nil {
-		rt.log.Error("mini: yesterday's meals", "err", err)
-		rt.fail(w, errInternal)
-		return
-	}
-	leftover := map[int64]bool{}
-	for _, m := range yesterday {
-		leftover[m.DishID] = true
-	}
-
-	before, err := rt.store.MealsOn(date)
-	if err != nil {
-		rt.log.Error("mini: meals before save", "err", err)
-		rt.fail(w, errInternal)
-		return
-	}
-	if err := rt.store.SetEaten(date, string(meal), who.Name, ids, leftover); err != nil {
-		if store.IsNotFound(err) {
-			rt.writeError(w, errDishGone, "save meal")
-			return
-		}
-		rt.log.Error("mini: save meal", "err", err)
-		rt.fail(w, errInternal)
-		return
-	}
-	// Both messages say what was eaten — the evening check asks it, the
-	// morning menu shows it in its ✅ lines. Best-effort: the meal is saved,
-	// and a Telegram hiccup must not be reported as a failed save.
-	if rt.menu != nil {
-		if err := rt.menu.RedrawEvening(date); err != nil {
-			rt.log.Error("mini: redraw evening check", "err", err)
-		}
-		if err := rt.menu.RedrawMenu(date); err != nil {
-			rt.log.Error("mini: redraw menu", "err", err)
-		}
-	}
-	rt.announceDay(date, meal, day, who.Name, before)
-	rt.writeJSON(w, http.StatusOK, map[string]int{"saved": len(ids)})
-}
-
-// check keeps one meal's set within reason before anything is written.
-func (p pickerWrite) check() error {
-	if len(p.DishIDs)+len(p.NewDishes) > maxPickedDishes {
-		return valid.FieldError{Field: "dishes", Message: "забагато страв для одного разу"}
-	}
-	for _, d := range p.NewDishes {
-		if n := len([]rune(strings.TrimSpace(d.Name))); n == 0 || n > maxDishName {
-			return valid.FieldError{Field: "dishes", Message: "назва страви порожня або задовга"}
-		}
-		if (d.Meal != "" && !model.ValidDishMeal(d.Meal)) || (d.Days != "" && !model.ValidDishDays(d.Days)) {
-			return valid.FieldError{Field: "dishes", Message: "невідомий час для страви"}
-		}
-	}
-	return nil
-}
-
-// dishIDs is the set as ids, the typed names created first. They are created
-// outside the meal's transaction: a dish that then fails to be recorded is
-// still a dish the family named, and saving again finds it by name instead of
-// creating a second one.
-func (rt *Router) dishIDs(p pickerWrite) ([]int64, error) {
-	ids := make([]int64, 0, len(p.DishIDs)+len(p.NewDishes))
-	seen := map[int64]bool{}
-	pick := func(id int64) {
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	for _, id := range p.DishIDs {
-		pick(id)
-	}
-	for _, nd := range p.NewDishes {
-		d, _, err := rt.store.EnsureDish(model.Dish{Name: nd.Name, Meal: nd.Meal, Days: nd.Days})
-		if err != nil {
-			return nil, err
-		}
-		pick(d.ID)
-	}
-	return ids, nil
+	rt.writeJSON(w, http.StatusOK, map[string]int{"saved": n})
 }
 
 // catalogue is every dish a picker may search — all but the rejected — and
@@ -354,67 +256,4 @@ func (rt *Router) catalogue() ([]pickerDishDTO, map[int64]bool, error) {
 		listed[d.ID] = true
 	}
 	return out, listed, nil
-}
-
-// announceDay tells the group what the day was, once every meal is answered:
-// eaten, or «Не вдома» on the evening check. The redraws above are edits, and
-// an edit in Telegram is silent — filling the day in before the evening check
-// meant the group heard nothing at all, the check then having nothing to ask.
-// A save that changed nothing says nothing. Best-effort, like every group
-// message.
-func (rt *Router) announceDay(date string, meal menu.Meal, day time.Time, by string, before []model.MealEntry) {
-	if rt.notify == nil {
-		return
-	}
-	after, err := rt.store.MealsOn(date)
-	if err != nil {
-		rt.log.Error("mini: meals after save", "err", err)
-		return
-	}
-	if slices.Equal(eatenIDs(before, meal), eatenIDs(after, meal)) {
-		return
-	}
-	var away []string
-	if msg, err := rt.store.EveningMessage(date); err == nil {
-		away = msg.Away
-	} else if !store.IsNotFound(err) {
-		rt.log.Error("mini: evening message", "err", err)
-		return
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "🍽 <b>Що їли · %s</b>", html.EscapeString(model.DayLabel(day, rt.now().In(rt.loc))))
-	if by != "" {
-		fmt.Fprintf(&sb, " (%s)", html.EscapeString(by))
-	}
-	for _, m := range []menu.Meal{menu.Lunch, menu.Dinner} {
-		var names []string
-		for _, row := range after {
-			if row.Meal == string(m) && row.Status == model.MealEaten {
-				names = append(names, html.EscapeString(row.Dish))
-			}
-		}
-		switch {
-		case len(names) > 0:
-			fmt.Fprintf(&sb, "\n%s: %s", m.Title(), strings.Join(names, " · "))
-		case slices.Contains(away, string(m)):
-			fmt.Fprintf(&sb, "\n%s: не вдома", m.Title())
-		default:
-			return // a meal still open: the day is not done
-		}
-	}
-	if err := rt.notify.NotifyHTML(sb.String()); err != nil {
-		rt.log.Error("mini: announce day", "err", err)
-	}
-}
-
-func eatenIDs(rows []model.MealEntry, meal menu.Meal) []int64 {
-	var ids []int64
-	for _, m := range rows {
-		if m.Meal == string(meal) && m.Status == model.MealEaten {
-			ids = append(ids, m.DishID)
-		}
-	}
-	slices.Sort(ids)
-	return ids
 }

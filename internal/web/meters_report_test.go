@@ -61,7 +61,7 @@ func reportRouter(t *testing.T) (http.Handler, *fakeNotifier) {
 	notifier := &fakeNotifier{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	chores := reminders.NewService(store.New(database), time.Local, logger, time.Now)
-	return NewRouter(database, logger, "", nil, notifier, chores), notifier
+	return NewRouter(database, logger, "", nil, notifier, chores, nil), notifier
 }
 
 func TestTheReportNamesTheMonthAndWhatItCameTo(t *testing.T) {

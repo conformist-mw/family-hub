@@ -28,6 +28,7 @@
       <span class="spaces-sep"></span>
       <a href="/lessons" class="{{if eq .Space "lessons"}}active{{end}}">Заняття</a>
       <a href="/meters" class="{{if eq .Space "meters"}}active{{end}}">Дім</a>
+      <a href="/kitchen" class="{{if eq .Space "kitchen"}}active{{end}}">Кухня</a>
       <a href="/stats" class="{{if eq .Space "stats"}}active{{end}}">Статистика</a>
     </nav>
   </header>
@@ -46,6 +47,11 @@
     <a href="/meters/tariffs" class="{{if eq .Active "tariffs"}}active{{end}}">Тарифи</a>
     <a href="/meters/utilities" class="{{if eq .Active "utilities"}}active{{end}}">Сервіси</a>
     <a href="/meters/addresses" class="{{if eq .Active "addresses"}}active{{end}}">Адреси</a>
+  </nav>
+  {{else if eq .Space "kitchen"}}
+  <nav class="subnav">
+    <a href="/kitchen" class="{{if eq .Active "kitchen"}}active{{end}}">Журнал</a>
+    <a href="/kitchen/menu" class="{{if eq .Active "kitchen_menu"}}active{{end}}">Меню</a>
   </nav>
   {{else if eq .Space "stats"}}
   <nav class="subnav">

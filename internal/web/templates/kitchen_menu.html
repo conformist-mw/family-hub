@@ -1,0 +1,40 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Меню <span class="muted">· {{$d.DayLabel}}</span></h1>
+</div>
+
+<div class="date-quick" style="margin-bottom:16px">
+  {{range $d.Days}}<a class="chip-link{{if .Active}} active{{end}}" href="/kitchen/menu/{{.Date}}">{{.Label}}</a>{{end}}
+</div>
+
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
+
+{{/* One form for both meals: they are decided together — a soup at lunch
+     makes a soup at dinner wrong. 🔀 posts the same form, so every tick
+     survives it; the suggestions on screen travel as hidden fields. */}}
+<form class="stack wide" method="post" action="/kitchen/menu/{{$d.Date}}">
+  {{/* Enter in a text field presses the form's first submit button; without
+       this one that would be lunch's 🔀 rather than the save. */}}
+  <button class="default-submit" type="submit" tabindex="-1" aria-hidden="true">Зберегти меню</button>
+  {{range $d.Meals}}
+  <fieldset class="menu-meal">
+    <legend>{{.Title}}</legend>
+    {{if .Eaten}}
+      <p>✅ {{range $i, $n := .Eaten}}{{if $i}} · {{end}}{{$n}}{{end}} <span class="muted">— уже з'їли</span></p>
+    {{else}}
+      {{$meal := .Meal}}
+      {{range .Offered}}<input type="hidden" name="offered_{{$meal}}" value="{{.}}">{{end}}
+      {{template "dishpick" .Picker}}
+      <button class="btn small" type="submit" name="more" value="{{.Meal}}">🔀 Ще варіанти</button>
+    {{end}}
+  </fieldset>
+  {{end}}
+  <p class="muted">↩ — доїдаємо вчорашнє, 🆕 — ще не готували. Зняти всі позначки з прийому їжі — прибрати його план.</p>
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти меню</button>
+    <a class="btn" href="/kitchen">Скасувати</a>
+  </div>
+</form>
+{{template "dishfilter"}}
+{{end}}

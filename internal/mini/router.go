@@ -124,6 +124,7 @@ type Router struct {
 	audit        *audit.Service
 	notify       Notifier // nil — bot off; the send-to-group button stays hidden
 	kitchen      *kitchen.Service
+	meals        *kitchen.Recorder
 	menu         MenuBoard // nil — bot off; a plan is saved, nothing is redrawn
 	dish         *dish.Recognizer
 	log          *slog.Logger
@@ -159,6 +160,8 @@ func NewRouter(st *store.Store, logger *slog.Logger, cfg Config) (http.Handler, 
 		audit:        audit.NewService(st, func() time.Time { return cfg.Now().In(cfg.Loc) }),
 		notify:       cfg.Notifier,
 		kitchen:      kitchen.New(st),
+		meals: kitchen.NewRecorder(st, cfg.Menu, cfg.Notifier, logger,
+			func() time.Time { return cfg.Now().In(cfg.Loc) }),
 		menu:         cfg.Menu,
 		dish:         cfg.Dish,
 		log:          logger,

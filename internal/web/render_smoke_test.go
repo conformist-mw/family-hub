@@ -52,9 +52,19 @@ func smokeRouter(t *testing.T) http.Handler {
 		INSERT INTO appointments (person, title, starts_at, status)
 		VALUES ('Дьома', 'Стоматолог', '2026-09-10T09:00', 'planned')`)
 	mustExec(t, database, `INSERT INTO trainers (id, name) VALUES (1, 'Олена')`)
+	mustExec(t, database, `
+		INSERT INTO dishes (id, name, name_key, meal, days, status)
+		VALUES (1, 'Борщ', 'борщ', 'any', 'any', 'active'),
+		       (2, 'Плов', 'плов', 'dinner', 'any', 'proposed')`)
+	today := time.Now().Format(time.DateOnly)
+	yesterday := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+	mustExec(t, database, `
+		INSERT INTO meals (dish_id, date, meal, who, status, leftover)
+		VALUES (1, ?, 'lunch', 'Олег', 'eaten', 0), (1, ?, 'lunch', 'Олег', 'eaten', 1),
+		       (2, ?, 'dinner', 'Олег', 'planned', 0)`, yesterday, today, today)
 
 	svc := reminders.NewService(st, time.Local, logger, time.Now)
-	return NewRouter(database, logger, "", nil, nil, svc)
+	return NewRouter(database, logger, "", nil, nil, svc, nil)
 }
 
 // Two utilities templates are not in this list and cannot be: reading_form and
@@ -85,6 +95,10 @@ func TestEveryPageRenders(t *testing.T) {
 		"/meters/tariffs",
 		"/meters/utilities",
 		"/meters/addresses",
+		"/kitchen", // world: Кухня
+		"/kitchen?to=2026-01-31",
+		"/kitchen/meals/" + time.Now().Format(time.DateOnly) + "/dinner",
+		"/kitchen/menu/" + time.Now().Format(time.DateOnly),
 		"/stats", // world: Статистика
 		"/stats/lessons",
 	} {

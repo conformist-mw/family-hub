@@ -36,7 +36,7 @@ func choreApp(t *testing.T, wired bool) (http.Handler, *store.Store, *reminders.
 	if wired {
 		svc = reminders.NewService(st, time.Local, logger, time.Now)
 	}
-	return NewRouter(database, logger, "", nil, nil, svc), st, svc
+	return NewRouter(database, logger, "", nil, nil, svc, nil), st, svc
 }
 
 // seedExistingChore makes a chore that has been running for a while, rather

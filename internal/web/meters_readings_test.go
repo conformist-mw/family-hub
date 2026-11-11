@@ -54,7 +54,7 @@ func metersRouter(t *testing.T) http.Handler {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	chores := reminders.NewService(store.New(database), time.Local, logger, time.Now)
-	return NewRouter(database, logger, "", nil, nil, chores)
+	return NewRouter(database, logger, "", nil, nil, chores, nil)
 }
 
 func metersBody(t *testing.T, router http.Handler, path string) string {
@@ -183,7 +183,7 @@ func metersDB(t *testing.T) (http.Handler, *sql.DB) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	chores := reminders.NewService(store.New(database), time.Local, logger, time.Now)
-	return NewRouter(database, logger, "", nil, nil, chores), database
+	return NewRouter(database, logger, "", nil, nil, chores, nil), database
 }
 
 func readingRow(t *testing.T, database *sql.DB, id int64) (amount float64, c1, c2 sql.NullFloat64, tariff int64) {

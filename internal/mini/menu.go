@@ -197,7 +197,7 @@ func (rt *Router) handlePlannerSave(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, bad)
 		return
 	}
-	date, now, bad := rt.menuDay(r)
+	date, _, bad := rt.menuDay(r)
 	if bad != nil {
 		rt.fail(w, bad)
 		return
@@ -207,59 +207,18 @@ func (rt *Router) handlePlannerSave(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, errBadRequest)
 		return
 	}
+	sets := map[menu.Meal]kitchen.Set{}
 	for meal, set := range body {
 		if !model.ValidMeal(meal) {
 			rt.fail(w, errBadRequest)
 			return
 		}
-		if err := set.check(); err != nil {
-			rt.writeError(w, err, "save menu")
-			return
-		}
+		sets[menu.Meal(meal)] = set.set()
 	}
-
-	leftovers, err := rt.kitchen.Leftovers(now)
+	saved, err := rt.meals.Plan(date, who.Name, sets)
 	if err != nil {
-		rt.log.Error("mini: leftovers", "err", err)
-		rt.fail(w, errInternal)
+		rt.writeError(w, err, "save menu")
 		return
-	}
-	leftover := map[int64]bool{}
-	for _, id := range leftovers {
-		leftover[id] = true
-	}
-
-	saved := map[string]bool{}
-	for _, meal := range kitchen.Meals {
-		set, ok := body[string(meal)]
-		if !ok {
-			continue
-		}
-		ids, err := rt.dishIDs(set)
-		if err != nil {
-			rt.log.Error("mini: create dish", "err", err)
-			rt.fail(w, errInternal)
-			return
-		}
-		wrote, err := rt.store.SetPlan(date, string(meal), who.Name, ids, leftover)
-		if store.IsNotFound(err) {
-			rt.writeError(w, errDishGone, "save menu")
-			return
-		}
-		if err != nil {
-			rt.log.Error("mini: save plan", "err", err)
-			rt.fail(w, errInternal)
-			return
-		}
-		saved[string(meal)] = wrote
-	}
-
-	// Best-effort, like every group message: the plan is saved, and a
-	// Telegram hiccup must not be reported as a failed save.
-	if rt.menu != nil {
-		if err := rt.menu.RedrawMenu(date); err != nil {
-			rt.log.Error("mini: redraw menu", "err", err)
-		}
 	}
 	rt.writeJSON(w, http.StatusOK, map[string]any{"saved": saved})
 }

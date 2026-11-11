@@ -1,0 +1,20 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{$d.Title}} <span class="muted">· {{$d.DayLabel}}</span></h1>
+</div>
+
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
+
+{{if $d.Planned}}<p class="muted">План був: {{range $i, $n := $d.Planned}}{{if $i}} · {{end}}{{$n}}{{end}}</p>{{end}}
+
+<form class="stack wide" method="post" action="/kitchen/meals/{{$d.Date}}/{{$d.Meal}}">
+  {{template "dishpick" $d.Picker}}
+  <p class="muted">Нічого не позначено — значить, нічого не їли: записане для цього разу зникне.</p>
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/kitchen#d-{{$d.Date}}">Скасувати</a>
+  </div>
+</form>
+{{template "dishfilter"}}
+{{end}}

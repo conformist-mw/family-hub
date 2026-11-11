@@ -11,6 +11,7 @@ import (
 	"familyhub/internal/agenda"
 	"familyhub/internal/appointments"
 	"familyhub/internal/audit"
+	"familyhub/internal/kitchen"
 	"familyhub/internal/model"
 	"familyhub/internal/payments"
 	"familyhub/internal/reminders"
@@ -32,12 +33,17 @@ type App struct {
 	// Reminders feeds recurring chores into the ICS feed. Shared with the Mini
 	// App and the bot; nil means the feed simply carries none.
 	Reminders *reminders.Service
+	// Kitchen picks the menu's suggestions and Meals writes plans and eaten
+	// meals — both the Mini App's own, so a meal recorded at a desk redraws the
+	// bot's messages exactly as one recorded on a phone.
+	Kitchen   *kitchen.Service
+	Meals     *kitchen.Recorder
 	Notifier  Notifier // nil — bot disabled, send-to-group hidden
 	templates map[string]*template.Template
 }
 
 func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http.Handler,
-	notifier Notifier, chores *reminders.Service) http.Handler {
+	notifier Notifier, chores *reminders.Service, board kitchen.Board) http.Handler {
 	st := store.New(db)
 	a := &App{
 		DB:     db,
@@ -49,9 +55,11 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 		Payments:     payments.NewService(st, notifier, logger),
 		Audit:        audit.NewService(st, time.Now),
 		Reminders:    chores,
+		Kitchen:      kitchen.New(st),
 		Notifier:     notifier,
 		templates:    parseTemplates(),
 	}
+	a.Meals = kitchen.NewRecorder(st, board, notifier, logger, time.Now)
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", staticHandler())
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +138,13 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /reminders/{id}", a.handleReminderUpdate)
 	mux.HandleFunc("POST /reminders/{id}/delete", a.handleReminderDelete)
 	mux.HandleFunc("POST /reminders/{id}/mark", a.handleReminderMark)
+
+	mux.HandleFunc("GET /kitchen", a.handleKitchenJournal)
+	mux.HandleFunc("GET /kitchen/meals/{date}/{meal}", a.handleMealEdit)
+	mux.HandleFunc("POST /kitchen/meals/{date}/{meal}", a.handleMealSave)
+	mux.HandleFunc("GET /kitchen/menu", a.handleMenuToday)
+	mux.HandleFunc("GET /kitchen/menu/{date}", a.handleMenu)
+	mux.HandleFunc("POST /kitchen/menu/{date}", a.handleMenuSave)
 
 	mux.HandleFunc("GET /stats", a.handleStatsOverview)
 	mux.HandleFunc("GET /stats/lessons", a.handleStats)

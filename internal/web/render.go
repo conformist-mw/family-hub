@@ -27,6 +27,17 @@ var monthNames = [12]string{"січень", "лютий", "березень", "�
 	"червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"}
 
 var funcs = template.FuncMap{
+	// dishOpt pairs a picker's checkbox with the field it posts under, which
+	// a nested template cannot otherwise reach.
+	"dishOpt": func(field string, o dishOption) struct {
+		Field  string
+		Option dishOption
+	} {
+		return struct {
+			Field  string
+			Option dishOption
+		}{field, o}
+	},
 	// num renders an optional meter figure for an input's value. A nil pointer
 	// is an unread meter, and the template's own formatting prints that as the
 	// literal "<nil>" — which lands in the form field and is then submitted.
@@ -254,6 +265,9 @@ var spaceOf = map[string]string{
 	"addresses": "meters",
 	"report":    "meters",
 
+	"kitchen":      "kitchen",
+	"kitchen_menu": "kitchen",
+
 	"stats":         "stats",
 	"stats_lessons": "stats",
 	"stats_meters":  "stats",
@@ -303,11 +317,14 @@ func parseTemplates() map[string]*template.Template {
 		"meters_addresses.html",
 		"trainers.html",
 		"audit.html",
+		"kitchen.html",
+		"kitchen_meal.html",
+		"kitchen_menu.html",
 	}
 	m := map[string]*template.Template{}
 	for _, p := range pages {
 		t := template.New("base.html").Funcs(funcs)
-		t = template.Must(t.ParseFS(templateFS, "templates/base.html", "templates/"+p))
+		t = template.Must(t.ParseFS(templateFS, "templates/base.html", "templates/parts.html", "templates/"+p))
 		m[p] = t
 	}
 	return m

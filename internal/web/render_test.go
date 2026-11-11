@@ -8,17 +8,19 @@ import "testing"
 // than a missing entry — so the map is asserted rather than assumed.
 func TestEveryTabResolvesToItsWorld(t *testing.T) {
 	for tab, want := range map[string]string{
-		"balance":     "lessons",
-		"visits":      "lessons",
-		"payments":    "lessons",
-		"enrollments": "lessons",
-		"trainers":    "lessons",
-		"readings":    "meters",
-		"tariffs":     "meters",
-		"utilities":   "meters",
-		"addresses":   "meters",
-		"report":      "meters",
-		"stats":       "stats",
+		"balance":      "lessons",
+		"visits":       "lessons",
+		"payments":     "lessons",
+		"enrollments":  "lessons",
+		"trainers":     "lessons",
+		"readings":     "meters",
+		"tariffs":      "meters",
+		"utilities":    "meters",
+		"addresses":    "meters",
+		"report":       "meters",
+		"stats":        "stats",
+		"kitchen":      "kitchen",
+		"kitchen_menu": "kitchen",
 	} {
 		if got := spaceOf[tab]; got != want {
 			t.Errorf("spaceOf[%q] = %q, want %q", tab, got, want)
@@ -40,7 +42,7 @@ func TestShellScreensBelongToTheHub(t *testing.T) {
 // Every value in the map has to be one the template knows how to draw a
 // second-tier nav for. A typo here renders a page with no navigation at all.
 func TestNoTabPointsAtAnUnknownWorld(t *testing.T) {
-	known := map[string]bool{"lessons": true, "meters": true, "stats": true}
+	known := map[string]bool{"lessons": true, "meters": true, "kitchen": true, "stats": true}
 	for tab, space := range spaceOf {
 		if !known[space] {
 			t.Errorf("tab %q claims unknown world %q", tab, space)

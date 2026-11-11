@@ -38,7 +38,7 @@ func calendarHandler(t *testing.T, withChores bool) (http.Handler, *store.Store,
 	if withChores {
 		svc = reminders.NewService(st, time.Local, logger, time.Now)
 	}
-	return NewRouter(database, logger, "", nil, nil, svc), st, svc
+	return NewRouter(database, logger, "", nil, nil, svc, nil), st, svc
 }
 
 func fetchICS(t *testing.T, h http.Handler) string {

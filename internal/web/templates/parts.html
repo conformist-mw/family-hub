@@ -1,0 +1,51 @@
+{{/* Shared pieces, parsed with every page. */}}
+
+{{/* dishpick is one meal's checkboxes (a dishPicker): the dishes that matter
+     for it as chips, then the whole catalogue behind a filter, then a field for
+     a dish nobody has named yet. A checkbox per dish rather than a search box:
+     the catalogue is a few dozen names, and a form posts without a line of
+     script. The filter is the only script, and the list works without it. */}}
+{{define "dishpick"}}
+<div class="dish-pick">
+  {{if .Top}}
+  <div class="dish-chips">
+    {{range .Top}}{{template "dishopt" (dishOpt $.Field .)}}{{end}}
+  </div>
+  {{end}}
+  {{if .Rest}}
+  <details class="dish-all">
+    <summary>Усі страви <span class="muted">({{len .Rest}})</span></summary>
+    <input type="search" class="dish-filter" placeholder="пошук…" autocomplete="off">
+    <div class="dish-chips">
+      {{range .Rest}}{{template "dishopt" (dishOpt $.Field .)}}{{end}}
+    </div>
+  </details>
+  {{end}}
+  <label class="dish-new">
+    Інша страва
+    <input type="text" name="{{.NewField}}" value="{{.NewValue}}" placeholder="назва; кілька — через кому" maxlength="300">
+  </label>
+</div>
+{{end}}
+
+{{define "dishopt"}}
+<label class="dish-chip" data-name="{{.Option.Name}}">
+  <input type="checkbox" name="{{.Field}}" value="{{.Option.ID}}" {{if .Option.Checked}}checked{{end}}>
+  <span>{{if .Option.Leftover}}↩ {{end}}{{.Option.Name}}{{if .Option.Proposed}} 🆕{{end}}</span>
+</label>
+{{end}}
+
+{{define "dishfilter"}}
+<script>
+  // Narrows a picker's "all dishes" list as you type. Case-insensitive, any
+  // part of the name; Cyrillic folds with toLowerCase like Latin does.
+  document.querySelectorAll('.dish-filter').forEach(function (input) {
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase();
+      input.closest('.dish-all').querySelectorAll('.dish-chip').forEach(function (chip) {
+        chip.hidden = q !== '' && chip.dataset.name.toLowerCase().indexOf(q) < 0;
+      });
+    });
+  });
+</script>
+{{end}}

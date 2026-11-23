@@ -139,6 +139,12 @@ func NewRouter(db *sql.DB, logger *slog.Logger, webhookPath string, webhook http
 	mux.HandleFunc("POST /reminders/{id}/delete", a.handleReminderDelete)
 	mux.HandleFunc("POST /reminders/{id}/mark", a.handleReminderMark)
 
+	mux.HandleFunc("GET /log", a.handleLog)
+	mux.HandleFunc("POST /log", a.handleLogCreate)
+	mux.HandleFunc("GET /log/{id}/edit", a.handleLogEdit)
+	mux.HandleFunc("POST /log/{id}", a.handleLogUpdate)
+	mux.HandleFunc("POST /log/{id}/delete", a.handleLogDelete)
+
 	mux.HandleFunc("GET /kitchen", a.handleKitchenJournal)
 	mux.HandleFunc("GET /kitchen/meals/{date}/{meal}", a.handleMealEdit)
 	mux.HandleFunc("POST /kitchen/meals/{date}/{meal}", a.handleMealSave)

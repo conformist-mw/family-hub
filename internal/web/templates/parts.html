@@ -49,3 +49,44 @@
   });
 </script>
 {{end}}
+
+{{/* logfields is the chronicle's form body, shared by the page's quick form
+     and the edit page. The tag chips under the field add or remove that tag
+     from it; typing works the same without them. */}}
+{{define "logfields"}}
+<label>
+  Дата
+  <input type="date" name="date" id="log-date" value="{{.Form.Date}}" required>
+  <div class="date-quick">
+    <button type="button" data-date="{{.Today}}">сьогодні</button>
+    <button type="button" data-date="{{.Yday}}">вчора</button>
+  </div>
+</label>
+<label>
+  Що зроблено
+  <textarea name="text" rows="3" required placeholder="Заправив генератор: 30 л газу, моточаси 151,7, 1150 ₴">{{.Form.Text}}</textarea>
+</label>
+<label>
+  Теги
+  <input type="text" name="tags" id="log-tags" value="{{.Form.Tags}}" placeholder="генератор газ" autocomplete="off">
+  {{if .Tags}}
+  <div class="date-quick log-tag-pick">
+    {{range .Tags}}<button type="button" data-tag="{{.Tag}}">#{{.Tag}}</button>{{end}}
+  </div>
+  {{end}}
+</label>
+<script>
+  document.querySelectorAll('.date-quick button[data-date]').forEach(function (b) {
+    b.addEventListener('click', function () { document.getElementById('log-date').value = b.dataset.date; });
+  });
+  document.querySelectorAll('.log-tag-pick button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var input = document.getElementById('log-tags');
+      var tags = input.value.toLowerCase().split(/[\s,;#]+/).filter(Boolean);
+      var i = tags.indexOf(b.dataset.tag);
+      if (i >= 0) tags.splice(i, 1); else tags.push(b.dataset.tag);
+      input.value = tags.join(' ');
+    });
+  });
+</script>
+{{end}}

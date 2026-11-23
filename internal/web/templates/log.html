@@ -1,0 +1,43 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Хроніка</h1>
+</div>
+
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
+
+<form class="stack log-compose" method="post" action="/log">
+  <input type="hidden" name="filter" value="{{$d.Filter}}">
+  {{template "logfields" $d}}
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Записати</button>
+  </div>
+</form>
+
+{{if $d.Tags}}
+<div class="filters log-filters">
+  <a class="chip-link{{if not $d.Filter}} active{{end}}" href="/log">усі</a>
+  {{range $d.Tags}}
+  <a class="chip-link{{if eq .Tag $d.Filter}} active{{end}}" href="/log?tag={{.Tag}}">#{{.Tag}} <span class="muted">{{.Count}}</span></a>
+  {{end}}
+</div>
+{{end}}
+
+<table class="log-table">
+  <thead>
+    <tr><th>Дата</th><th>Що</th><th>Теги</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range $d.Entries}}
+    <tr>
+      <td data-label="Дата" class="log-date">{{dateShort .Date}}</td>
+      <td data-label="Що" class="log-text">{{.Text}}</td>
+      <td data-label="Теги">{{range .Tags}}<a class="log-tag" href="/log?tag={{.}}">#{{.}}</a> {{end}}</td>
+      <td data-label=""><a class="btn small" href="/log/{{.ID}}/edit">✎</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4" class="empty">{{if $d.Filter}}З тегом #{{$d.Filter}} записів немає.{{else}}Записів ще немає.{{end}}</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

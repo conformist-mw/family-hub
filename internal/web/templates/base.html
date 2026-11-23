@@ -16,8 +16,9 @@
     reference (Курси, Тренери), and adding the utilities screens to it was
     what made the split necessary.
 
-    Записи and Справи sit in the header rather than in a world: they are not
-    a domain you administer, they are what is happening now.
+    Записи, Справи and Хроніка sit in the header rather than in a world: they
+    are not a domain you administer, they are what is happening now — and,
+    for Хроніка, what already happened.
   */}}
   <header class="topbar">
     <a class="brand" href="/">Family Hub</a>
@@ -25,6 +26,7 @@
       <a href="/" class="{{if eq .Active "hub"}}active{{end}}">Сьогодні</a>
       <a href="/appointments" class="{{if eq .Active "appointments"}}active{{end}}">Записи</a>
       <a href="/reminders" class="{{if eq .Active "reminders"}}active{{end}}">Справи</a>
+      <a href="/log" class="{{if eq .Active "log"}}active{{end}}">Хроніка</a>
       <span class="spaces-sep"></span>
       <a href="/lessons" class="{{if eq .Space "lessons"}}active{{end}}">Заняття</a>
       <a href="/meters" class="{{if eq .Space "meters"}}active{{end}}">Дім</a>

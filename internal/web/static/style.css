@@ -568,3 +568,16 @@ label.dish-chip[hidden] { display: none; }
 .dish-all summary { cursor: pointer; color: var(--muted); font-size: 14px; margin-bottom: 8px; }
 .dish-filter { margin-bottom: 8px; max-width: 320px; }
 .default-submit { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* Chronicle ------------------------------------------------------------ */
+
+.log-compose { margin-bottom: 26px; }
+.log-tag-pick { margin-top: 2px; }
+.log-filters .chip-link .muted { font-size: 12px; margin-left: 2px; }
+.chip-link.active .muted { color: inherit; opacity: .75; }
+.log-date { white-space: nowrap; }
+/* Free text keeps its line breaks: an entry pasted as three lines is three
+   facts, and run together they are one unreadable one. */
+.log-text { white-space: pre-line; }
+.log-tag { color: var(--muted); text-decoration: none; font-size: 13px; white-space: nowrap; }
+.log-tag:hover { color: var(--accent); }

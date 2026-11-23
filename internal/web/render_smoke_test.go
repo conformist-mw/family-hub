@@ -63,6 +63,9 @@ func smokeRouter(t *testing.T) http.Handler {
 		VALUES (1, ?, 'lunch', 'Олег', 'eaten', 0), (1, ?, 'lunch', 'Олег', 'eaten', 1),
 		       (2, ?, 'dinner', 'Олег', 'planned', 0)`, yesterday, today, today)
 
+	mustExec(t, database, `INSERT INTO log_entries (id, date, text) VALUES (1, '2026-02-09', 'Генератор: 30 л газу')`)
+	mustExec(t, database, `INSERT INTO log_entry_tags (entry_id, tag) VALUES (1, 'генератор')`)
+
 	svc := reminders.NewService(st, time.Local, logger, time.Now)
 	return NewRouter(database, logger, "", nil, nil, svc, nil)
 }
@@ -81,6 +84,9 @@ func TestEveryPageRenders(t *testing.T) {
 		"/reminders",
 		"/reminders/new",
 		"/reminders/history",
+		"/log",
+		"/log?tag=генератор",
+		"/log/1/edit",
 		"/lessons", // world: Заняття
 		"/lessons/visits",
 		"/lessons/visits/new",

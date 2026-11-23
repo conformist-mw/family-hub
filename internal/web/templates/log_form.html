@@ -1,0 +1,20 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Запис у хроніці</h1>
+</div>
+
+{{if $d.Error}}<div class="flash error">{{$d.Error}}</div>{{end}}
+
+<form class="stack" method="post" action="/log/{{$d.ID}}">
+  {{template "logfields" $d}}
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Зберегти</button>
+    <a class="btn" href="/log">Скасувати</a>
+  </div>
+</form>
+
+<form method="post" action="/log/{{$d.ID}}/delete" onsubmit="return confirm('Видалити запис?')" class="danger-zone">
+  <button class="btn danger" type="submit">Видалити запис</button>
+</form>
+{{end}}

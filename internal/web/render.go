@@ -320,6 +320,8 @@ func parseTemplates() map[string]*template.Template {
 		"kitchen.html",
 		"kitchen_meal.html",
 		"kitchen_menu.html",
+		"log.html",
+		"log_form.html",
 	}
 	m := map[string]*template.Template{}
 	for _, p := range pages {

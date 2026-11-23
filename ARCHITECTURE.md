@@ -114,6 +114,15 @@ to look when picking it back up after a break.
   `done_by`, and `rule_id` recording which version produced it. Identity is
   `UNIQUE(reminder_id, due_at)` — the whole instant, not the date, because a
   full RRULE can put two occurrences on one day (`BYHOUR=8,20`).
+- **`log_entries`** + **`log_entry_tags`** — the chronicle (`/log`): something
+  done on a day, written down so it is not forgotten — the generator refuelled
+  at 151.7 engine hours, a filter changed. What used to go to Telegram's Saved
+  Messages. An entry is a `date` and free `text` and nothing more structured:
+  what is worth recording varies too much for columns. Tags group entries for
+  looking back and live in their own table so a filter is an index lookup; they
+  are stored normalised by `model.ParseTags` (lower case, no `#`, one word —
+  spaces separate tags, so `#генератор #газ` and `генератор, газ` are the same
+  two). Web only; nothing else reads it.
 
 The schema reflects deliberate choices after a model review (see
 `review/model_review.md`): no separate `activities` dictionary, no

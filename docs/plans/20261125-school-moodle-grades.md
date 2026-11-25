@@ -185,10 +185,10 @@
 - [x] `go build ./... && go test ./...` — зелено
 
 ### Task 9: Verify acceptance criteria
-- [ ] нові оцінки, `/grades`, огляд реалізовані; seed-кейси покриті
-- [ ] живий прогін у scratchpad сесії (не в репо): харнесс робить `SyncOnce` у тимчасову БД і друкує `/grades` та огляд у stdout, облікові дані з env
-- [ ] `go vet ./... && go test ./...`
-- [ ] `git grep` по диффу: немає імені, адреси школи, email, userid; `localharness/` не в коміті
+- [x] нові оцінки, `/grades`, огляд реалізовані; seed-кейси покриті
+- [x] живий прогін у scratchpad сесії (не в репо): харнесс робить `SyncOnce` у тимчасову БД і друкує `/grades` та огляд у stdout, облікові дані з env
+- [x] `go vet ./... && go test ./...`
+- [x] `git grep` по диффу: немає імені, адреси школи, email, userid; `localharness/` не в коміті
 
 ### Task 10: [Final] Update documentation
 - [ ] `ARCHITECTURE.md` — розділ про Moodle (токен мобільного API, логін на синк, seed по курсу, якір тижня, нічна пауза, втрата сповіщення при збої Telegram)

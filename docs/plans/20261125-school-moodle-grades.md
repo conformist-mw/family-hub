@@ -118,12 +118,12 @@
 - Create: `internal/moodle/sync.go`
 - Create: `internal/moodle/sync_test.go`
 
-- [ ] `Config{Username,Password,Interval,Week0}`, `Service` (store, client, loc, logger, now, м'ютекс навколо клієнта, `SetNotify(func([]model.SchoolGrade))`)
-- [ ] `SyncOnce(ctx)`: логін → site info → курси + середні → grade items усіх курсів (фільтри з Technical Details) → `ApplySchoolSync` → notify, якщо є свіжі й notify задано. Якщо впав хоча б один курс — синк не застосовується (щоб не видалити курс через тимчасову помилку), лише лог
-- [ ] `Run(ctx)`: одразу синк, далі по інтервалу; пропуск 22:00–07:00; помилки логуються
-- [ ] `Week(t)` — номер тижня від `Week0` і межі Пн–Нд
-- [ ] тести на httptest: фільтр null/`course`/`category`, `graded_at` fallback, нічний пропуск, падіння курсу не застосовує синк, `Week` на межах і до якоря
-- [ ] `go test ./internal/moodle/...` — зелено
+- [x] `Config{Username,Password,Interval,Week0}`, `Service` (store, client, loc, logger, now, м'ютекс навколо клієнта, `SetNotify(func([]model.SchoolGrade))`)
+- [x] `SyncOnce(ctx)`: логін → site info → курси + середні → grade items усіх курсів (фільтри з Technical Details) → `ApplySchoolSync` → notify, якщо є свіжі й notify задано. Якщо впав хоча б один курс — синк не застосовується (щоб не видалити курс через тимчасову помилку), лише лог
+- [x] `Run(ctx)`: одразу синк, далі по інтервалу; пропуск 22:00–07:00; помилки логуються
+- [x] `Week(t)` — номер тижня від `Week0` і межі Пн–Нд
+- [x] тести на httptest: фільтр null/`course`/`category`, `graded_at` fallback, нічний пропуск, падіння курсу не застосовує синк, `Week` на межах і до якоря
+- [x] `go test ./internal/moodle/...` — зелено
 
 ### Task 4: Week progress
 

@@ -1,0 +1,352 @@
+package moodle
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
+	"familyhub/internal/model"
+	"familyhub/internal/store"
+)
+
+// defaultInterval is how often the grades are re-read when Config.Interval is
+// left at zero. Teachers grade in batches over the day; two hours keeps a new
+// grade fresh news without hammering the school's site.
+const defaultInterval = 2 * time.Hour
+
+// Quiet hours, in the service's location: no sync between quietFrom and
+// quietUntil. Nobody grades at night, and a notification at 23:00 about a
+// grade from the afternoon is noise rather than news.
+const (
+	quietFrom  = 22
+	quietUntil = 7
+)
+
+// Config is what the service needs beyond the client and store. The site URL
+// lives on the client (NewClient).
+type Config struct {
+	Username string
+	Password string
+	Interval time.Duration // how often to re-sync; 0 means defaultInterval
+	// Week0 is a day in school week 0 (normally its Monday); Week counts weeks
+	// from the Monday of that week. Zero means there is no anchor and weeks
+	// cannot be numbered.
+	Week0 time.Time
+}
+
+func (c Config) interval() time.Duration {
+	if c.Interval > 0 {
+		return c.Interval
+	}
+	return defaultInterval
+}
+
+// Service mirrors the pupil's Moodle grades into the store and reports the
+// ones that are new. now is injectable so quiet hours and week numbers are
+// testable without a real clock.
+type Service struct {
+	store  *store.Store
+	client *Client
+	cfg    Config
+	loc    *time.Location
+	log    *slog.Logger
+	now    func() time.Time
+
+	// site serialises everything that touches the client, which is not safe
+	// for concurrent use: the sync loop and the bot's weekly review both log
+	// in and read through it, and the review's clock can fire mid-sync.
+	site sync.Mutex
+
+	notifyMu sync.Mutex
+	notify   func([]model.SchoolGrade)
+}
+
+// NewService builds the sync service. A nil loc means time.Local, a nil now
+// means time.Now, and a nil logger means slog.Default().
+func NewService(st *store.Store, client *Client, cfg Config, loc *time.Location,
+	logger *slog.Logger, now func() time.Time) *Service {
+	if loc == nil {
+		loc = time.Local
+	}
+	if now == nil {
+		now = time.Now
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Service{
+		store:  st,
+		client: client,
+		cfg:    cfg,
+		loc:    loc,
+		log:    logger,
+		now:    func() time.Time { return now().In(loc) },
+	}
+}
+
+// SetNotify sets the callback that receives the grades each sync found new.
+// The bot is built after the service, so the callback is attached late; until
+// it is (or when there is no bot at all) grades are still stored, just not
+// announced.
+func (s *Service) SetNotify(fn func([]model.SchoolGrade)) {
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	s.notify = fn
+}
+
+func (s *Service) notifyFunc() func([]model.SchoolGrade) {
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	return s.notify
+}
+
+// Run syncs immediately, then on every Interval tick, until ctx is done. It
+// blocks; meant for its own goroutine. Ticks inside quiet hours are skipped. A
+// failed sync is logged, never fatal: a school site outage must not take the
+// rest of family-hub down, and the stored grades stay served meanwhile.
+func (s *Service) Run(ctx context.Context) {
+	s.log.Info("moodle: syncer started", "interval", s.cfg.interval())
+	s.syncUnlessQuiet(ctx)
+
+	ticker := time.NewTicker(s.cfg.interval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.syncUnlessQuiet(ctx)
+		}
+	}
+}
+
+// syncUnlessQuiet runs one sync unless the clock is in quiet hours, and logs
+// the outcome. It reports whether a sync was attempted.
+func (s *Service) syncUnlessQuiet(ctx context.Context) bool {
+	if quiet(s.now()) {
+		s.log.Debug("moodle: quiet hours, sync skipped")
+		return false
+	}
+	if err := s.SyncOnce(ctx); err != nil {
+		s.log.Error("moodle: sync", "err", err)
+	}
+	return true
+}
+
+func quiet(t time.Time) bool {
+	h := t.Hour()
+	return h >= quietFrom || h < quietUntil
+}
+
+// SyncOnce logs in, reads every enrolled course with its average and graded
+// items, writes the lot to the store and hands the grades that are news to the
+// notify callback.
+//
+// It logs in on every run rather than holding a token: a sync every couple of
+// hours costs one extra request, and there is then no expired-token path to
+// get wrong.
+//
+// Any failed read aborts before the store is touched. The store treats a sync
+// as the whole truth and deletes what it no longer contains, so writing a sync
+// where one course timed out would wipe that course's grades and later re-seed
+// it silently, losing whatever was graded in between.
+func (s *Service) SyncOnce(ctx context.Context) error {
+	fresh, err := s.sync(ctx)
+	if err != nil {
+		return err
+	}
+	if notify := s.notifyFunc(); len(fresh) > 0 && notify != nil {
+		notify(fresh)
+	}
+	return nil
+}
+
+// sync does the reading and writing under the client lock; SyncOnce notifies
+// after it is released, so a slow Telegram send does not hold up the weekly
+// review.
+func (s *Service) sync(ctx context.Context) ([]model.SchoolGrade, error) {
+	s.site.Lock()
+	defer s.site.Unlock()
+
+	now := s.now()
+	if err := s.client.Login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
+		return nil, err
+	}
+	info, err := s.client.SiteInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	enrolled, err := s.client.Courses(ctx, info.UserID)
+	if err != nil {
+		return nil, err
+	}
+	averages, err := s.client.CourseAverages(ctx, info.UserID)
+	if err != nil {
+		return nil, err
+	}
+	avgByCourse := make(map[int64]CourseAverage, len(averages))
+	for _, a := range averages {
+		avgByCourse[a.CourseID] = a
+	}
+
+	stored, err := s.storedGradeDates()
+	if err != nil {
+		return nil, err
+	}
+
+	courses := make([]model.SchoolCourse, 0, len(enrolled))
+	var grades []model.SchoolGrade
+	for i, c := range enrolled {
+		courses = append(courses, toCourse(c, i, avgByCourse[c.ID]))
+		items, err := s.client.GradeItems(ctx, c.ID, info.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("course %d: %w", c.ID, err)
+		}
+		for _, it := range items {
+			if g, ok := s.toGrade(c.ID, it, now, stored); ok {
+				grades = append(grades, g)
+			}
+		}
+	}
+
+	fresh, err := s.store.ApplySchoolSync(courses, grades, now)
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("moodle: synced", "courses", len(courses), "grades", len(grades), "new", len(fresh))
+	return fresh, nil
+}
+
+func toCourse(c Course, position int, avg CourseAverage) model.SchoolCourse {
+	out := model.SchoolCourse{ID: c.ID, Name: model.CourseName(c.FullName), Position: position}
+	if avg.RawGrade.Valid {
+		v := avg.RawGrade.V
+		out.Average = &v
+	}
+	if text := strings.TrimSpace(avg.Grade); text != "-" {
+		out.AverageText = text
+	}
+	return out
+}
+
+// storedGrade is what the store already holds for one grade item, for keeping
+// the date of a grade Moodle gives no date for.
+type storedGrade struct {
+	raw      float64
+	gradedAt string
+}
+
+func (s *Service) storedGradeDates() (map[int64]storedGrade, error) {
+	courses, err := s.store.SchoolSummary()
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64]storedGrade{}
+	for _, c := range courses {
+		for _, g := range c.Grades {
+			out[g.ItemID] = storedGrade{raw: g.GradeRaw, gradedAt: g.GradedAt}
+		}
+	}
+	return out, nil
+}
+
+// toGrade maps a gradebook row to a stored grade, or reports ok=false for one
+// that is not a grade worth keeping: a course or category total (the course
+// average already carries that) or an activity nobody has graded yet.
+//
+// A grade with no date in Moodle is dated by the sync that first saw it, and
+// keeps that date while its value stands. Re-dating it on every sync would
+// move it into the current week forever, so the weekly review would list the
+// same old grade every Friday.
+func (s *Service) toGrade(courseID int64, it GradeItem, now time.Time, stored map[int64]storedGrade) (model.SchoolGrade, bool) {
+	if it.ItemType != "mod" || it.GradeRaw == nil {
+		return model.SchoolGrade{}, false
+	}
+	raw := *it.GradeRaw
+
+	var gradedAt string
+	switch old, ok := stored[it.ID]; {
+	case it.GradeDateGraded > 0:
+		gradedAt = time.Unix(it.GradeDateGraded, 0).In(s.loc).Format(model.LocalDatetime)
+	case ok && old.raw == raw:
+		gradedAt = old.gradedAt
+	default:
+		gradedAt = now.Format(model.LocalDatetime)
+	}
+
+	text := strings.TrimSpace(it.GradeFormatted)
+	if text == "" || text == "-" {
+		text = model.FormatGrade(raw)
+	}
+
+	return model.SchoolGrade{
+		ItemID:       it.ID,
+		CourseID:     courseID,
+		ItemModule:   it.ItemModule,
+		ItemInstance: it.ItemInstance,
+		Name:         itemName(it),
+		GradeRaw:     raw,
+		GradeText:    text,
+		GradedAt:     gradedAt,
+	}, true
+}
+
+// itemName is the grade item's name, falling back to its module type: the
+// store refuses an empty name, and one unnamed item must not fail the sync.
+func itemName(it GradeItem) string {
+	if name := strings.TrimSpace(it.ItemName); name != "" {
+		return name
+	}
+	if it.ItemModule != "" {
+		return it.ItemModule
+	}
+	return "Оцінка"
+}
+
+// Week is one school week: its number counted from Config.Week0, and its
+// bounds as the half-open range [Start, End) — Monday 00:00 to the next
+// Monday 00:00 in the service's location.
+type Week struct {
+	N     int
+	Start time.Time
+	End   time.Time
+}
+
+// HasWeekAnchor reports whether weeks can be numbered (Config.Week0 is set).
+func (s *Service) HasWeekAnchor() bool { return !s.cfg.Week0.IsZero() }
+
+// Week returns the school week containing t. Weeks are counted in calendar
+// days from the Monday of Config.Week0's week, so a DST change does not shift
+// a boundary by an hour, and a day before the anchor falls in week -1, -2...
+// (the summer before the year starts). Only meaningful when HasWeekAnchor.
+//
+// Week0 is read as a calendar date, not an instant: a date parsed as UTC
+// midnight would otherwise land on the previous day west of UTC.
+func (s *Service) Week(t time.Time) Week {
+	w0 := s.cfg.Week0
+	anchor := mondayOf(time.Date(w0.Year(), w0.Month(), w0.Day(), 0, 0, 0, 0, s.loc))
+	day := civilDay(t.In(s.loc))
+	days := int(day.Sub(civilDay(anchor)).Hours() / 24)
+	n := days / 7
+	if days < 0 && days%7 != 0 {
+		n--
+	}
+	start := time.Date(anchor.Year(), anchor.Month(), anchor.Day()+7*n, 0, 0, 0, 0, s.loc)
+	end := time.Date(start.Year(), start.Month(), start.Day()+7, 0, 0, 0, 0, s.loc)
+	return Week{N: n, Start: start, End: end}
+}
+
+// mondayOf returns Monday 00:00 of t's week, in t's location.
+func mondayOf(t time.Time) time.Time {
+	offset := (int(t.Weekday()) + 6) % 7 // Monday=0
+	return time.Date(t.Year(), t.Month(), t.Day()-offset, 0, 0, 0, 0, t.Location())
+}
+
+// civilDay is t's calendar date at midnight UTC, so the difference between two
+// of them is a whole number of 24-hour days whatever the DST rules.
+func civilDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}

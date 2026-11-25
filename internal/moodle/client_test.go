@@ -20,12 +20,11 @@ const (
 
 // fixtureFor maps each web-service function to its canned answer.
 var fixtureFor = map[string]string{
-	"core_webservice_get_site_info":                    "site_info.json",
-	"core_enrol_get_users_courses":                     "courses.json",
-	"gradereport_overview_get_course_grades":           "course_grades.json",
-	"gradereport_user_get_grade_items":                 "grade_items.json",
-	"core_course_get_contents":                         "contents.json",
-	"core_completion_get_activities_completion_status": "completion.json",
+	"core_webservice_get_site_info":          "site_info.json",
+	"core_enrol_get_users_courses":           "courses.json",
+	"gradereport_overview_get_course_grades": "course_grades.json",
+	"gradereport_user_get_grade_items":       "grade_items.json",
+	"core_course_get_contents":               "contents.json",
 }
 
 type recordedRequest struct {
@@ -290,18 +289,6 @@ func TestContents(t *testing.T) {
 	}
 	if got := f.last().form["courseid"]; got != "201" {
 		t.Fatalf("courseid param = %q", got)
-	}
-}
-
-func TestCompletion(t *testing.T) {
-	_, c := loggedIn(t)
-	st, err := c.Completion(context.Background(), 201, 1001)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []CompletionStatus{{CMID: 701, State: 1}, {CMID: 702, State: 0}}
-	if len(st) != len(want) || st[0] != want[0] || st[1] != want[1] {
-		t.Fatalf("statuses = %+v, want %+v", st, want)
 	}
 }
 

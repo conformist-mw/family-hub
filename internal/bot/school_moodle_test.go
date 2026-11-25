@@ -130,12 +130,12 @@ func reviewWeek() moodle.Week {
 
 func TestFormatWeekReview(t *testing.T) {
 	text := formatWeekReview(reviewWeek(), []moodle.CourseProgress{
-		{Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5", Done: 3, Total: 5, Grades: []model.SchoolGrade{
+		{Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5", QuizzesGraded: 1, QuizzesTotal: 3, Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 11", GradeRaw: 7.8, GradeText: "7,8"},
 			{Name: "Контрольна робота 2", GradeRaw: 10, GradeText: "10,0"},
 		}},
-		{Name: "Фізика", Average: avgOf(3.2), AverageText: "3,2", Done: 0, Total: 2},
-		// Nothing tracked and no grade this week: left out.
+		{Name: "Фізика", Average: avgOf(3.2), AverageText: "3,2", QuizzesGraded: 0, QuizzesTotal: 2},
+		// No quiz and no grade this week: left out.
 		{Name: "Фізкультура", Average: avgOf(9), AverageText: "9,0"},
 		// No section of its own, but graded this week: shown with a note.
 		{Name: "Хімія", NoSection: true, Grades: []model.SchoolGrade{
@@ -150,9 +150,9 @@ func TestFormatWeekReview(t *testing.T) {
 		{Name: "Географія", Unavailable: true},
 	})
 	want := "📅 Тиждень 11 (16.11–22.11)\n" +
-		"<b>Алгебра</b> — пройдено 3/5 · сер. 5,5\n" +
+		"<b>Алгебра</b> — оцінено 1/3 тестів · сер. 5,5\n" +
 		"   <i>ОВ 11 — 7,8 · КР 2 — 10</i>\n" +
-		"<b>Фізика</b> — пройдено 0/2 · сер. 3,2 ⚠️\n" +
+		"<b>Фізика</b> — оцінено 0/2 тестів · сер. 3,2 ⚠️\n" +
 		"<b>Хімія</b> — секції «Тиждень 11» немає\n" +
 		"   <i>ОВ 11 — 6</i>\n" +
 		"<b>Біологія</b> — прогрес недоступний · сер. 8,4\n" +
@@ -187,8 +187,8 @@ func TestFormatWeekReviewNoSectionAnywhere(t *testing.T) {
 
 func TestFormatWeekReviewEmpty(t *testing.T) {
 	for name, progress := range map[string][]moodle.CourseProgress{
-		"no courses":      nil,
-		"nothing tracked": {{Name: "Алгебра", AverageText: "5,5", Average: avgOf(5.5)}},
+		"no courses": nil,
+		"no quizzes": {{Name: "Алгебра", AverageText: "5,5", Average: avgOf(5.5)}},
 	} {
 		got := formatWeekReview(reviewWeek(), progress)
 		if got != "📅 Тиждень 11 (16.11–22.11)\nЗа тиждень ні завдань, ні оцінок." {
@@ -199,7 +199,7 @@ func TestFormatWeekReviewEmpty(t *testing.T) {
 
 func TestFormatWeekReviewEscapesNames(t *testing.T) {
 	text := formatWeekReview(reviewWeek(), []moodle.CourseProgress{
-		{Name: "Мова <і> література", Done: 1, Total: 1, Grades: []model.SchoolGrade{
+		{Name: "Мова <і> література", QuizzesGraded: 1, QuizzesTotal: 1, Grades: []model.SchoolGrade{
 			{Name: "Есе \"Я & світ\"", GradeRaw: 8, GradeText: "8"},
 		}},
 	})
@@ -417,7 +417,7 @@ func TestGradesIsListedOnlyWithMoodle(t *testing.T) {
 }
 
 // fakeMoodle is a Moodle site with one course, 11, whose «Тиждень 12» section
-// has a lesson done and a quiz not yet. Each login waits for gate (when not
+// has a lesson, a label and two quizzes (instances 502 and 504). Each login waits for gate (when not
 // nil) and is counted in logins; failLogin makes it refuse the credentials.
 func fakeMoodle(t *testing.T, gate <-chan struct{}, logins *atomic.Int32, failLogin bool) string {
 	t.Helper()
@@ -438,15 +438,12 @@ func fakeMoodle(t *testing.T, gate <-chan struct{}, logins *atomic.Int32, failLo
 			return
 		}
 		switch fn := r.PostForm.Get("wsfunction"); fn {
-		case "core_webservice_get_site_info":
-			fmt.Fprint(w, `{"userid":1001}`)
 		case "core_course_get_contents":
 			fmt.Fprint(w, `[{"id":912,"name":"Тиждень 12. Квадратні рівняння","section":12,"modules":[
 				{"id":701,"name":"Урок 1","modname":"lesson","instance":501},
 				{"id":702,"name":"Контрольна робота 2","modname":"quiz","instance":502},
-				{"id":703,"name":"Пояснення","modname":"label","instance":503}]}]`)
-		case "core_completion_get_activities_completion_status":
-			fmt.Fprint(w, `{"statuses":[{"cmid":701,"state":1},{"cmid":702,"state":0}],"warnings":[]}`)
+				{"id":703,"name":"Пояснення","modname":"label","instance":503},
+				{"id":704,"name":"Оцінка вчителя 12","modname":"quiz","instance":504}]}]`)
 		default:
 			t.Errorf("unexpected Moodle call %q", fn)
 			fmt.Fprint(w, `{"exception":"x","errorcode":"unexpected","message":"unexpected"}`)
@@ -458,7 +455,8 @@ func fakeMoodle(t *testing.T, gate <-chan struct{}, logins *atomic.Int32, failLo
 
 // reviewBot is a bot posting to the group, wired to a Moodle service on site
 // and holding course 11 with a grade in week 12 (23–29.11.2026) and one from
-// the week before.
+// the week before. Only the week-12 grade is on a quiz of that week (502);
+// quiz 504 is still ungraded.
 func reviewBot(t *testing.T, site string) (*Bot, func() []sentMessage) {
 	t.Helper()
 	b := menuBot(t)
@@ -470,8 +468,8 @@ func reviewBot(t *testing.T, site string) (*Bot, func() []sentMessage) {
 	seedSchool(t, b, []model.SchoolCourse{
 		{ID: 11, Name: "Алгебра", Position: 0, Average: avgOf(5.5), AverageText: "5,5"},
 	}, []model.SchoolGrade{
-		{ItemID: 101, CourseID: 11, Name: "Оцінка вчителя 11", GradeRaw: 7, GradeText: "7,0", GradedAt: "2026-11-18T10:00"},
-		{ItemID: 102, CourseID: 11, Name: "Оцінка вчителя 12", GradeRaw: 2.2, GradeText: "2,2", GradedAt: "2026-11-24T10:00"},
+		{ItemID: 101, CourseID: 11, ItemModule: "quiz", ItemInstance: 490, Name: "Оцінка вчителя 11", GradeRaw: 7, GradeText: "7,0", GradedAt: "2026-11-18T10:00"},
+		{ItemID: 102, CourseID: 11, ItemModule: "quiz", ItemInstance: 502, Name: "Оцінка вчителя 12", GradeRaw: 2.2, GradeText: "2,2", GradedAt: "2026-11-24T10:00"},
 	})
 	return b, fakeTelegram(t, b)
 }
@@ -487,7 +485,7 @@ func TestSchoolReviewPostsTheCurrentWeek(t *testing.T) {
 
 	got := sent()
 	want := "📅 Тиждень 12 (23.11–29.11)\n" +
-		"<b>Алгебра</b> — пройдено 1/2 · сер. 5,5\n" +
+		"<b>Алгебра</b> — оцінено 1/2 тестів · сер. 5,5\n" +
 		"   <i>ОВ 12 — 2,2</i>"
 	if len(got) != 1 || got[0].ChatID != "-100" || got[0].ParseMode != "HTML" || got[0].Text != want {
 		t.Fatalf("sent %+v, want HTML %q to the group", got, want)

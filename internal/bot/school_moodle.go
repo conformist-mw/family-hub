@@ -152,10 +152,10 @@ func formatGradesSummary(courses []model.SchoolCourse) string {
 	return sb.String()
 }
 
-// formatWeekReview is the Friday review: per subject, how much of the week's
-// section is done, the grades of the week and the average. A subject with
-// nothing to track this week and no grade in it is left out; one whose
-// progress could not be read is always shown, with its grades.
+// formatWeekReview is the Friday review: per subject, how many of the week's
+// quizzes are graded, the grades of the week and the average. A subject with
+// no quiz this week and no grade in it is left out; one whose progress could
+// not be read is always shown, with its grades.
 //
 // A course without a "Тиждень N" section usually just has no weekly layout,
 // so it is noted only on a subject that is shown anyway. When no readable
@@ -182,7 +182,7 @@ func formatWeekReview(week moodle.Week, progress []moodle.CourseProgress) string
 
 	shown := 0
 	for _, p := range progress {
-		if !p.Unavailable && p.Total == 0 && len(p.Grades) == 0 {
+		if !p.Unavailable && p.QuizzesTotal == 0 && len(p.Grades) == 0 {
 			continue
 		}
 		shown++
@@ -194,8 +194,8 @@ func formatWeekReview(week moodle.Week, progress []moodle.CourseProgress) string
 			if !noWeek {
 				parts = append(parts, fmt.Sprintf("секції «Тиждень %d» немає", week.N))
 			}
-		case p.Total > 0:
-			parts = append(parts, fmt.Sprintf("пройдено %d/%d", p.Done, p.Total))
+		case p.QuizzesTotal > 0:
+			parts = append(parts, fmt.Sprintf("оцінено %d/%d тестів", p.QuizzesGraded, p.QuizzesTotal))
 		}
 		if avg := averageText(p.Average, p.AverageText); avg != "" {
 			parts = append(parts, "сер. "+avg)

@@ -5,7 +5,7 @@
 - Три речі в сімейну групу (`TELEGRAM_NOTIFY_CHAT`):
   1. **нові оцінки** — фоновий синк кожні ~2 год (не вночі), нові оцінки однією пачкою на синк; курс, який синк бачить уперше, запам'ятовується мовчки;
   2. **`/grades`** — поточна зведена: середнє по предмету + оцінки по порядку;
-  3. **п'ятничний огляд** (у проді Пт 19:45) — по предмету: пройдено X/Y елементів поточного «Тиждень N», оцінки за тиждень, середнє.
+  3. **п'ятничний огляд** (у проді Пт 19:45) — по предмету: оцінено X/Y тестів поточного «Тиждень N», оцінки за тиждень, середнє.
 - Повідомлення українською.
 - Репозиторій **публічний**: у коді, фікстурах, плані й комітах немає імені дитини, назви/адреси школи, email чи Moodle userid. Адреса школи — тільки в env/dotfiles, без дефолту в коді.
 
@@ -64,15 +64,15 @@
   - `graded_at` = `gradedategraded`, а якщо 0/null — час синку.
 - Прогрес тижня (`WeekProgress`):
   - секція — за префіксом «Тиждень N» (`^Тиждень\s+N\b`);
-  - Y — модулі секції, що є в `statuses` completion (label і невідстежувані не рахуються);
-  - X — `state` 1 або 2 (3 = «завершено, не склав» — не пройдено);
+  - Y — модулі `quiz` секції (lesson/label/book не рахуються); completion не використовується — школа його майже не веде (Task 10);
+  - X — ті з них, на які є оцінка в store (`item_module = 'quiz'`, `item_instance` = `instance` модуля), незалежно від дати оцінки;
   - оцінки тижня — зі store за `graded_at` у межах Пн–Нд;
   - якщо секції немає — рядок «секції «Тиждень N» немає» (сигнал підправити якір після канікул).
 - Скорочення: «Оцінка вчителя N» → «ОВ N», «Контрольна робота N» → «КР N», інші назви як є (до 40 символів); оцінка без «,0». ⚠️ якщо середнє < 4 (порівняння по `average REAL`).
 - Формати (HTML, кожен рядок із закритими тегами, щоб розрізання по рядках було безпечне):
   - нові оцінки: `🆕 Нові оцінки` + `<b>Алгебра</b>: ОВ 12 — 2,2 (сер. 5,5)`;
   - `/grades`: `📚 Оцінки` / `<b>Предмет</b> — 5,5[ ⚠️]` / `   <i>ОВ 7,8 · КР 10</i>`, внизу — скільки предметів без оцінок; відповідь ріжеться `audit.SplitMessage`;
-  - огляд: `📅 Тиждень N (дд.мм–дд.мм)`, по предмету `пройдено X/Y`, оцінки тижня, середнє; предмети без відстежуваних елементів у тижні й без оцінок не показуються; надсилається через `NotifyHTML`.
+  - огляд: `📅 Тиждень N (дд.мм–дд.мм)`, по предмету `оцінено X/Y тестів`, оцінки тижня, середнє; предмети без тестів у тижні й без оцінок не показуються; надсилається через `NotifyHTML`.
 - Клієнт не логує `username`, `fullname`, токен.
 
 ## What Goes Where
@@ -200,12 +200,12 @@ Live run (Task 9) showed the school barely uses Moodle completion tracking (6 of
 - Modify: `internal/bot/school_moodle_test.go`
 - Modify: `internal/moodle/client.go` (only if `Completion` becomes unused — remove it and its fixture/tests)
 
-- [ ] `WeekProgress`: Y = `quiz` modules in the matched «Тиждень N» section(s); X = those quizzes that have a stored grade (match `school_grades.item_module = 'quiz'` and `item_instance` = module `instance`, regardless of when it was graded). No completion API call any more
-- [ ] rename the CourseProgress fields to match (e.g. `QuizzesGraded`/`QuizzesTotal`); a course with 0 quizzes in the section and no grades this week is hidden as before
-- [ ] formatter: «оцінено X/Y тестів» (plain «тестів», no plural logic needed beyond that) in place of «пройдено X/Y»; «секції немає» / «прогрес недоступний» unchanged
-- [ ] remove now-dead completion code/fixtures if nothing else uses them
-- [ ] tests: quiz counting (lessons/labels/books ignored), a quiz graded in a later week still counts as graded, ungraded quiz not counted, formatter line
-- [ ] `go vet ./... && go test ./...` — зелено
+- [x] `WeekProgress`: Y = `quiz` modules in the matched «Тиждень N» section(s); X = those quizzes that have a stored grade (match `school_grades.item_module = 'quiz'` and `item_instance` = module `instance`, regardless of when it was graded). No completion API call any more
+- [x] rename the CourseProgress fields to match (e.g. `QuizzesGraded`/`QuizzesTotal`); a course with 0 quizzes in the section and no grades this week is hidden as before
+- [x] formatter: «оцінено X/Y тестів» (plain «тестів», no plural logic needed beyond that) in place of «пройдено X/Y»; «секції немає» / «прогрес недоступний» unchanged
+- [x] remove now-dead completion code/fixtures if nothing else uses them
+- [x] tests: quiz counting (lessons/labels/books ignored), a quiz graded in a later week still counts as graded, ungraded quiz not counted, formatter line
+- [x] `go vet ./... && go test ./...` — зелено
 
 ### Task 11: [Final] Update documentation
 - [ ] `ARCHITECTURE.md` — розділ про Moodle (чому огляд рахує оцінені тести, а не completion; токен мобільного API, логін на синк, seed по курсу, якір тижня, нічна пауза, втрата сповіщення при збої Telegram)

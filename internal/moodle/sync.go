@@ -353,23 +353,26 @@ func civilDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// CourseProgress is one course's line in the weekly review: how much of the
-// week's section is done, the grades given that week, and the course average.
+// CourseProgress is one course's line in the weekly review: how many of the
+// week's quizzes carry a grade, the grades given that week, and the course
+// average.
 type CourseProgress struct {
 	CourseID    int64
 	Name        string
 	Average     *float64 // nil while the course has no average
 	AverageText string   // Moodle's rendering ("5,5"), "" when there is none
 
-	// Done of Total activities of the week's section are complete. Only
-	// activities with completion tracking count, labels never do.
-	Done, Total int
+	// QuizzesGraded of QuizzesTotal quizzes in the week's section have a
+	// grade. The school hardly records completion, so a graded quiz is the
+	// only reliable sign that the week's work was done; lessons, labels and
+	// books carry no such signal and are not counted.
+	QuizzesGraded, QuizzesTotal int
 	// NoSection: the course has no "Тиждень N" section for this week. Every
 	// course missing one at once means the week anchor is off (holidays).
 	NoSection bool
-	// Unavailable: the course's contents or completion could not be read, so
-	// Done/Total/NoSection say nothing. Grades and average come from the store
-	// and are still valid.
+	// Unavailable: the course's contents could not be read, so the quiz counts
+	// and NoSection say nothing. Grades and average come from the store and
+	// are still valid.
 	Unavailable bool
 
 	Grades []model.SchoolGrade // graded within the week, oldest first
@@ -379,25 +382,23 @@ type CourseProgress struct {
 // "Тиждень 12. Квадратні рівняння") and captures the number.
 var weekSection = regexp.MustCompile(`(?i)^\s*Тиждень\s+(\d+)`)
 
-// Completion states that count as done: 1 complete, 2 complete and passed.
-// 3 is "complete, failed" — the quiz was taken but not passed, which is
-// exactly what the review should not call finished.
-const (
-	completionComplete     = 1
-	completionCompletePass = 2
-)
+// quizModule is the module name of a quiz in course contents and the
+// itemmodule of its grade item.
+const quizModule = "quiz"
 
 // WeekProgress reports, for every course the last sync stored (in Moodle's
-// order), how far the pupil got through that week's section and which grades
+// order), how many quizzes of that week's section are graded and which grades
 // fell in the week.
 //
-// Courses come from the store rather than Moodle: the sync keeps them current
-// and already carries the averages. Before the first successful sync there are
-// none, and the review is empty.
+// Courses and grades come from the store rather than Moodle: the sync keeps
+// them current and already carries the averages. Before the first successful
+// sync there are none, and the review is empty. A quiz counts as graded
+// whenever its grade came: one written in week 12 but marked a week later
+// still closes week 12.
 //
-// A course whose contents or completion cannot be read is marked Unavailable
-// rather than failing the review: one slow course should not cost the family
-// the whole Friday message. Failing to log in does fail it.
+// A course whose contents cannot be read is marked Unavailable rather than
+// failing the review: one slow course should not cost the family the whole
+// Friday message. Failing to log in does fail it.
 func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress, error) {
 	courses, err := s.store.SchoolSummary()
 	if err != nil {
@@ -420,10 +421,6 @@ func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress
 	if err := s.client.Login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
 		return nil, err
 	}
-	info, err := s.client.SiteInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	out := make([]CourseProgress, 0, len(courses))
 	for _, c := range courses {
@@ -434,7 +431,7 @@ func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress
 			AverageText: c.AverageText,
 			Grades:      byCourse[c.ID],
 		}
-		if err := s.courseWeek(ctx, &p, week.N, info.UserID); err != nil {
+		if err := s.courseWeek(ctx, &p, week.N, gradedQuizzes(c.Grades)); err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -446,44 +443,44 @@ func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress
 	return out, nil
 }
 
-// courseWeek fills Done, Total and NoSection for one course from its week-n
-// section and the pupil's completion states.
-func (s *Service) courseWeek(ctx context.Context, p *CourseProgress, n int, userID int64) error {
+// gradedQuizzes is the set of quiz instances among a course's stored grades.
+// The store keeps only graded items, so presence means graded.
+func gradedQuizzes(grades []model.SchoolGrade) map[int64]bool {
+	set := map[int64]bool{}
+	for _, g := range grades {
+		if g.ItemModule == quizModule {
+			set[g.ItemInstance] = true
+		}
+	}
+	return set
+}
+
+// courseWeek fills the quiz counts and NoSection for one course from its
+// week-n section. graded holds the course's graded quiz instances; a grade
+// item points at its quiz by instance id, the same id the section's module
+// carries.
+func (s *Service) courseWeek(ctx context.Context, p *CourseProgress, n int, graded map[int64]bool) error {
 	sections, err := s.client.Contents(ctx, p.CourseID)
 	if err != nil {
 		return err
 	}
-	var modules []Module
 	found := false
 	for _, sec := range sections {
-		if num, ok := sectionWeek(sec.Name); ok && num == n {
-			found = true
-			modules = append(modules, sec.Modules...)
-		}
-	}
-	if !found {
-		p.NoSection = true
-		return nil
-	}
-
-	statuses, err := s.client.Completion(ctx, p.CourseID, userID)
-	if err != nil {
-		return err
-	}
-	state := make(map[int64]int, len(statuses))
-	for _, st := range statuses {
-		state[st.CMID] = st.State
-	}
-	for _, m := range modules {
-		st, tracked := state[m.ID]
-		if !tracked || m.ModName == "label" {
+		if num, ok := sectionWeek(sec.Name); !ok || num != n {
 			continue
 		}
-		p.Total++
-		if st == completionComplete || st == completionCompletePass {
-			p.Done++
+		found = true
+		for _, m := range sec.Modules {
+			if m.ModName != quizModule {
+				continue
+			}
+			p.QuizzesTotal++
+			if graded[m.Instance] {
+				p.QuizzesGraded++
+			}
 		}
 	}
+	p.NoSection = !found
 	return nil
 }
 

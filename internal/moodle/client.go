@@ -244,7 +244,8 @@ type Section struct {
 }
 
 // Module is one activity or resource in a section. ID is the course-module id
-// (cmid) that completion statuses refer to.
+// (cmid); Instance is the activity's own id, which a grade item's iteminstance
+// refers to.
 type Module struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
@@ -258,26 +259,6 @@ func (c *Client) Contents(ctx context.Context, courseID int64) ([]Section, error
 	var sections []Section
 	err := c.call(ctx, "core_course_get_contents", params, &sections)
 	return sections, err
-}
-
-// CompletionStatus is the completion state of one tracked module. State is
-// 0 incomplete, 1 complete, 2 complete and passed, 3 complete but failed.
-// Modules without completion tracking are absent from the list.
-type CompletionStatus struct {
-	CMID  int64 `json:"cmid"`
-	State int   `json:"state"`
-}
-
-// Completion returns the completion state of every tracked module of one
-// course for userID.
-func (c *Client) Completion(ctx context.Context, courseID, userID int64) ([]CompletionStatus, error) {
-	params := userParams(userID)
-	params.Set("courseid", strconv.FormatInt(courseID, 10))
-	var resp struct {
-		Statuses []CompletionStatus `json:"statuses"`
-	}
-	err := c.call(ctx, "core_completion_get_activities_completion_status", params, &resp)
-	return resp.Statuses, err
 }
 
 func userParams(userID int64) url.Values {

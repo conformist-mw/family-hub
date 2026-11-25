@@ -1,10 +1,12 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"regexp"
 	"strings"
+	"time"
 
 	tele "gopkg.in/telebot.v3"
 
@@ -30,6 +32,45 @@ func (b *Bot) NotifyNewGrades(grades []model.SchoolGrade) {
 	if err := b.NotifyHTML(text); err != nil {
 		b.logger.Error("bot: notify new grades", "err", err, "grades", len(grades))
 	}
+}
+
+// schoolReviewTimeout bounds the whole review: it may first wait out a sync
+// holding the site, then reads two pages per course from Moodle, each of
+// which the client gives up on after 30 seconds.
+const schoolReviewTimeout = 5 * time.Minute
+
+// sendSchoolReview posts the review of the school week containing now. Like
+// the dish suggestions it runs off the ticker's goroutine, so a slow Moodle
+// does not hold back the other clocks, and one run at a time. A failed read is
+// logged and the review skipped: half a review would read as a quiet week.
+func (b *Bot) sendSchoolReview(ctx context.Context, now time.Time) {
+	// RunDigests only calls this when schoolReviewEnabled, which requires the
+	// service; the check stays because a nil one reached from that goroutine
+	// would take the whole server down.
+	svc := b.cfg.Moodle
+	if svc == nil {
+		return
+	}
+	if !b.schoolReviewRunning.CompareAndSwap(false, true) {
+		b.logger.Warn("bot: school review still running, skipping this one")
+		return
+	}
+	go func() {
+		defer b.schoolReviewRunning.Store(false)
+
+		ctx, cancel := context.WithTimeout(ctx, schoolReviewTimeout)
+		defer cancel()
+
+		week := svc.Week(now)
+		progress, err := svc.WeekProgress(ctx, week)
+		if err != nil {
+			b.logger.Error("bot: school review", "week", week.N, "err", err)
+			return
+		}
+		if err := b.NotifyHTML(formatWeekReview(week, progress)); err != nil {
+			b.logger.Error("bot: send school review", "week", week.N, "err", err)
+		}
+	}()
 }
 
 // cmdGrades answers /grades from the store, never from Moodle: it is what

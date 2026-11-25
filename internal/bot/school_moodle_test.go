@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -412,5 +413,134 @@ func TestGradesIsListedOnlyWithMoodle(t *testing.T) {
 	}
 	if !strings.Contains(with.helpText(), "/grades") || !strings.Contains(with.startText(1), "/grades") {
 		t.Error("/grades is missing from help or start with Moodle")
+	}
+}
+
+// fakeMoodle is a Moodle site with one course, 11, whose «Тиждень 12» section
+// has a lesson done and a quiz not yet. Each login waits for gate (when not
+// nil) and is counted in logins; failLogin makes it refuse the credentials.
+func fakeMoodle(t *testing.T, gate <-chan struct{}, logins *atomic.Int32, failLogin bool) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		if r.URL.Path == "/login/token.php" {
+			logins.Add(1)
+			if gate != nil {
+				<-gate
+			}
+			if failLogin {
+				fmt.Fprint(w, `{"error":"Invalid login","errorcode":"invalidlogin"}`)
+				return
+			}
+			fmt.Fprint(w, `{"token":"test-token"}`)
+			return
+		}
+		switch fn := r.PostForm.Get("wsfunction"); fn {
+		case "core_webservice_get_site_info":
+			fmt.Fprint(w, `{"userid":1001}`)
+		case "core_course_get_contents":
+			fmt.Fprint(w, `[{"id":912,"name":"Тиждень 12. Квадратні рівняння","section":12,"modules":[
+				{"id":701,"name":"Урок 1","modname":"lesson","instance":501},
+				{"id":702,"name":"Контрольна робота 2","modname":"quiz","instance":502},
+				{"id":703,"name":"Пояснення","modname":"label","instance":503}]}]`)
+		case "core_completion_get_activities_completion_status":
+			fmt.Fprint(w, `{"statuses":[{"cmid":701,"state":1},{"cmid":702,"state":0}],"warnings":[]}`)
+		default:
+			t.Errorf("unexpected Moodle call %q", fn)
+			fmt.Fprint(w, `{"exception":"x","errorcode":"unexpected","message":"unexpected"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// reviewBot is a bot posting to the group, wired to a Moodle service on site
+// and holding course 11 with a grade in week 12 (23–29.11.2026) and one from
+// the week before.
+func reviewBot(t *testing.T, site string) (*Bot, func() []sentMessage) {
+	t.Helper()
+	b := menuBot(t)
+	b.cfg.NotifyChat = -100
+	b.cfg.Moodle = moodle.NewService(b.store, moodle.NewClient(site), moodle.Config{
+		Username: "pupil", Password: "secret",
+		Week0: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+	}, time.UTC, b.logger, nil)
+	seedSchool(t, b, []model.SchoolCourse{
+		{ID: 11, Name: "Алгебра", Position: 0, Average: avgOf(5.5), AverageText: "5,5"},
+	}, []model.SchoolGrade{
+		{ItemID: 101, CourseID: 11, Name: "Оцінка вчителя 11", GradeRaw: 7, GradeText: "7,0", GradedAt: "2026-11-18T10:00"},
+		{ItemID: 102, CourseID: 11, Name: "Оцінка вчителя 12", GradeRaw: 2.2, GradeText: "2,2", GradedAt: "2026-11-24T10:00"},
+	})
+	return b, fakeTelegram(t, b)
+}
+
+var reviewFriday = time.Date(2026, 11, 27, 19, 45, 0, 0, time.UTC)
+
+func TestSchoolReviewPostsTheCurrentWeek(t *testing.T) {
+	var logins atomic.Int32
+	b, sent := reviewBot(t, fakeMoodle(t, nil, &logins, false))
+
+	b.sendSchoolReview(t.Context(), reviewFriday)
+	waitFor(t, "the review to finish", func() bool { return !b.schoolReviewRunning.Load() })
+
+	got := sent()
+	want := "📅 Тиждень 12 (23.11–29.11)\n" +
+		"<b>Алгебра</b> — пройдено 1/2 · сер. 5,5\n" +
+		"   <i>ОВ 12 — 2,2</i>"
+	if len(got) != 1 || got[0].ChatID != "-100" || got[0].ParseMode != "HTML" || got[0].Text != want {
+		t.Fatalf("sent %+v, want HTML %q to the group", got, want)
+	}
+}
+
+// A review still reading Moodle is not joined by a second one: the group would
+// get the week twice.
+func TestSchoolReviewRunsOneAtATime(t *testing.T) {
+	gate := make(chan struct{})
+	var logins atomic.Int32
+	b, sent := reviewBot(t, fakeMoodle(t, gate, &logins, false))
+
+	b.sendSchoolReview(t.Context(), reviewFriday)
+	waitFor(t, "the first review to reach Moodle", func() bool { return logins.Load() == 1 })
+	b.sendSchoolReview(t.Context(), reviewFriday)
+	close(gate)
+	waitFor(t, "the review to finish", func() bool { return !b.schoolReviewRunning.Load() })
+
+	if n := logins.Load(); n != 1 {
+		t.Fatalf("Moodle was logged into %d times, want once", n)
+	}
+	if got := sent(); len(got) != 1 {
+		t.Fatalf("sent %d messages, want one review", len(got))
+	}
+}
+
+// A review that cannot read Moodle is not sent: an empty one would read as a
+// quiet week.
+func TestSchoolReviewSkipsWhenMoodleFails(t *testing.T) {
+	var logins atomic.Int32
+	b, sent := reviewBot(t, fakeMoodle(t, nil, &logins, true))
+
+	b.sendSchoolReview(t.Context(), reviewFriday)
+	waitFor(t, "the review to finish", func() bool { return !b.schoolReviewRunning.Load() })
+
+	if logins.Load() != 1 {
+		t.Fatal("the review never tried Moodle")
+	}
+	if got := sent(); len(got) != 0 {
+		t.Fatalf("sent %+v, want nothing", got)
+	}
+}
+
+func TestSchoolReviewWithoutMoodleDoesNothing(t *testing.T) {
+	b := menuBot(t)
+	b.cfg.NotifyChat = -100
+	sent := fakeTelegram(t, b)
+	b.sendSchoolReview(t.Context(), reviewFriday)
+	if b.schoolReviewRunning.Load() {
+		t.Fatal("a review started without a service")
+	}
+	if got := sent(); len(got) != 0 {
+		t.Fatalf("sent %+v", got)
 	}
 }

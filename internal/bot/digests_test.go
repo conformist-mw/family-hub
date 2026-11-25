@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"familyhub/internal/dish"
+	"familyhub/internal/moodle"
 )
 
 // menuClocks is the production shape the menu is meant to run in:
@@ -69,7 +70,7 @@ func TestTheMenuClocksFireOncePerDayAtTheirMinute(t *testing.T) {
 
 func countDue(d due) int {
 	n := 0
-	for _, on := range []bool{d.daily, d.weekly, d.nag, d.menu, d.evening, d.suggest} {
+	for _, on := range []bool{d.daily, d.weekly, d.nag, d.menu, d.evening, d.suggest, d.schoolReview} {
 		if on {
 			n++
 		}
@@ -156,5 +157,93 @@ func TestEachMenuClockAloneKeepsTheDigestLoopAlive(t *testing.T) {
 	}
 	if (Config{NotifyChat: -100, DishSuggestDOW: -1}).anyDigestEnabled() {
 		t.Fatal("an empty config keeps the loop alive")
+	}
+}
+
+// anchoredMoodle is a Moodle service whose weeks can be numbered: week 0 is
+// the one of 31.08.2026. The clock only asks it HasWeekAnchor.
+func anchoredMoodle() *moodle.Service {
+	return moodle.NewService(nil, nil, moodle.Config{Week0: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)}, time.UTC, nil, nil)
+}
+
+// schoolReviewClock is the production shape of the review: Friday 19:45, next
+// to the menu clocks.
+func schoolReviewClock() Config {
+	cfg := menuClocks()
+	cfg.Moodle = anchoredMoodle()
+	cfg.SchoolReviewDOW = 5 // Friday
+	cfg.SchoolReviewTime = "19:45"
+	return cfg
+}
+
+// The review fires once, on its day at its minute, and on nothing else: the
+// latch is a date, so next Friday it is due again.
+func TestTheSchoolReviewFiresOnceAWeekAtItsMinute(t *testing.T) {
+	cfg := schoolReviewClock()
+	friday := time.Date(2026, 11, 27, 19, 45, 0, 0, time.UTC)
+
+	d := cfg.dueThisMinute(friday, lastFired{})
+	if !d.schoolReview {
+		t.Fatal("did not fire at its minute")
+	}
+	if n := countDue(d); n != 1 {
+		t.Fatalf("%d clocks fired at once, want only the review: %+v", n, d)
+	}
+	if cfg.dueThisMinute(friday.Add(time.Minute), lastFired{}).schoolReview {
+		t.Error("fired at the wrong minute")
+	}
+	if cfg.dueThisMinute(friday.AddDate(0, 0, 1), lastFired{}).schoolReview {
+		t.Error("fired on Saturday")
+	}
+	last := lastFired{schoolReview: friday.Format("2006-01-02")}
+	if cfg.dueThisMinute(friday, last).schoolReview {
+		t.Error("re-fired within the same day")
+	}
+	if !cfg.dueThisMinute(friday.AddDate(0, 0, 7), last).schoolReview {
+		t.Error("did not fire the next Friday")
+	}
+}
+
+func TestTheSchoolReviewStaysOffWithoutAServiceOrAnAnchor(t *testing.T) {
+	friday := time.Date(2026, 11, 27, 19, 45, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		tweak func(*Config)
+	}{
+		// No Moodle credentials: the clock firing would call a nil service in
+		// the ticker's goroutine.
+		{"no service", func(c *Config) { c.Moodle = nil }},
+		// No SCHOOL_MOODLE_WEEK0: there is no week number to review.
+		{"no anchor", func(c *Config) {
+			c.Moodle = moodle.NewService(nil, nil, moodle.Config{}, time.UTC, nil, nil)
+		}},
+		{"DOW -1", func(c *Config) { c.SchoolReviewDOW = -1 }},
+		{"no time", func(c *Config) { c.SchoolReviewTime = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := schoolReviewClock()
+			tc.tweak(&cfg)
+			if cfg.schoolReviewEnabled() {
+				t.Fatal("the review is armed")
+			}
+			if cfg.dueThisMinute(friday, lastFired{}).schoolReview {
+				t.Fatal("it fired anyway")
+			}
+		})
+	}
+}
+
+// The review on its own keeps RunDigests' loop alive, and only once it is
+// fully armed: an unanchored service must not start a ticker with nothing to
+// fire.
+func TestTheSchoolReviewAloneKeepsTheDigestLoopAlive(t *testing.T) {
+	cfg := Config{NotifyChat: -100, DishSuggestDOW: -1,
+		Moodle: anchoredMoodle(), SchoolReviewDOW: 5, SchoolReviewTime: "19:45"}
+	if !cfg.anyDigestEnabled() {
+		t.Fatal("RunDigests would return early")
+	}
+	cfg.Moodle = moodle.NewService(nil, nil, moodle.Config{}, time.UTC, nil, nil)
+	if cfg.anyDigestEnabled() {
+		t.Fatal("an unanchored service keeps the loop alive")
 	}
 }

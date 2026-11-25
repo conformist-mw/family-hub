@@ -166,10 +166,10 @@
 - Modify: `internal/bot/digests_test.go`
 - Modify: `internal/bot/school_moodle.go`
 
-- [ ] годинник `schoolReview` у `due`/`lastFired`/`dueThisMinute`/`anyDigestEnabled` (DOW+TIME+Week0 **і** `Config.Moodle != nil`), у стартовому лозі й тексті «disabled»
-- [ ] `sendSchoolReview` — горутина з `atomic.Bool` і `context.WithTimeout` (як `sendDishSuggestions`), `WeekProgress` поточного тижня → `formatWeekReview` → `NotifyHTML`
-- [ ] тести: спрацьовує один раз у свою хвилину, вимкнений без сервісу/якоря, `anyDigestEnabled` true лише з ним, `countDue` враховує нове поле, повторний запуск під час виконання пропускається
-- [ ] `go test ./internal/bot/...` — зелено
+- [x] годинник `schoolReview` у `due`/`lastFired`/`dueThisMinute`/`anyDigestEnabled` (DOW+TIME+Week0 **і** `Config.Moodle != nil`), у стартовому лозі й тексті «disabled»
+- [x] `sendSchoolReview` — горутина з `atomic.Bool` і `context.WithTimeout` (як `sendDishSuggestions`), `WeekProgress` поточного тижня → `formatWeekReview` → `NotifyHTML`
+- [x] тести: спрацьовує один раз у свою хвилину, вимкнений без сервісу/якоря, `anyDigestEnabled` true лише з ним, `countDue` враховує нове поле, повторний запуск під час виконання пропускається
+- [x] `go test ./internal/bot/...` — зелено
 
 ### Task 8: Wiring in cmd/server
 

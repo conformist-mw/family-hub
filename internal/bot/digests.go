@@ -12,7 +12,8 @@ import (
 // RunDigests ticks once a minute and fires the wall-clock messages (in
 // cfg.Loc): the daily and weekly appointment digests, the evening list of
 // recurring chores nobody closed, the morning menu, the evening check of
-// what was actually eaten, and the weekly suggestion of new dishes. It blocks
+// what was actually eaten, the weekly suggestion of new dishes, and the
+// Friday review of the school week. It blocks
 // until ctx is done; meant to run in its own goroutine alongside
 // polling/webhook.
 //
@@ -28,7 +29,7 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		return
 	}
 	if !b.cfg.anyDigestEnabled() {
-		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder or menu clocks)")
+		b.logger.Info("bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder, menu or school review clocks)")
 		return
 	}
 	pushOn := b.cfg.reminderPushEnabled()
@@ -46,7 +47,10 @@ func (b *Bot) RunDigests(ctx context.Context) {
 		"menu_evening_time", b.cfg.MenuEveningTime,
 		"dish_suggest", b.cfg.dishSuggestEnabled(),
 		"dish_suggest_dow", b.cfg.DishSuggestDOW,
-		"dish_suggest_time", b.cfg.DishSuggestTime)
+		"dish_suggest_time", b.cfg.DishSuggestTime,
+		"school_review", b.cfg.schoolReviewEnabled(),
+		"school_review_dow", b.cfg.SchoolReviewDOW,
+		"school_review_time", b.cfg.SchoolReviewTime)
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -93,6 +97,10 @@ func (b *Bot) RunDigests(ctx context.Context) {
 				b.sendDishSuggestions(ctx, now)
 				last.suggest = today
 			}
+			if d.schoolReview {
+				b.sendSchoolReview(ctx, now)
+				last.schoolReview = today
+			}
 			if pushOn {
 				lastPush = b.sendDueChores(now, lastPush)
 			}
@@ -107,7 +115,8 @@ func (b *Bot) RunDigests(ctx context.Context) {
 func (c Config) anyDigestEnabled() bool {
 	return c.appointmentDigestsEnabled() || c.reminderNagEnabled() ||
 		c.reminderPushEnabled() || c.menuEnabled() ||
-		c.menuEveningEnabled() || c.dishSuggestEnabled()
+		c.menuEveningEnabled() || c.dishSuggestEnabled() ||
+		c.schoolReviewEnabled()
 }
 
 // appointmentDigestsEnabled and reminderNagEnabled are separate because the
@@ -138,11 +147,11 @@ func (c Config) reminderPushEnabled() bool {
 // clocks, a positional signature meant every new one touched every call in the
 // tests, and two adjacent strings swapped by mistake still compiled.
 type due struct {
-	daily, weekly, nag, menu, evening, suggest bool
+	daily, weekly, nag, menu, evening, suggest, schoolReview bool
 }
 
 type lastFired struct {
-	daily, weekly, nag, menu, evening, suggest string
+	daily, weekly, nag, menu, evening, suggest, schoolReview string
 }
 
 // dueThisMinute decides which of the wall-clock messages fire on this tick,
@@ -170,6 +179,9 @@ func (c Config) dueThisMinute(now time.Time, last lastFired) due {
 		suggest: c.dishSuggestEnabled() &&
 			dow == c.DishSuggestDOW &&
 			hm == c.DishSuggestTime && last.suggest != today,
+		schoolReview: c.schoolReviewEnabled() &&
+			dow == c.SchoolReviewDOW &&
+			hm == c.SchoolReviewTime && last.schoolReview != today,
 	}
 }
 

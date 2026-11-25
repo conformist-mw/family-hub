@@ -92,6 +92,14 @@ type Config struct {
 	// deploy without Moodle credentials — leaves /grades unregistered: the
 	// store would only ever answer that there are no grades yet.
 	Moodle *moodle.Service
+
+	// SchoolReviewDOW/Time is when the bot posts the review of the school
+	// week. DOW is 0=Sun..6=Sat and <0 disables, matching DishSuggestDOW; ""
+	// for the time disables it too, and so does a nil Moodle or one without a
+	// week anchor — the review is about week N, and without the anchor there
+	// is no N.
+	SchoolReviewDOW  int
+	SchoolReviewTime string
 }
 
 // menuEnabled and menuEveningEnabled gate on a configured time alone: the
@@ -112,6 +120,15 @@ func (c Config) dishSuggestEnabled() bool {
 	return c.DishSuggestTime != "" && c.DishSuggestDOW >= 0 && c.Dish != nil
 }
 
+// schoolReviewEnabled needs the Moodle service and its week anchor as well as
+// a day and a time: the clock firing without the service would call a nil
+// receiver in RunDigests' goroutine, and without the anchor every review would
+// name a week that is not the one on the school's site.
+func (c Config) schoolReviewEnabled() bool {
+	return c.SchoolReviewTime != "" && c.SchoolReviewDOW >= 0 &&
+		c.Moodle != nil && c.Moodle.HasWeekAnchor()
+}
+
 type Bot struct {
 	b       *tele.Bot
 	cfg     Config
@@ -130,10 +147,15 @@ type Bot struct {
 	// recognition and the taps that correct and confirm it.
 	cookedCards *cookedPending
 
-	// suggestRunning guards the weekly dish suggestions, the only message
-	// that leaves the ticker's goroutine: without it a model call slow enough
-	// to outlast a minute would have a second one started on top of the first.
+	// suggestRunning guards the weekly dish suggestions, which leave the
+	// ticker's goroutine: without it a model call slow enough to outlast a
+	// minute would have a second one started on top of the first.
 	suggestRunning atomic.Bool
+
+	// schoolReviewRunning does the same for the school review, the other
+	// message built off the ticker's goroutine: it reads some forty pages
+	// from Moodle and first waits out any sync in progress.
+	schoolReviewRunning atomic.Bool
 
 	// paidTaps holds the warnings whose "оплатив" button has been taken, so a
 	// double tap records one payment, not two. In memory only: the tap edits

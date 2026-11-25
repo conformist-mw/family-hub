@@ -22,15 +22,16 @@ import (
 // own tags, so NotifyHTML may cut the text between any two lines; /grades is
 // one rich message and is never cut.
 
-// NotifyNewGrades posts the grades one sync found to the family group. It is
-// the sync's notify callback, so it has nobody to return an error to: a failed
-// send is logged, and those grades stay visible in /grades.
+// NotifyNewGrades posts the grades one sync found to the family group, as a
+// rich-message table. It is the sync's notify callback, so it has nobody to
+// return an error to: a failed send is logged, and those grades stay visible
+// in /grades.
 func (b *Bot) NotifyNewGrades(grades []model.SchoolGrade) {
 	text := formatNewGrades(grades)
 	if text == "" {
 		return
 	}
-	if err := b.NotifyHTML(text); err != nil {
+	if _, err := b.sendToGroup(&tele.InputRichMessage{HTML: text}); err != nil {
 		b.logger.Error("bot: notify new grades", "err", err, "grades", len(grades))
 	}
 }
@@ -92,22 +93,78 @@ func (b *Bot) cmdGrades(c tele.Context) error {
 // lowAverage marks a subject whose average is below it with ⚠️.
 const lowAverage = 4.0
 
-// formatNewGrades lists the grades one sync found, one line each:
-// "<b>Алгебра</b>: ОВ 12 — 2,2 (сер. 5,5)". No grades, no message ("").
+// formatNewGrades is the Rich HTML table of the grades one sync found: per
+// grade the subject with its level, the grade, and the subject's average as it
+// moved («7,5 → 6,3»). What kind of grade it is goes under the table when all
+// are of one kind, else beside each grade — never the item's running number,
+// which read as a second grade. No grades, no message ("").
 func formatNewGrades(grades []model.SchoolGrade) string {
 	if len(grades) == 0 {
 		return ""
 	}
-	var sb strings.Builder
-	sb.WriteString("🆕 Нові оцінки")
+	kinds := map[string]bool{}
 	for _, g := range grades {
-		fmt.Fprintf(&sb, "\n<b>%s</b>: %s", html.EscapeString(g.CourseName), gradeEntry(g))
-		if avg := tidyGrade(g.CourseAverage); avg != "" {
-			fmt.Fprintf(&sb, " (сер. %s)", html.EscapeString(avg))
+		kinds[gradeKind(g)] = true
+	}
+	mixed := len(kinds) > 1
+
+	var sb strings.Builder
+	if len(grades) == 1 {
+		sb.WriteString("<h4>🆕 Нова оцінка</h4>")
+	} else {
+		fmt.Fprintf(&sb, "<h4>🆕 Нові оцінки · %d</h4>", len(grades))
+	}
+	sb.WriteString(`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th>Середній</th></tr>`)
+	for _, g := range grades {
+		grade := "<b>" + html.EscapeString(tidyGrade(g.GradeText)) + "</b>"
+		if mixed {
+			grade += " <i>" + html.EscapeString(shortKind(g)) + "</i>"
 		}
+		fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center">%s</td><td>%s</td></tr>`,
+			strings.TrimSpace(gradeLevel(g.CourseAverageNum)+" "+html.EscapeString(g.CourseName)),
+			grade, averageMove(g.CoursePrevAverage, g.CourseAverage))
+	}
+	sb.WriteString("</table>")
+	if !mixed {
+		fmt.Fprintf(&sb, "<footer>%s</footer>", html.EscapeString(gradeKind(grades[0])))
 	}
 	return sb.String()
 }
+
+// averageMove is a subject's average across one sync: «7,5 → 6,3» when it
+// moved, just the new one when it did not or there was none before.
+func averageMove(was, now string) string {
+	was, now = html.EscapeString(tidyGrade(was)), html.EscapeString(tidyGrade(now))
+	if was == "" || was == now {
+		return now
+	}
+	return was + " → " + now
+}
+
+// shortKind is a grade item without its running number: "ОВ", "КР", or the
+// item's own (shortened) name for anything else ("Тест").
+func shortKind(g model.SchoolGrade) string {
+	if m := numberedItem.FindStringSubmatch(model.ShortItemName(g.Name)); m != nil {
+		return m[1]
+	}
+	return model.ShortItemName(g.Name)
+}
+
+// gradeKind spells shortKind out for the line under the table.
+func gradeKind(g model.SchoolGrade) string {
+	switch k := shortKind(g); k {
+	case "ОВ":
+		return "Оцінка вчителя"
+	case "КР":
+		return "Контрольна робота"
+	default:
+		return k
+	}
+}
+
+// numberedItem is a grade item that is a kind plus its running number
+// ("ОВ 12", "Тест 3").
+var numberedItem = regexp.MustCompile(`^(.+?)\s+\d+$`)
 
 // formatGradesTable is the /grades answer as a Rich HTML table: one row per
 // subject that has grades, the weakest average first, with its level, its

@@ -1157,8 +1157,13 @@ the handlers feed.
   weakest average first: 🔴 below 4, 🟡 4–6, 🟢 7 and up (the school's levels,
   judged on the stored number, not Moodle's text), the average, then the grades
   in order with only the tests in bold — the «ОВ/КР» labels were the hardest
-  part of the old list to read. New-grade messages and the review keep the
-  labels: «ОВ 12 — 2,2».
+  part of the old list to read. The review still writes «ОВ 12 — 2,2».
+- **A new grade is a table too**: subject with its level, the grade, and the
+  average as the sync moved it («7,5 → 6,3»). The "was" is the course's
+  average_text read in the same transaction before the sync overwrites it, so
+  it needs no column of its own. The grade's kind («Оцінка вчителя») goes under
+  the table, or beside each grade when one sync brings several kinds; the
+  item's running number never shows — «ОВ 12 — 4» read as two grades.
 - **`/grades` is a rich message.** Tables exist only in Bot API rich messages
   (`sendRichMessage`, Rich HTML style), sent as `tele.InputRichMessage`. One
   rich message holds 32768 characters, far more than a year of grades, so it

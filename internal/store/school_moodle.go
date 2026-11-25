@@ -58,7 +58,7 @@ func (s *Store) ApplySchoolSync(courses []model.SchoolCourse, grades []model.Sch
 	}
 	defer tx.Rollback()
 
-	known, err := schoolCourseIDs(tx)
+	known, err := schoolCourseAverages(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +121,13 @@ func (s *Store) ApplySchoolSync(courses []model.SchoolCourse, grades []model.Sch
 			g.GradeRaw, g.GradeText, g.GradedAt); err != nil {
 			return nil, err
 		}
-		if !known[g.CourseID] || unchanged {
+		wasAverage, isKnown := known[g.CourseID]
+		if !isKnown || unchanged {
 			continue
 		}
 		c := byID[g.CourseID]
 		g.CourseName, g.CourseAverage = c.Name, c.AverageText
+		g.CourseAverageNum, g.CoursePrevAverage = c.Average, wasAverage
 		fresh = append(fresh, g)
 	}
 
@@ -154,19 +156,23 @@ func (s *Store) ApplySchoolSync(courses []model.SchoolCourse, grades []model.Sch
 	return fresh, nil
 }
 
-func schoolCourseIDs(tx *sql.Tx) (map[int64]bool, error) {
-	rows, err := tx.Query(`SELECT id FROM school_courses`)
+// schoolCourseAverages is every stored course with its average as Moodle
+// wrote it before this sync ("" while there is none): the "was" of a new
+// grade's average.
+func schoolCourseAverages(tx *sql.Tx) (map[int64]string, error) {
+	rows, err := tx.Query(`SELECT id, COALESCE(average_text, '') FROM school_courses`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[int64]bool{}
+	out := map[int64]string{}
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var avg string
+		if err := rows.Scan(&id, &avg); err != nil {
 			return nil, err
 		}
-		out[id] = true
+		out[id] = avg
 	}
 	return out, rows.Err()
 }

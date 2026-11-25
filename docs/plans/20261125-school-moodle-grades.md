@@ -141,9 +141,9 @@
 - Create: `internal/bot/school_moodle.go`
 - Create: `internal/bot/school_moodle_test.go`
 
-- [ ] `formatNewGrades`, `formatGradesSummary`, `formatWeekReview`; HTML-екранування назв
-- [ ] тести: формати з Technical Details, ⚠️ < 4, «,0» прибирається, порожні стани, кожен рядок має збалансовані теги
-- [ ] `go test ./internal/bot/...` — зелено
+- [x] `formatNewGrades`, `formatGradesSummary`, `formatWeekReview`; HTML-екранування назв
+- [x] тести: формати з Technical Details, ⚠️ < 4, «,0» прибирається, порожні стани, кожен рядок має збалансовані теги
+- [x] `go test ./internal/bot/...` — зелено
 
 ### Task 6: /grades command and new-grade notifications
 

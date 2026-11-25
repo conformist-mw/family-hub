@@ -18,6 +18,7 @@ import (
 	"familyhub/internal/actor"
 	"familyhub/internal/audit"
 	"familyhub/internal/dish"
+	"familyhub/internal/moodle"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
 	"familyhub/internal/store"
@@ -86,6 +87,11 @@ type Config struct {
 	// of the bot untouched — the same bargain free-text capture makes with
 	// GEMINI_API_KEY. The dishes themselves live in the local store.
 	Dish *dish.Recognizer
+
+	// Moodle syncs the school's gradebook into the local store. nil — a
+	// deploy without Moodle credentials — leaves /grades unregistered: the
+	// store would only ever answer that there are no grades yet.
+	Moodle *moodle.Service
 }
 
 // menuEnabled and menuEveningEnabled gate on a configured time alone: the
@@ -280,6 +286,11 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		logger.Info("bot: cooking log disabled (AI_API_KEY not set)")
 	}
 
+	// /grades reads the store the sync fills, never Moodle itself.
+	if cfg.Moodle != nil {
+		tb.Handle("/grades", bot.cmdGrades)
+	}
+
 	// Populate the "/" menu — how the group discovers the appointment commands
 	// (best-effort; a network hiccup here must not block startup).
 	cmds := []tele.Command{
@@ -294,6 +305,9 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	cmds = append(cmds, tele.Command{Text: "menu", Description: "Що готувати завтра: кілька варіантів меню"})
 	if cfg.Dish != nil {
 		cmds = append(cmds, tele.Command{Text: "cooked", Description: "Що приготували: фото тарілки або /cooked драники"})
+	}
+	if cfg.Moodle != nil {
+		cmds = append(cmds, tele.Command{Text: "grades", Description: "Шкільні оцінки й середні по предметах"})
 	}
 	cmds = append(cmds,
 		tele.Command{Text: "week", Description: "Записи на найближчий тиждень"},
@@ -344,15 +358,19 @@ func (b *Bot) NotifyText(text string) error { return b.notify(text) }
 // Mini App reaches the group the same way one captured by the bot does.
 func (b *Bot) NotifyHTML(text string) error { return b.notify(text, tele.ModeHTML) }
 
-// notify sends to the notify chat, split into ≤4000-char chunks (Telegram caps
-// messages at 4096). The split falls on line boundaries and every line closes
-// its own tags, so chunking cannot cut HTML in half. No notify chat means
-// nowhere to post, which is not an error.
+// messageLimit is the size a message is split to, in bytes: Telegram caps a
+// message at 4096 characters, and bytes never undercount them.
+const messageLimit = 4000
+
+// notify sends to the notify chat, split into ≤messageLimit chunks. The split
+// falls on line boundaries and every line closes its own tags, so chunking
+// cannot cut HTML in half. No notify chat means nowhere to post, which is not
+// an error.
 func (b *Bot) notify(text string, opts ...any) error {
 	if b.cfg.NotifyChat == 0 {
 		return nil
 	}
-	chunks := audit.SplitMessage(text, 4000)
+	chunks := audit.SplitMessage(text, messageLimit)
 	for i, chunk := range chunks {
 		// Only the last chunk carries the app button: one per chunk would put
 		// three of them under a long reconciliation.

@@ -153,11 +153,11 @@
 - Modify: `internal/bot/school_moodle.go`
 - Modify: `internal/bot/school_moodle_test.go`
 
-- [ ] `Config.Moodle *moodle.Service` (nil = вимкнено); `/grades` реєструється лише з ним; додати в `SetCommands`, `cmdHelp`, `cmdStart` (умовно)
-- [ ] `/grades` читає зі store, розрізає відповідь `audit.SplitMessage`
-- [ ] `Bot.NotifyNewGrades(grades)` через `NotifyHTML` (callback для синку)
-- [ ] тести: `/grades` з даними/без даних, довга відповідь розрізається, без `NotifyChat` нічого не шле
-- [ ] `go test ./internal/bot/...` — зелено
+- [x] `Config.Moodle *moodle.Service` (nil = вимкнено); `/grades` реєструється лише з ним; додати в `SetCommands`, `cmdHelp`, `cmdStart` (умовно)
+- [x] `/grades` читає зі store, розрізає відповідь `audit.SplitMessage`
+- [x] `Bot.NotifyNewGrades(grades)` через `NotifyHTML` (callback для синку)
+- [x] тести: `/grades` з даними/без даних, довга відповідь розрізається, без `NotifyChat` нічого не шле
+- [x] `go test ./internal/bot/...` — зелено
 
 ### Task 7: Friday week review clock
 

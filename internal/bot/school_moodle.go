@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"strings"
 
+	tele "gopkg.in/telebot.v3"
+
+	"familyhub/internal/audit"
 	"familyhub/internal/model"
 	"familyhub/internal/moodle"
 )
@@ -15,6 +18,45 @@ import (
 // The formatters below are pure — the sync and the store hand them data, the
 // handlers send what they return. Every line closes its own tags, so
 // NotifyHTML and audit.SplitMessage may cut the text between any two lines.
+
+// NotifyNewGrades posts the grades one sync found to the family group. It is
+// the sync's notify callback, so it has nobody to return an error to: a failed
+// send is logged, and those grades stay visible in /grades.
+func (b *Bot) NotifyNewGrades(grades []model.SchoolGrade) {
+	text := formatNewGrades(grades)
+	if text == "" {
+		return
+	}
+	if err := b.NotifyHTML(text); err != nil {
+		b.logger.Error("bot: notify new grades", "err", err, "grades", len(grades))
+	}
+}
+
+// cmdGrades answers /grades from the store, never from Moodle: it is what
+// the last sync saw, and it answers even while Moodle is down.
+func (b *Bot) cmdGrades(c tele.Context) error {
+	chunks, err := b.gradesChunks()
+	if err != nil {
+		b.logger.Error("bot: grades summary", "err", err)
+		return c.Send("Не вдалося прочитати оцінки.")
+	}
+	for _, chunk := range chunks {
+		if err := c.Send(chunk, tele.ModeHTML); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// gradesChunks is the /grades reply split into sendable pieces: twenty
+// subjects with a term of grades each outgrow one Telegram message.
+func (b *Bot) gradesChunks() ([]string, error) {
+	courses, err := b.store.SchoolSummary()
+	if err != nil {
+		return nil, err
+	}
+	return audit.SplitMessage(formatGradesSummary(courses), messageLimit), nil
+}
 
 // lowAverage marks a subject whose average is below it with ⚠️.
 const lowAverage = 4.0

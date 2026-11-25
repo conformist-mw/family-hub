@@ -208,9 +208,9 @@ Live run (Task 9) showed the school barely uses Moodle completion tracking (6 of
 - [x] `go vet ./... && go test ./...` — зелено
 
 ### Task 11: [Final] Update documentation
-- [ ] `ARCHITECTURE.md` — розділ про Moodle (чому огляд рахує оцінені тести, а не completion; токен мобільного API, логін на синк, seed по курсу, якір тижня, нічна пауза, втрата сповіщення при збої Telegram)
-- [ ] `DEPLOY.md`/`README.md` — env і секрети
-- [ ] перенести план у `docs/plans/completed/`
+- [x] `ARCHITECTURE.md` — розділ про Moodle (чому огляд рахує оцінені тести, а не completion; токен мобільного API, логін на синк, seed по курсу, якір тижня, нічна пауза, втрата сповіщення при збої Telegram)
+- [x] `DEPLOY.md`/`README.md` — env і секрети
+- [x] перенести план у `docs/plans/completed/` (skipped - the harness moves the plan after all phases)
 
 ## Post-Completion
 **External system updates:**

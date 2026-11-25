@@ -44,6 +44,11 @@ to add, think about, or turn down. `/menu` asks the day ahead — tomorrow by de
 answers with three whole-day menus chosen with the last weeks in view; one tap
 makes a variant the day's plan, which the next morning's menu then opens with.
 
+The bot also follows the child's school gradebook in Moodle. A new grade is a
+message in the group within a couple of hours, `/grades` shows every subject's
+average with its grades, and on Friday evening a review of the school week says,
+per subject, how many of that week's quizzes are graded and what was graded.
+
 ## Why
 
 The original spreadsheet had a few sharp edges this app removes:
@@ -60,7 +65,7 @@ The original spreadsheet had a few sharp edges this app removes:
 | | Where | What it is for |
 | --- | --- | --- |
 | Web UI | behind oauth2-proxy | the whole data model: courses, payments, journal, reconciliation, recurring chores and what actually got done |
-| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, the evening list of chores nobody closed, the morning menu and evening meal check, weekly dish suggestions, `/menu` for the day ahead, and the cooking log from a photo or `/cooked` |
+| Telegram bot | the family group | marking attendance, capturing a visit from free text, balance and spending, lesson reminders, a chore when it comes due, the evening list of chores nobody closed, the morning menu and evening meal check, weekly dish suggestions, `/menu` for the day ahead, the cooking log from a photo or `/cooked`, and school grades — new ones as they land, `/grades`, the Friday week review |
 | Mini App | `/mini`, inside Telegram | what is going on today, the week's visits, the weekly lesson schedule, recording a payment, reconciling a course, managing recurring chores and reviewing how they are going |
 
 The Mini App authenticates the person who opened it — an HMAC over Telegram's
@@ -130,7 +135,8 @@ only — copy `.env.example` to `.env` and fill in what you need. Without
 `GEMINI_API_KEY` everything works except free-text capture. Without
 `AI_API_KEY` the cooking log, the evening check's «Інше» and the weekly dish
 suggestions are off; the morning menu and the rest of the evening check still
-work.
+work. Without `SCHOOL_MOODLE_URL` and its login there is no grades sync, no
+`/grades` and no Friday review.
 
 To open the Mini App in a normal browser, set `MINI_DEV_USER` to a Telegram
 user id that is also in `TELEGRAM_MINI_USERS`. It skips signature verification

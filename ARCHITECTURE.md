@@ -216,6 +216,7 @@ internal/
   menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
   kitchen/     # the menu against the store, and the plan/eaten write path the Mini App and web share
   ics/         # the VCALENDAR feed HA polls
+  moodle/      # the school's Moodle: client, grades sync, the week's graded quizzes
 data/          # local SQLite (gitignored)
 ```
 
@@ -493,8 +494,9 @@ for exactly that reason.
 - Allowlist via `TELEGRAM_ALLOWED_CHATS` (comma-separated chat IDs).
   Unknown chats receive a short "доступ запрещён".
 - Commands: `/start`, `/help`, `/balance`, `/stats`, `/add` (lessons),
-  `/visit`, `/week`, `/list` (appointments) and `/app` (Mini App). The "/"
-  menu is set on startup.
+  `/visit`, `/week`, `/list` (appointments), `/app` (Mini App) and, when
+  Moodle is configured, `/grades` (see "School grades"). The "/" menu is set
+  on startup.
 - **Opening the Mini App from the group** (`internal/bot/miniapp.go`): a menu
   button and an inline `web_app` button are both private-chat only, so what
   works in a group is a `t.me/<bot>?startapp` deep link behind a plain `url`
@@ -574,12 +576,14 @@ for exactly that reason.
   lesson reminders (below), `RunDigests` (`internal/bot/digests.go`),
   `RunCostPrompts` for the above, and `RunBillingReminders` (below). All four
   need a configured notify chat.
-- `RunDigests` hosts six wall-clock messages with **separate** gates: the
+- `RunDigests` hosts seven wall-clock messages with **separate** gates: the
   appointment daily/weekly digests, gated by `NOTIFICATIONS_ENABLED` (off in
   prod — HA owns those summaries), the evening chore nag, gated by
-  `REMINDER_NAG_TIME` alone, and the three menu messages — the morning menu (`MENU_TIME`), the evening check
+  `REMINDER_NAG_TIME` alone, the three menu messages — the morning menu (`MENU_TIME`), the evening check
   (`MENU_EVENING_TIME`) and the weekly dish suggestions
-  (`DISH_SUGGEST_DOW`/`_TIME` **and** a configured model), see "The menu". They
+  (`DISH_SUGGEST_DOW`/`_TIME` **and** a configured model), see "The menu" —
+  and the Friday review of the school week (`SCHOOL_MOODLE_REVIEW_DOW`/`_TIME`
+  **and** a configured Moodle with a week anchor), see "School grades". They
   are split because HA can send the first and cannot send the others. It reads
   a calendar, so it knows nothing about what was closed. The menu messages have a plainer reason: their
   buttons are answered by the bot, not by HA. One shared flag would have left
@@ -590,7 +594,9 @@ for exactly that reason.
 - A fifth ticker lives outside the bot entirely — `reminders.RunMaterialiser`,
   started from `main.go`. It records what came due, which is data rather than a
   message, so it must not answer to a notification flag or to a notify chat
-  being configured.
+  being configured. The Moodle grades sync is the sixth, also started from
+  `main.go`, for the same reason: the grades it stores are what `/grades` and
+  the Friday review read, whether or not there is a bot to announce them.
 - **Billing reminders** (`internal/bot/billing.go`): an hourly ticker that
   warns when a monthly course's paid period is about to run out, so the next
   month gets paid before it starts. How far ahead is the course's own
@@ -1078,6 +1084,106 @@ a person can pick that the app refuses.
   to the calendar and the list, which both project that half from the rules,
   and orphaned the moment the rule changed. Close it when it comes due.
 
+## School grades (Moodle)
+
+The school is a distance-learning one on Moodle, and what it gives a parent is
+a gradebook, not a timetable: the calendar, the assignments and the quizzes'
+opening dates are all empty, and the course sections carry no dates. So the bot
+follows grades — a message in the family group when a new one lands, `/grades`
+for the whole picture, and a Friday review of the school week. `internal/moodle`
+is the client and the sync service; the messages are built in
+`internal/bot/school_moodle.go` by pure formatters that the sync, the store and
+the handlers feed.
+
+- **The mobile app's token, not scraping.** Login is `POST /login/token.php`
+  with `service=moodle_mobile_app` — the web service any Moodle that supports
+  the official app exposes — so the pupil's ordinary login is enough and nobody
+  at the school had to issue an API token. Every call after it goes to
+  `webservice/rest/server.php` with the token, the function and its parameters
+  in the POST body, never in the query string: Go's `*url.Error` carries the
+  whole URL, and a token in it would be in the logs on the first network
+  failure. Moodle reports an error as HTTP 200 with an `exception` object, which
+  the client turns into a typed error. It never logs the username, the pupil's
+  name or the token.
+- **Log in on every run.** Each sync and each review logs in afresh instead of
+  keeping a token. At one sync every two hours that is one extra request, and
+  there is no expired-token path to get wrong. The client is not safe for
+  concurrent use and the review's clock can fire mid-sync, so one mutex
+  serialises them; the new-grade callback runs after the lock is released, so a
+  slow Telegram send does not hold up the review.
+- **What is stored.** `school_courses` and `school_grades` (migration 0017),
+  keyed by Moodle's own ids — the grade item id is the one thing that tells a
+  new grade from the same grade seen again. Only graded activity items are kept
+  (`itemtype = mod` with a raw grade): course and category totals are what the
+  course average already says. A grade is new when its item was not stored or
+  its raw value changed. A grade Moodle gives no date is dated by the sync that
+  first saw it and keeps that date while its value stands; re-dating it on every
+  sync would drag the same old grade into every Friday review.
+- **A sync is all or nothing.** The store takes a sync as the whole truth: a
+  course missing from it is deleted with its grades, so a new school year does
+  not mix into last year's averages, and a grade the teacher removed goes too.
+  That makes a partial sync dangerous — written with one course timed out, it
+  would wipe that course and later re-seed it silently, losing whatever was
+  graded in between. So if any course fails to read, nothing is written.
+- **Seeding is per course, not per first run.** A course not yet in
+  `school_courses` is written silently: its grades are history, not news. Only
+  a course the store already knows produces a message. A single "first sync"
+  flag gets three cases wrong that this gets right: an empty first sync (the
+  next one would announce the whole year), a course that failed on the first
+  sync (the same), and a course added mid-year.
+- **Quiet hours.** No sync between 22:00 and 07:00 in the app's zone, the one
+  at startup included: nobody grades at night, and a midnight message about an
+  afternoon grade is noise. The interval is `SCHOOL_MOODLE_SYNC_INTERVAL`, two
+  hours by default — teachers grade in batches, and a grade two hours old is
+  still news.
+- **A failed announcement is lost, on purpose.** There is no `notified_at`. If
+  Telegram is down when a sync finds a grade, that message never goes out; the
+  grade is still in `/grades` and in Friday's review. Tracking delivery would
+  mean a retry loop and its own dedupe for a message whose content is one
+  command away.
+- **`/grades` reads the store, never Moodle**, so it answers at once and works
+  while the school's site is down. Per course: the average, with ⚠️ below 4
+  (compared on the stored number, not Moodle's text), then the grades in order,
+  «Оцінка вчителя N» shortened to «ОВ N» and «Контрольна робота N» to «КР N».
+  A long answer is split by `audit.SplitMessage`, and every line closes its own
+  tags, so a cut between any two lines is still valid HTML.
+- **The week anchor.** Sections are named «Тиждень N» and carry no dates, and
+  nothing in Moodle says which week is the current one. So the number is
+  counted from `SCHOOL_MOODLE_WEEK0`, the Monday of week 0, in calendar days so
+  a DST change cannot move a boundary. It is configuration rather than derived
+  because it can drift: a holiday the school does not number shifts every week
+  after it. When it does, the review says the section is missing — in one line
+  when no course has it, rather than twenty — and the date moves. Without the
+  anchor the review is off; the sync and `/grades` do not need it.
+- **Why the review counts graded quizzes, not completion.** The obvious
+  progress signal, Moodle's activity completion, turned out unused: across a
+  whole school year almost nothing was ever marked complete, so «done X of Y»
+  read 0/N in every subject. What the school does reliably is grade quizzes. So
+  for each course the review counts the quiz modules in that week's section and
+  how many of them have a stored grade — matched on `item_module = 'quiz'` and
+  the module's instance, because instance ids are per module type and a graded
+  lesson 501 must not mark quiz 501. Lessons, labels and books carry no signal
+  and are not counted. A quiz counts as graded whenever its grade came, so a
+  week-12 quiz marked a week later still closes week 12, while the grade itself
+  is listed under the week it was given. The week's grades come from the store
+  by `graded_at`, Monday to Sunday; the courses and averages come from the last
+  sync. Only the course contents are read live.
+- **How the review fails.** It runs in its own goroutine behind an
+  `atomic.Bool` with a five-minute timeout, like the dish suggestions: it may
+  first wait out a running sync, then reads one page per course. A course whose
+  contents cannot be read shows «прогрес недоступний» with its grades and
+  average rather than costing the whole message. A failed login sends nothing,
+  because an empty review would read as a quiet week. A course with no quizzes
+  that week and no grades is left out.
+- **Off unless configured.** Without `SCHOOL_MOODLE_URL`, `_USERNAME` and
+  `_PASSWORD` there is no service: no sync, no `/grades`, and the review's clock
+  does not count towards `anyDigestEnabled`. The bot's config holds a concrete
+  `*moodle.Service`, not an interface, because a nil pointer inside an
+  interface is not nil. Without `TELEGRAM_BOT_TOKEN` the sync still runs, with
+  nobody to announce to, and the grades are there when the bot comes up. The
+  school's address exists only in the environment; the code has no default and
+  the repository never names it.
+
 ## Deployment
 
 - Image built on the dev machine (Mac arm64), pushed to Docker Hub
@@ -1133,6 +1239,14 @@ a person can pick that the app refuses.
   - `family_hub_mini_users` — the Telegram **user** ids allowed into the Mini
     App, comma-separated. Store it as a quoted string: as a bare YAML number
     it decrypts back as a float with a `.0` glued on.
+  - `family_hub_school_moodle_url`, `family_hub_school_moodle_username`,
+    `family_hub_school_moodle_password` — the school's Moodle and the pupil's
+    login there. The address is secret too: it names the school, and the code
+    carries no default for it. Unlike the keys above these default to empty in
+    the role, which turns the integration off rather than failing the play.
+    The week anchor and the review's day and time are not secrets — they are
+    plain role variables (`family_hub_school_moodle_week0`, `_review_dow`,
+    `_review_time`).
 - Edit a value: `cd ~/dev/dotfiles && sops edit host_vars/hetzner/secrets.sops.yaml`.
 - Rotate without echoing: `sops --set '["key"] "value"' …`.
 - The rest of the dotfiles still uses Bitwarden Secrets Manager. Full

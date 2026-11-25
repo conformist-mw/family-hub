@@ -178,11 +178,11 @@
 - Modify: `cmd/server/main_test.go`
 - Modify: `.env.example`
 
-- [ ] `withSchoolMoodleEnv(getenv)` → конфіг сервісу (nil без URL/логіна/пароля), DOW/TIME у `bot.Config`
-- [ ] сервіс створюється до блоку бота й передається як `Config.Moodle`; після `bot.New` — `svc.SetNotify(b.NotifyNewGrades)`; `go svc.Run(ctx)` лише після цього (і без токена бота — з nil notify)
-- [ ] `.env.example` — блок `SCHOOL_MOODLE_*` з поясненнями, без реальної адреси
-- [ ] тести розбору env: дефолт інтервалу, вимкнено без URL, огляд вимкнено без WEEK0/DOW, кривий WEEK0
-- [ ] `go build ./... && go test ./...` — зелено
+- [x] `withSchoolMoodleEnv(getenv)` → конфіг сервісу (nil без URL/логіна/пароля), DOW/TIME у `bot.Config`
+- [x] сервіс створюється до блоку бота й передається як `Config.Moodle`; після `bot.New` — `svc.SetNotify(b.NotifyNewGrades)`; `go svc.Run(ctx)` лише після цього (і без токена бота — з nil notify)
+- [x] `.env.example` — блок `SCHOOL_MOODLE_*` з поясненнями, без реальної адреси
+- [x] тести розбору env: дефолт інтервалу, вимкнено без URL, огляд вимкнено без WEEK0/DOW, кривий WEEK0
+- [x] `go build ./... && go test ./...` — зелено
 
 ### Task 9: Verify acceptance criteria
 - [ ] нові оцінки, `/grades`, огляд реалізовані; seed-кейси покриті

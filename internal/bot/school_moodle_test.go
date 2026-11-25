@@ -60,18 +60,37 @@ func assertContainsAll(t *testing.T, text string, want ...string) {
 
 func TestFormatNewGrades(t *testing.T) {
 	text := formatNewGrades([]model.SchoolGrade{
-		{Name: "Оцінка вчителя 12", GradeRaw: 2.2, GradeText: "2,2", CourseName: "Алгебра", CourseAverage: "5,5"},
-		{Name: "Контрольна робота 3", GradeRaw: 10, GradeText: "10,0", CourseName: "Фізика", CourseAverage: "8,0"},
-		{Name: "Тест <вступ>", GradeRaw: 9, GradeText: "9", CourseName: "Історія & право", CourseAverage: ""},
+		{Name: "Оцінка вчителя 12", GradeRaw: 4, GradeText: "4,0", CourseName: "Історія & право",
+			CourseAverage: "6,3", CoursePrevAverage: "7,5", CourseAverageNum: avgOf(6.3)},
 	})
-	want := "🆕 Нові оцінки\n" +
-		"<b>Алгебра</b>: ОВ 12 — 2,2 (сер. 5,5)\n" +
-		"<b>Фізика</b>: КР 3 — 10 (сер. 8)\n" +
-		"<b>Історія &amp; право</b>: Тест &lt;вступ&gt; — 9"
+	want := `<h4>🆕 Нова оцінка</h4>` +
+		`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th>Середній</th></tr>` +
+		`<tr><td>🟡 Історія &amp; право</td><td align="center"><b>4</b></td><td>7,5 → 6,3</td></tr>` +
+		`</table><footer>Оцінка вчителя</footer>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
 	}
-	assertLinesBalanced(t, text)
+}
+
+// Grades of different kinds say their kind beside the grade; an average that
+// did not move, or had no value before, is shown once.
+func TestFormatNewGradesMixedKinds(t *testing.T) {
+	text := formatNewGrades([]model.SchoolGrade{
+		{Name: "Контрольна робота 3", GradeText: "10,0", CourseName: "Фізика",
+			CourseAverage: "8,0", CoursePrevAverage: "8", CourseAverageNum: avgOf(8)},
+		{Name: "Оцінка вчителя 1", GradeText: "2,2", CourseName: "Хімія",
+			CourseAverage: "2,2", CourseAverageNum: avgOf(2.2)},
+		{Name: "Тест <вступ>", GradeText: "9", CourseName: "Історія"},
+	})
+	want := `<h4>🆕 Нові оцінки · 3</h4>` +
+		`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th>Середній</th></tr>` +
+		`<tr><td>🟢 Фізика</td><td align="center"><b>10</b> <i>КР</i></td><td>8</td></tr>` +
+		`<tr><td>🔴 Хімія</td><td align="center"><b>2,2</b> <i>ОВ</i></td><td>2,2</td></tr>` +
+		`<tr><td>Історія</td><td align="center"><b>9</b> <i>Тест &lt;вступ&gt;</i></td><td></td></tr>` +
+		`</table>`
+	if text != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
+	}
 }
 
 func TestFormatNewGradesEmpty(t *testing.T) {
@@ -408,14 +427,13 @@ func TestNotifyNewGrades(t *testing.T) {
 		{Name: "Оцінка вчителя 12", GradeRaw: 2.2, GradeText: "2,2", CourseName: "Алгебра", CourseAverage: "5,5"},
 	}
 
-	t.Run("posts the grades to the group as HTML", func(t *testing.T) {
+	t.Run("posts the grades to the group as a rich message", func(t *testing.T) {
 		b := menuBot(t)
 		b.cfg.NotifyChat = -100
 		sent := fakeTelegram(t, b)
 		b.NotifyNewGrades(fresh)
 		got := sent()
-		if len(got) != 1 || got[0].ChatID != "-100" || got[0].ParseMode != "HTML" ||
-			got[0].Text != "🆕 Нові оцінки\n<b>Алгебра</b>: ОВ 12 — 2,2 (сер. 5,5)" {
+		if len(got) != 1 || got[0].ChatID != "-100" || got[0].Rich.HTML != formatNewGrades(fresh) {
 			t.Fatalf("sent %+v", got)
 		}
 	})

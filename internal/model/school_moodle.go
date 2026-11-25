@@ -41,6 +41,10 @@ type SchoolGrade struct {
 
 	CourseName    string
 	CourseAverage string
+	// Only on the grades a sync reports as new: the course average as a
+	// number (for its level) and as Moodle wrote it before that sync.
+	CourseAverageNum  *float64
+	CoursePrevAverage string
 }
 
 var trailingGradeNumber = regexp.MustCompile(`\s+\d+$`)

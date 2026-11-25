@@ -101,6 +101,26 @@ func TestFirstGradeAfterAnEmptyFirstSyncIsFresh(t *testing.T) {
 	}
 }
 
+// A new grade carries its course's average from before and after the sync,
+// and the new one as a number for its level.
+func TestFreshGradeCarriesTheAverageItMoved(t *testing.T) {
+	st := testStore(t)
+	applySchool(t, st, []model.SchoolCourse{schoolCourse(1, "Історія", 0, 7.5)}, []model.SchoolGrade{
+		schoolGrade(101, 1, "Оцінка вчителя 11", 7.5, "2026-11-20T09:00"),
+	})
+	fresh := applySchool(t, st, []model.SchoolCourse{schoolCourse(1, "Історія", 0, 6.3)}, []model.SchoolGrade{
+		schoolGrade(101, 1, "Оцінка вчителя 11", 7.5, "2026-11-20T09:00"),
+		schoolGrade(102, 1, "Оцінка вчителя 12", 4, "2026-11-25T09:00"),
+	})
+	if len(fresh) != 1 {
+		t.Fatalf("fresh = %v, want [102]", itemIDs(fresh))
+	}
+	g := fresh[0]
+	if g.CoursePrevAverage != "7,5" || g.CourseAverage != "6,3" || g.CourseAverageNum == nil || *g.CourseAverageNum != 6.3 {
+		t.Fatalf("fresh grade carries average %q → %q (%v)", g.CoursePrevAverage, g.CourseAverage, g.CourseAverageNum)
+	}
+}
+
 func TestACourseAddedMidYearIsSeededSilently(t *testing.T) {
 	st := testStore(t)
 	applySchool(t, st, []model.SchoolCourse{schoolCourse(1, "Алгебра", 0, 0)}, nil)

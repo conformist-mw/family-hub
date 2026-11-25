@@ -80,49 +80,54 @@ func TestFormatNewGradesEmpty(t *testing.T) {
 	}
 }
 
-func TestFormatGradesSummary(t *testing.T) {
-	text := formatGradesSummary([]model.SchoolCourse{
+func TestFormatGradesTable(t *testing.T) {
+	text := formatGradesTable([]model.SchoolCourse{
 		{Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5", Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 1", GradeRaw: 7.8, GradeText: "7,80"},
 			{Name: "Контрольна робота 1", GradeRaw: 10, GradeText: "10,0"},
 			{Name: "Тест 3", GradeRaw: 9, GradeText: "9"},
 		}},
+		{Name: "Хімія"},
+		{Name: "Історія & право", Average: avgOf(9.25), AverageText: "9,3", Grades: []model.SchoolGrade{
+			{Name: "Оцінка вчителя 1", GradeRaw: 9.25, GradeText: "9,25"},
+		}},
 		{Name: "Фізика", Average: avgOf(3.5), AverageText: "3,5", Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 1", GradeRaw: 3.5, GradeText: "3,5"},
 		}},
-		{Name: "Хімія"},
+		{Name: "Географія", Grades: []model.SchoolGrade{
+			{Name: "Оцінка вчителя 1", GradeRaw: 8, GradeText: "8,0"},
+		}},
 		{Name: "Біологія"},
-		{Name: "Мистецтво", Average: avgOf(4), AverageText: "4,0"},
-	})
-	want := "📚 Оцінки\n" +
-		"<b>Алгебра</b> — 5,5\n" +
-		"   <i>ОВ 7,8 · КР 10 · Тест 3 — 9</i>\n" +
-		"<b>Фізика</b> — 3,5 ⚠️\n" +
-		"   <i>ОВ 3,5</i>\n" +
-		"<b>Мистецтво</b> — 4\n" +
-		"<i>Без оцінок: 2 предмети</i>"
+		{Name: "Мистецтво", Average: avgOf(7), AverageText: ""},
+	}, reviewFriday)
+	want := `<h3>📚 Оцінки · 27.11</h3>` +
+		`<table striped compact><tr><th>Предмет</th><th align="center">Сер.</th><th>Оцінки</th></tr>` +
+		`<tr><td>🔴 Фізика</td><td align="center"><b>3,5</b></td><td>3,5</td></tr>` +
+		`<tr><td>🟡 Алгебра</td><td align="center"><b>5,5</b></td><td>7,8 · <b>10</b> · 9</td></tr>` +
+		`<tr><td>🟢 Мистецтво</td><td align="center"><b>7</b></td><td></td></tr>` +
+		`<tr><td>🟢 Історія &amp; право</td><td align="center"><b>9,3</b></td><td>9,25</td></tr>` +
+		`<tr><td>Географія</td><td align="center"><b></b></td><td>8</td></tr>` +
+		`</table><footer>Жирним — контрольні. Ще 2 предмети без оцінок.</footer>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
 	}
-	assertLinesBalanced(t, text)
 }
 
-func TestFormatGradesSummaryLowAverageByNumber(t *testing.T) {
-	// The warning follows the stored number, not Moodle's text.
-	text := formatGradesSummary([]model.SchoolCourse{
-		{Name: "Алгебра", Average: avgOf(3.96), AverageText: "4,0", Grades: []model.SchoolGrade{
-			{Name: "Оцінка вчителя 1", GradeRaw: 4, GradeText: "4"},
-		}},
-	})
-	assertContainsAll(t, text, "<b>Алгебра</b> — 4 ⚠️")
-}
-
-func TestFormatGradesSummaryEmpty(t *testing.T) {
-	if got := formatGradesSummary(nil); !strings.Contains(got, "Оцінок поки немає") {
-		t.Fatalf("no courses: got %q", got)
+func TestGradeLevelFollowsTheNumber(t *testing.T) {
+	// The level follows the stored number, not Moodle's rounded text.
+	for _, tc := range []struct {
+		avg  *float64
+		want string
+	}{{nil, ""}, {avgOf(0), "🔴"}, {avgOf(3.96), "🔴"}, {avgOf(4), "🟡"}, {avgOf(6.99), "🟡"}, {avgOf(7), "🟢"}, {avgOf(12), "🟢"}} {
+		if got := gradeLevel(tc.avg); got != tc.want {
+			t.Errorf("gradeLevel(%v) = %q, want %q", tc.avg, got, tc.want)
+		}
 	}
-	got := formatGradesSummary([]model.SchoolCourse{{Name: "Алгебра"}})
-	if got != "📚 Оцінки\n<i>Без оцінок: 1 предмет</i>" {
+}
+
+func TestFormatGradesTableNoGradesYet(t *testing.T) {
+	got := formatGradesTable([]model.SchoolCourse{{Name: "Алгебра"}}, reviewFriday)
+	if got != "<h3>📚 Оцінки · 27.11</h3><footer>Жирним — контрольні. Ще 1 предмет без оцінок.</footer>" {
 		t.Fatalf("courses without grades: got %q", got)
 	}
 }
@@ -273,29 +278,33 @@ func TestTidyGrade(t *testing.T) {
 	}
 }
 
-// sentMessage is one sendMessage call the fake Telegram API received.
+// sentMessage is one sendMessage or sendRichMessage call the fake Telegram
+// API received. A rich message has its content in Rich.HTML and no Text.
 type sentMessage struct {
-	ChatID    string `json:"chat_id"`
-	Text      string `json:"text"`
-	ParseMode string `json:"parse_mode"`
+	ChatID    json.Number `json:"chat_id"`
+	Text      string      `json:"text"`
+	ParseMode string      `json:"parse_mode"`
+	Rich      struct {
+		HTML string `json:"html"`
+	} `json:"rich_message"`
 }
 
 // fakeTelegram points b at an offline telebot whose API is a local server
-// that accepts every sendMessage and keeps it. The returned func reads what
+// that accepts every sendMessage and sendRichMessage and keeps it. The returned func reads what
 // was sent so far.
 func fakeTelegram(t *testing.T, b *Bot) func() []sentMessage {
 	t.Helper()
 	var mu sync.Mutex
 	var sent []sentMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/sendMessage") {
+		if !strings.HasSuffix(r.URL.Path, "/sendMessage") && !strings.HasSuffix(r.URL.Path, "/sendRichMessage") {
 			t.Errorf("unexpected Telegram call %s", r.URL.Path)
 			http.Error(w, "unexpected", http.StatusNotFound)
 			return
 		}
 		var m sentMessage
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-			t.Errorf("decode sendMessage: %v", err)
+			t.Errorf("decode %s: %v", r.URL.Path, err)
 		}
 		mu.Lock()
 		sent = append(sent, m)
@@ -348,10 +357,13 @@ func TestGradesCommandAnswersFromTheStore(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("sent %d messages, want 1: %+v", len(got), got)
 	}
-	want := "📚 Оцінки\n<b>Алгебра</b> — 5,5\n   <i>ОВ 7,8 · КР 3,2</i>\n<i>Без оцінок: 1 предмет</i>"
-	if got[0].Text != want || got[0].ParseMode != "HTML" || got[0].ChatID != "42" {
-		t.Fatalf("sent %+v, want HTML %q to chat 42", got[0], want)
+	if got[0].ChatID != "42" || got[0].Text != "" {
+		t.Fatalf("sent %+v, want a rich message to chat 42", got[0])
 	}
+	assertContainsAll(t, got[0].Rich.HTML,
+		"<table striped compact>",
+		`<tr><td>🟡 Алгебра</td><td align="center"><b>5,5</b></td><td>7,8 · <b>3,2</b></td></tr>`,
+		"Ще 1 предмет без оцінок.")
 }
 
 func TestGradesCommandBeforeTheFirstSync(t *testing.T) {
@@ -364,53 +376,23 @@ func TestGradesCommandBeforeTheFirstSync(t *testing.T) {
 	}
 }
 
-func TestGradesCommandSplitsALongAnswer(t *testing.T) {
+// A refused rich message is the command's error, for the handler's logging:
+// there is no second format to fall back to.
+func TestGradesCommandRichSendFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse rich message"}`)
+	}))
+	t.Cleanup(srv.Close)
 	b := menuBot(t)
-	var courses []model.SchoolCourse
-	var grades []model.SchoolGrade
-	for c := range 20 {
-		id := int64(100 + c)
-		courses = append(courses, model.SchoolCourse{
-			ID: id, Name: fmt.Sprintf("Предмет з довгою назвою %c", 'А'+rune(c)), Position: c,
-			Average: avgOf(6), AverageText: "6,0",
-		})
-		for g := range 25 {
-			grades = append(grades, model.SchoolGrade{
-				ItemID: id*1000 + int64(g), CourseID: id, Name: fmt.Sprintf("Тест до теми %d", g+1),
-				GradeRaw: 9, GradeText: "9,00", GradedAt: fmt.Sprintf("2026-11-%02dT10:00", g%28+1),
-			})
-		}
-	}
-	seedSchool(t, b, courses, grades)
-
-	whole, err := b.store.SchoolSummary()
+	seedSchool(t, b, []model.SchoolCourse{{ID: 11, Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5"}}, nil)
+	tb, err := tele.NewBot(tele.Settings{Token: "test", URL: srv.URL, Offline: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := formatGradesSummary(whole)
-	if len(full) <= messageLimit {
-		t.Fatalf("fixture too small to split: %d bytes", len(full))
-	}
-
-	sent := fakeTelegram(t, b)
-	runGrades(t, b)
-	got := sent()
-	if len(got) < 2 {
-		t.Fatalf("sent %d messages, want the answer split", len(got))
-	}
-	texts := make([]string, len(got))
-	for i, m := range got {
-		if len(m.Text) > messageLimit {
-			t.Errorf("chunk %d is %d bytes, over %d", i, len(m.Text), messageLimit)
-		}
-		if m.ParseMode != "HTML" {
-			t.Errorf("chunk %d parse mode %q", i, m.ParseMode)
-		}
-		assertLinesBalanced(t, m.Text)
-		texts[i] = m.Text
-	}
-	if strings.Join(texts, "\n") != full {
-		t.Fatal("the chunks do not add up to the whole answer")
+	b.b = tb
+	c := b.b.NewContext(tele.Update{Message: &tele.Message{Chat: &tele.Chat{ID: 42}, Text: "/grades"}})
+	if err := b.cmdGrades(c); err == nil || !strings.Contains(err.Error(), "rich message") {
+		t.Fatalf("cmdGrades error = %v, want the API's refusal", err)
 	}
 }
 

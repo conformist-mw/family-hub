@@ -88,12 +88,12 @@
 - Create: `internal/moodle/client_test.go`
 - Create: `internal/moodle/testdata/*.json`
 
-- [ ] `NewClient(baseURL)` з `http.Client{Timeout: 30s}`; `Login(ctx, user, pass)` через `/login/token.php`; помилка містить `errorcode`, але не логін/пароль
-- [ ] внутрішній `call(ctx, fn, params, out)`: усе в POST-тілі; `{"exception",...}` → типізована помилка
-- [ ] методи: `SiteInfo`, `Courses(userid)`, `CourseAverages(userid)`, `GradeItems(courseid,userid)`, `Contents(courseid)`, `Completion(courseid,userid)` з мінімальними структурами
-- [ ] тести (httptest + вигадані фікстури): успішний логін, неправильний пароль, розбір кожного методу, токен ніколи не в URL
-- [ ] тести помилок: HTTP 5xx, битий JSON, exception-відповідь
-- [ ] `go test ./internal/moodle/...` — зелено
+- [x] `NewClient(baseURL)` з `http.Client{Timeout: 30s}`; `Login(ctx, user, pass)` через `/login/token.php`; помилка містить `errorcode`, але не логін/пароль
+- [x] внутрішній `call(ctx, fn, params, out)`: усе в POST-тілі; `{"exception",...}` → типізована помилка
+- [x] методи: `SiteInfo`, `Courses(userid)`, `CourseAverages(userid)`, `GradeItems(courseid,userid)`, `Contents(courseid)`, `Completion(courseid,userid)` з мінімальними структурами
+- [x] тести (httptest + вигадані фікстури): успішний логін, неправильний пароль, розбір кожного методу, токен ніколи не в URL
+- [x] тести помилок: HTTP 5xx, битий JSON, exception-відповідь
+- [x] `go test ./internal/moodle/...` — зелено
 
 ### Task 2: Storage for courses and grades
 

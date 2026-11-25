@@ -1,0 +1,4 @@
+{"statuses":[
+ {"cmid":701,"modname":"lesson","instance":501,"state":1,"timecompleted":1794643200,"tracking":1,"overrideby":null,"valueused":false,"hascompletion":true,"isautomatic":false,"istrackeduser":true,"uservisible":true,"details":[]},
+ {"cmid":702,"modname":"quiz","instance":502,"state":0,"timecompleted":0,"tracking":2,"overrideby":null,"valueused":false,"hascompletion":true,"isautomatic":true,"istrackeduser":true,"uservisible":true,"details":[]}
+],"warnings":[]}

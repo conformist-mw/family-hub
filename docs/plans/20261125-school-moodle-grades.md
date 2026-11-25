@@ -104,13 +104,13 @@
 - Create: `internal/store/school_moodle_test.go`
 - Modify: `internal/db/migrations_test.go`
 
-- [ ] міграція `school_courses`, `school_grades` за конвенціями 0016
-- [ ] `model.SchoolCourse`, `model.SchoolGrade` (+ `ShortItemName`, `FormatGrade`, `CourseName` зі зрізанням хвостового ` \d+`)
-- [ ] `store.ApplySchoolSync(courses, grades, now) (fresh []SchoolGrade, err)` в одній транзакції: свіже лише для вже відомих курсів; нові курси засіваються мовчки; курси, яких немає в синку, видаляються з оцінками
-- [ ] `store.SchoolSummary()` (у порядку `position`) і `store.SchoolGradesBetween(from,to)`
-- [ ] тести: перший синк = мовчки; порожній перший синк, потім одна оцінка → вона свіжа; новий курс посеред року — мовчки; змінена оцінка свіжа; повтор без змін — нічого; зниклий курс видаляється
-- [ ] тест міграції
-- [ ] `go test ./internal/store/... ./internal/db/...` — зелено
+- [x] міграція `school_courses`, `school_grades` за конвенціями 0016
+- [x] `model.SchoolCourse`, `model.SchoolGrade` (+ `ShortItemName`, `FormatGrade`, `CourseName` зі зрізанням хвостового ` \d+`)
+- [x] `store.ApplySchoolSync(courses, grades, now) (fresh []SchoolGrade, err)` в одній транзакції: свіже лише для вже відомих курсів; нові курси засіваються мовчки; курси, яких немає в синку, видаляються з оцінками
+- [x] `store.SchoolSummary()` (у порядку `position`) і `store.SchoolGradesBetween(from,to)`
+- [x] тести: перший синк = мовчки; порожній перший синк, потім одна оцінка → вона свіжа; новий курс посеред року — мовчки; змінена оцінка свіжа; повтор без змін — нічого; зниклий курс видаляється
+- [x] тест міграції
+- [x] `go test ./internal/store/... ./internal/db/...` — зелено
 
 ### Task 3: Sync service
 

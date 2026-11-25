@@ -190,8 +190,25 @@
 - [x] `go vet ./... && go test ./...`
 - [x] `git grep` по диффу: немає імені, адреси школи, email, userid; `localharness/` не в коміті
 
-### Task 10: [Final] Update documentation
-- [ ] `ARCHITECTURE.md` — розділ про Moodle (токен мобільного API, логін на синк, seed по курсу, якір тижня, нічна пауза, втрата сповіщення при збої Telegram)
+### Task 10: ➕ Week review counts graded quizzes instead of completion
+Live run (Task 9) showed the school barely uses Moodle completion tracking (6 of ~1920 tracked activities complete all year), so «пройдено X/Y» reads 0/N everywhere. User decision 2026-11-25: show how many of the week's quizzes are graded instead.
+
+**Files:**
+- Modify: `internal/moodle/sync.go`
+- Modify: `internal/moodle/progress_test.go`
+- Modify: `internal/bot/school_moodle.go`
+- Modify: `internal/bot/school_moodle_test.go`
+- Modify: `internal/moodle/client.go` (only if `Completion` becomes unused — remove it and its fixture/tests)
+
+- [ ] `WeekProgress`: Y = `quiz` modules in the matched «Тиждень N» section(s); X = those quizzes that have a stored grade (match `school_grades.item_module = 'quiz'` and `item_instance` = module `instance`, regardless of when it was graded). No completion API call any more
+- [ ] rename the CourseProgress fields to match (e.g. `QuizzesGraded`/`QuizzesTotal`); a course with 0 quizzes in the section and no grades this week is hidden as before
+- [ ] formatter: «оцінено X/Y тестів» (plain «тестів», no plural logic needed beyond that) in place of «пройдено X/Y»; «секції немає» / «прогрес недоступний» unchanged
+- [ ] remove now-dead completion code/fixtures if nothing else uses them
+- [ ] tests: quiz counting (lessons/labels/books ignored), a quiz graded in a later week still counts as graded, ungraded quiz not counted, formatter line
+- [ ] `go vet ./... && go test ./...` — зелено
+
+### Task 11: [Final] Update documentation
+- [ ] `ARCHITECTURE.md` — розділ про Moodle (чому огляд рахує оцінені тести, а не completion; токен мобільного API, логін на синк, seed по курсу, якір тижня, нічна пауза, втрата сповіщення при збої Telegram)
 - [ ] `DEPLOY.md`/`README.md` — env і секрети
 - [ ] перенести план у `docs/plans/completed/`
 

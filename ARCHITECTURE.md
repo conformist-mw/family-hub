@@ -9,7 +9,7 @@ to look when picking it back up after a break.
 - SQLite via `modernc.org/sqlite` (pure Go, no CGO) — the binary stays
   statically linkable into `distroless/static`
 - `pressly/goose` migrations, embedded into the binary
-- `gopkg.in/telebot.v3` for the Telegram bot
+- `gopkg.in/telebot.v4` for the Telegram bot
 - `google.golang.org/genai` (Gemini) to parse appointments out of free text
 - the OpenAI chat-completions protocol, spoken over plain `net/http`, to
   recognise a dish from a photograph and to suggest new dishes once a week —
@@ -210,7 +210,7 @@ internal/
   payments/    # payment write rules and the group message, shared by web and mini
   schedule/    # weekly-slot write rules, shared by web and mini
   valid/       # the field-level validation error both write layers return
-  bot/         # telebot.v3 wrapper, command handlers, scheduler, callbacks
+  bot/         # telebot.v4 wrapper, command handlers, scheduler, callbacks
   parse/       # Gemini client: free text -> appointments (and a bare datetime)
   dish/        # model client: photo of a plate -> which dishes; weekly new-dish suggestions; /menu day menus
   menu/        # which dishes the morning menu offers (pure: rotation, shown, 🆕)
@@ -483,7 +483,7 @@ for exactly that reason.
 
 ## Bot
 
-- `internal/bot` wraps `telebot.v3`.
+- `internal/bot` wraps `telebot.v4`.
 - Two transport modes:
   - **Long polling** when `TELEGRAM_WEBHOOK_URL` is empty (local dev).
   - **Webhook** when `TELEGRAM_WEBHOOK_URL` is set (production).
@@ -1160,10 +1160,10 @@ the handlers feed.
   part of the old list to read. New-grade messages and the review keep the
   labels: «ОВ 12 — 2,2».
 - **`/grades` is a rich message.** Tables exist only in Bot API rich messages
-  (`sendRichMessage`, Rich HTML style), which telebot v3 does not know, so it
-  is sent with `Bot.Raw`. One rich message holds 32768 characters, far more
-  than a year of grades, so it is never split; a refused one is the command's
-  error, with no plain-text fallback to keep in step.
+  (`sendRichMessage`, Rich HTML style), sent as `tele.InputRichMessage`. One
+  rich message holds 32768 characters, far more than a year of grades, so it
+  is never split; a refused one is the command's error, with no plain-text
+  fallback to keep in step.
 - **The week anchor.** Sections are named «Тиждень N» and carry no dates, and
   nothing in Moodle says which week is the current one. So the number is
   counted from `SCHOOL_MOODLE_WEEK0`, the Monday of week 0, in calendar days so

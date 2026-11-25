@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	tele "gopkg.in/telebot.v3"
+	tele "gopkg.in/telebot.v4"
 
 	"familyhub/internal/model"
 	"familyhub/internal/moodle"
@@ -76,7 +76,7 @@ func (b *Bot) sendSchoolReview(ctx context.Context, now time.Time) {
 
 // cmdGrades answers /grades from the store, never from Moodle: it is what
 // the last sync saw, and it answers even while Moodle is down. The answer is a
-// rich message (a table), which telebot does not know, so it goes out raw.
+// rich message: tables exist nowhere else in Telegram.
 func (b *Bot) cmdGrades(c tele.Context) error {
 	courses, err := b.store.SchoolSummary()
 	if err != nil {
@@ -86,16 +86,7 @@ func (b *Bot) cmdGrades(c tele.Context) error {
 	if len(courses) == 0 {
 		return c.Send("📚 Оцінок поки немає — Moodle ще не синхронізувався.")
 	}
-	return b.sendRich(c.Chat().ID, formatGradesTable(courses, b.now()))
-}
-
-// sendRich posts a rich message (Bot API sendRichMessage, Rich HTML style).
-func (b *Bot) sendRich(chatID int64, richHTML string) error {
-	_, err := b.b.Raw("sendRichMessage", map[string]any{
-		"chat_id":      chatID,
-		"rich_message": map[string]any{"html": richHTML},
-	})
-	return err
+	return c.Send(&tele.InputRichMessage{HTML: formatGradesTable(courses, b.now())})
 }
 
 // lowAverage marks a subject whose average is below it with ⚠️.

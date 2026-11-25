@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	tele "gopkg.in/telebot.v3"
+	tele "gopkg.in/telebot.v4"
 
 	"familyhub/internal/audit"
 	"familyhub/internal/model"

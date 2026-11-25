@@ -46,7 +46,7 @@ makes a variant the day's plan, which the next morning's menu then opens with.
 
 The bot also follows the child's school gradebook in Moodle. New grades reach
 the group within a couple of hours, one message per sync that finds any,
-`/grades` shows every subject's average with its grades, and on Friday evening
+`/grades` shows a table of every subject's average and grades, weakest first, and on Friday evening
 a review of the school week says, per subject, how many of that week's quizzes
 are graded and what was graded.
 

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
 
-	"familyhub/internal/audit"
 	"familyhub/internal/model"
 	"familyhub/internal/moodle"
 )
@@ -18,8 +18,9 @@ import (
 // The school's Moodle in the family chat: new grades as the sync finds them,
 // /grades for the whole gradebook, and the Friday review of the school week.
 // The formatters below are pure — the sync and the store hand them data, the
-// handlers send what they return. Every line closes its own tags, so
-// NotifyHTML and audit.SplitMessage may cut the text between any two lines.
+// handlers send what they return. In the plain-HTML ones every line closes its
+// own tags, so NotifyHTML may cut the text between any two lines; /grades is
+// one rich message and is never cut.
 
 // NotifyNewGrades posts the grades one sync found to the family group. It is
 // the sync's notify callback, so it has nobody to return an error to: a failed
@@ -74,29 +75,27 @@ func (b *Bot) sendSchoolReview(ctx context.Context, now time.Time) {
 }
 
 // cmdGrades answers /grades from the store, never from Moodle: it is what
-// the last sync saw, and it answers even while Moodle is down.
+// the last sync saw, and it answers even while Moodle is down. The answer is a
+// rich message (a table), which telebot does not know, so it goes out raw.
 func (b *Bot) cmdGrades(c tele.Context) error {
-	chunks, err := b.gradesChunks()
+	courses, err := b.store.SchoolSummary()
 	if err != nil {
 		b.logger.Error("bot: grades summary", "err", err)
 		return c.Send("Не вдалося прочитати оцінки.")
 	}
-	for _, chunk := range chunks {
-		if err := c.Send(chunk, tele.ModeHTML); err != nil {
-			return err
-		}
+	if len(courses) == 0 {
+		return c.Send("📚 Оцінок поки немає — Moodle ще не синхронізувався.")
 	}
-	return nil
+	return b.sendRich(c.Chat().ID, formatGradesTable(courses, b.now()))
 }
 
-// gradesChunks is the /grades reply split into sendable pieces: twenty
-// subjects with a term of grades each outgrow one Telegram message.
-func (b *Bot) gradesChunks() ([]string, error) {
-	courses, err := b.store.SchoolSummary()
-	if err != nil {
-		return nil, err
-	}
-	return audit.SplitMessage(formatGradesSummary(courses), messageLimit), nil
+// sendRich posts a rich message (Bot API sendRichMessage, Rich HTML style).
+func (b *Bot) sendRich(chatID int64, richHTML string) error {
+	_, err := b.b.Raw("sendRichMessage", map[string]any{
+		"chat_id":      chatID,
+		"rich_message": map[string]any{"html": richHTML},
+	})
+	return err
 }
 
 // lowAverage marks a subject whose average is below it with ⚠️.
@@ -119,37 +118,80 @@ func formatNewGrades(grades []model.SchoolGrade) string {
 	return sb.String()
 }
 
-// formatGradesSummary is the /grades answer: every subject that has grades,
-// in Moodle's order, with its average and its grades in the order they were
-// given; the subjects without any are only counted at the bottom.
-func formatGradesSummary(courses []model.SchoolCourse) string {
-	if len(courses) == 0 {
-		return "📚 Оцінок поки немає — Moodle ще не синхронізувався."
-	}
-	var sb strings.Builder
-	sb.WriteString("📚 Оцінки")
+// formatGradesTable is the /grades answer as a Rich HTML table: one row per
+// subject that has grades, the weakest average first, with its level, its
+// average and its grades in the order they were given, tests in bold. Courses
+// without a grade or an average are only counted under the table.
+func formatGradesTable(courses []model.SchoolCourse, now time.Time) string {
+	var shown []model.SchoolCourse
 	empty := 0
 	for _, c := range courses {
 		if len(c.Grades) == 0 && c.Average == nil {
 			empty++
 			continue
 		}
-		fmt.Fprintf(&sb, "\n<b>%s</b>", html.EscapeString(c.Name))
-		if avg := averageText(c.Average, c.AverageText); avg != "" {
-			fmt.Fprintf(&sb, " — %s", avg)
+		shown = append(shown, c)
+	}
+	// Weakest first; a subject with grades but no average yet goes last.
+	// Stable, so equal averages keep Moodle's order.
+	sort.SliceStable(shown, func(i, j int) bool {
+		a, b := shown[i].Average, shown[j].Average
+		if a == nil || b == nil {
+			return a != nil && b == nil
 		}
-		if len(c.Grades) > 0 {
-			entries := make([]string, len(c.Grades))
+		return *a < *b
+	})
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<h3>📚 Оцінки · %s</h3>", now.Format("02.01"))
+	if len(shown) > 0 {
+		sb.WriteString(`<table striped compact><tr><th>Предмет</th><th align="center">Сер.</th><th>Оцінки</th></tr>`)
+		for _, c := range shown {
+			grades := make([]string, len(c.Grades))
 			for i, g := range c.Grades {
-				entries[i] = compactGradeEntry(g)
+				grades[i] = tableGrade(g)
 			}
-			fmt.Fprintf(&sb, "\n   <i>%s</i>", strings.Join(entries, " · "))
+			avg := html.EscapeString(tidyGrade(c.AverageText))
+			if avg == "" && c.Average != nil {
+				avg = model.FormatGrade(*c.Average)
+			}
+			fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center"><b>%s</b></td><td>%s</td></tr>`,
+				strings.TrimSpace(gradeLevel(c.Average)+" "+html.EscapeString(c.Name)), avg, strings.Join(grades, " · "))
 		}
+		sb.WriteString("</table>")
 	}
+	foot := "Жирним — контрольні."
 	if empty > 0 {
-		fmt.Fprintf(&sb, "\n<i>Без оцінок: %s</i>", model.Plural(empty, "предмет", "предмети", "предметів"))
+		foot += fmt.Sprintf(" Ще %s без оцінок.", model.Plural(empty, "предмет", "предмети", "предметів"))
 	}
+	fmt.Fprintf(&sb, "<footer>%s</footer>", foot)
 	return sb.String()
+}
+
+// gradeLevel is the level of an average on the school's 12-point scale:
+// 🔴 below 4 (початковий), 🟡 4–6 (середній), 🟢 7 and up (достатній,
+// високий). "" while there is no average.
+func gradeLevel(avg *float64) string {
+	switch {
+	case avg == nil:
+		return ""
+	case *avg < lowAverage:
+		return "🔴"
+	case *avg < 7:
+		return "🟡"
+	default:
+		return "🟢"
+	}
+}
+
+// tableGrade is one grade in the /grades table: just the grade, in bold for
+// a test ("КР …"); the column already says what the numbers are.
+func tableGrade(g model.SchoolGrade) string {
+	s := html.EscapeString(tidyGrade(g.GradeText))
+	if strings.HasPrefix(model.ShortItemName(g.Name), "КР") {
+		return "<b>" + s + "</b>"
+	}
+	return s
 }
 
 // formatWeekReview is the Friday review: per subject, how many of the week's
@@ -235,22 +277,6 @@ func formatWeekReview(week moodle.Week, report moodle.WeekReport) string {
 // gradeEntry names a grade with its item: "ОВ 12 — 7,8" (escaped HTML).
 func gradeEntry(g model.SchoolGrade) string {
 	return html.EscapeString(model.ShortItemName(g.Name) + " — " + tidyGrade(g.GradeText))
-}
-
-// numberedAbbrev is an abbreviated item that is nothing but its number
-// ("ОВ 12", "КР 3").
-var numberedAbbrev = regexp.MustCompile(`^(ОВ|КР)(\s+\d+)?$`)
-
-// compactGradeEntry is a grade in the /grades list, where the items follow
-// in order: the teacher's and test grades drop their running number ("ОВ
-// 7,8", "КР 10"); any other item keeps its name, set off by a dash so a
-// number in it is not read as the grade ("Тест 3 — 9").
-func compactGradeEntry(g model.SchoolGrade) string {
-	name := model.ShortItemName(g.Name)
-	if m := numberedAbbrev.FindStringSubmatch(name); m != nil {
-		return html.EscapeString(m[1] + " " + tidyGrade(g.GradeText))
-	}
-	return gradeEntry(g)
 }
 
 // averageText renders a course average with ⚠️ when it is low (judged by the

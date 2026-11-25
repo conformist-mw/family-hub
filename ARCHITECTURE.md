@@ -1153,14 +1153,17 @@ the handlers feed.
   mean a retry loop and its own dedupe for a message whose content is one
   command away.
 - **`/grades` reads the store, never Moodle**, so it answers at once and works
-  while the school's site is down. Per course: the average, with ⚠️ below 4
-  (compared on the stored number, not Moodle's text), then the grades in order.
-  There «Оцінка вчителя N» and «Контрольна робота N» lose their running number
-  and read «ОВ 7,8 · КР 10»; any other item keeps its name, set off by a dash
-  («Тест 3 — 9»). New-grade messages and the review keep the number: «ОВ 12 —
-  2,2».
-  A long answer is split by `audit.SplitMessage`, and every line closes its own
-  tags, so a cut between any two lines is still valid HTML.
+  while the school's site is down. It is a table, one row per subject, the
+  weakest average first: 🔴 below 4, 🟡 4–6, 🟢 7 and up (the school's levels,
+  judged on the stored number, not Moodle's text), the average, then the grades
+  in order with only the tests in bold — the «ОВ/КР» labels were the hardest
+  part of the old list to read. New-grade messages and the review keep the
+  labels: «ОВ 12 — 2,2».
+- **`/grades` is a rich message.** Tables exist only in Bot API rich messages
+  (`sendRichMessage`, Rich HTML style), which telebot v3 does not know, so it
+  is sent with `Bot.Raw`. One rich message holds 32768 characters, far more
+  than a year of grades, so it is never split; a refused one is the command's
+  error, with no plain-text fallback to keep in step.
 - **The week anchor.** Sections are named «Тиждень N» and carry no dates, and
   nothing in Moodle says which week is the current one. So the number is
   counted from `SCHOOL_MOODLE_WEEK0`, the Monday of week 0, in calendar days so

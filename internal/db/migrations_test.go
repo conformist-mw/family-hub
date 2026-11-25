@@ -495,3 +495,37 @@ func TestOneMenuMessagePerDay(t *testing.T) {
 		t.Fatal("a second menu message for the same day was accepted")
 	}
 }
+
+// Same reason as the other table checks, and the name CHECKs are what keep a
+// course or grade Moodle returned without a title from becoming a blank line
+// in the chat.
+func TestSchoolMoodleTablesExistAndRejectEmptyNames(t *testing.T) {
+	database := migrated(t)
+	for _, table := range []string{"school_courses", "school_grades"} {
+		var name string
+		err := database.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %q missing after migrate: %v", table, err)
+		}
+	}
+
+	mustExec(t, database, `
+		INSERT INTO school_courses (id, name, position, synced_at)
+		VALUES (1, 'Алгебра', 0, '2026-11-25T10:00')`)
+	mustExec(t, database, `
+		INSERT INTO school_grades (item_id, course_id, name, grade_raw, grade_text, graded_at)
+		VALUES (101, 1, 'ОВ 1', 7.8, '7,8', '2026-11-24T10:00')`)
+
+	for _, q := range []string{
+		`INSERT INTO school_courses (id, name, position, synced_at) VALUES (2, '', 1, '2026-11-25T10:00')`,
+		`INSERT INTO school_grades (item_id, course_id, name, grade_raw, grade_text, graded_at)
+		 VALUES (102, 1, '', 7, '7', '2026-11-24T10:00')`,
+		`INSERT INTO school_grades (item_id, course_id, name, grade_raw, grade_text, graded_at)
+		 VALUES (103, 1, 'ОВ 3', NULL, '-', '2026-11-24T10:00')`,
+	} {
+		if _, err := database.Exec(q); err == nil {
+			t.Errorf("constraint accepted: %s", q)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"familyhub/internal/db"
 	"familyhub/internal/dish"
 	"familyhub/internal/mini"
+	"familyhub/internal/moodle"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
 	"familyhub/internal/store"
@@ -66,6 +68,23 @@ func main() {
 	// messages: switch the digests off and the history silently stops.
 	remindersSvc := reminders.NewService(st, time.Local, logger, time.Now)
 	go remindersSvc.RunMaterialiser(ctx)
+
+	// The Moodle sync, like the materialiser, does not depend on the bot: the
+	// grades it stores are served by /grades whenever the bot comes up, so it
+	// runs without TELEGRAM_BOT_TOKEN too, just with nobody to announce to.
+	// It is built here, before the bot, because the bot's /grades and weekly
+	// review read through it; the notify callback is attached after bot.New.
+	schoolMoodle, err := schoolMoodleFromEnv(os.Getenv)
+	if err != nil {
+		logger.Warn("moodle: weekly review disabled", "err", err)
+	}
+	var moodleSvc *moodle.Service
+	if schoolMoodle != nil {
+		moodleSvc = moodle.NewService(st, moodle.NewClient(schoolMoodle.URL), schoolMoodle.Service,
+			time.Local, logger, time.Now)
+	} else {
+		logger.Info("moodle: disabled (SCHOOL_MOODLE_URL, _USERNAME or _PASSWORD not set)")
+	}
 
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
@@ -148,6 +167,12 @@ func main() {
 			Reminders:       remindersSvc,
 			People:          people,
 			Dish:            recognizer,
+			Moodle:          moodleSvc,
+			// Not behind NOTIFICATIONS_ENABLED either: HA knows nothing of
+			// the school's site. Without Moodle (nil moodleSvc) the review
+			// stays off whatever these say.
+			SchoolReviewDOW:  parseDOW(os.Getenv("SCHOOL_MOODLE_REVIEW_DOW")),
+			SchoolReviewTime: strings.TrimSpace(os.Getenv("SCHOOL_MOODLE_REVIEW_TIME")),
 		}
 		cfg = withMenuEnv(cfg, os.Getenv)
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
@@ -158,6 +183,9 @@ func main() {
 		if err != nil {
 			logger.Error("bot init", "err", err)
 			os.Exit(1)
+		}
+		if moodleSvc != nil {
+			moodleSvc.SetNotify(lessonsBot.NotifyNewGrades)
 		}
 
 		if lessonsBot.WebhookMode() {
@@ -184,6 +212,11 @@ func main() {
 		}
 	} else {
 		logger.Info("bot: disabled (TELEGRAM_BOT_TOKEN not set)")
+	}
+	// Started only now, so the first sync — which runs at once — already has
+	// the bot's notify callback and does not swallow the grades it finds new.
+	if moodleSvc != nil {
+		go moodleSvc.Run(ctx)
 	}
 
 	webHandler := web.NewRouter(database, logger, webhookPath, webhookHandler, notifier, remindersSvc, menuBoard)
@@ -268,6 +301,50 @@ func withMenuEnv(cfg bot.Config, getenv func(string) string) bot.Config {
 	cfg.DishSuggestDOW = parseDOW(getenv("DISH_SUGGEST_DOW"))
 	cfg.DishSuggestTime = getenv("DISH_SUGGEST_TIME")
 	return cfg
+}
+
+// schoolMoodleEnv is the SCHOOL_MOODLE_* configuration of the sync: the site
+// and the service's settings. The weekly review's day and time go straight
+// into bot.Config.
+type schoolMoodleEnv struct {
+	URL     string
+	Service moodle.Config
+}
+
+// schoolMoodleFromEnv reads SCHOOL_MOODLE_*. It returns nil when the URL,
+// username or password is missing: there is no default site, and a sync that
+// cannot log in would only fill the log with errors. An unset, unparseable or
+// non-positive SCHOOL_MOODLE_SYNC_INTERVAL leaves Interval zero, which the
+// service reads as its default. An unparseable SCHOOL_MOODLE_WEEK0 leaves the
+// sync on and only the weekly review off (no anchor, no week number); the
+// error says why.
+func schoolMoodleFromEnv(getenv func(string) string) (*schoolMoodleEnv, error) {
+	url := strings.TrimSpace(getenv("SCHOOL_MOODLE_URL"))
+	username := strings.TrimSpace(getenv("SCHOOL_MOODLE_USERNAME"))
+	password := getenv("SCHOOL_MOODLE_PASSWORD")
+	if url == "" || username == "" || password == "" {
+		return nil, nil
+	}
+	env := &schoolMoodleEnv{
+		URL: url,
+		Service: moodle.Config{
+			Username: username,
+			Password: password,
+		},
+	}
+	if d, err := time.ParseDuration(strings.TrimSpace(getenv("SCHOOL_MOODLE_SYNC_INTERVAL"))); err == nil && d > 0 {
+		env.Service.Interval = d
+	}
+	var err error
+	if w := strings.TrimSpace(getenv("SCHOOL_MOODLE_WEEK0")); w != "" {
+		var week0 time.Time
+		if week0, err = time.Parse("2006-01-02", w); err != nil {
+			err = fmt.Errorf("SCHOOL_MOODLE_WEEK0 %q is not YYYY-MM-DD", w)
+		} else {
+			env.Service.Week0 = week0
+		}
+	}
+	return env, err
 }
 
 // parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.

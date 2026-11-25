@@ -32,15 +32,29 @@ func (b *Bot) cmdStart(c tele.Context) error {
 		"chat_type", chat.Type,
 		"user", user.Username,
 	)
-	msg := fmt.Sprintf(
-		"Привіт! Це трекер занять і сімейних записів.\nChat id: %d\n\nКоманди: /balance — баланс по курсах, /stats — витрати, /visit — записати візит, /list — записи по тижнях, /help — довідка.",
-		chat.ID,
+	return c.Send(b.startText(chat.ID))
+}
+
+// startText greets with the chat id and the commands worth knowing first.
+func (b *Bot) startText(chatID int64) string {
+	cmds := "/balance — баланс по курсах, /stats — витрати, /visit — записати візит, /list — записи по тижнях"
+	if b.cfg.Moodle != nil {
+		cmds += ", /grades — шкільні оцінки"
+	}
+	return fmt.Sprintf(
+		"Привіт! Це трекер занять і сімейних записів.\nChat id: %d\n\nКоманди: %s, /help — довідка.",
+		chatID, cmds,
 	)
-	return c.Send(msg)
 }
 
 func (b *Bot) cmdHelp(c tele.Context) error {
-	return c.Send(strings.Join([]string{
+	return c.Send(b.helpText())
+}
+
+// helpText lists the commands by area; /grades only when Moodle is set up,
+// because that is the only time it is registered.
+func (b *Bot) helpText() string {
+	lines := []string{
 		"Заняття:",
 		"/add — відмітити заняття кнопками (курс → дата → статус)",
 		"/balance — залишок занять і абонементів по кожному курсу",
@@ -54,10 +68,20 @@ func (b *Bot) cmdHelp(c tele.Context) error {
 		"Кухня:",
 		"/menu — що готувати завтра: три варіанти меню з урахуванням того, що їли (/menu сьогодні, /menu післязавтра)",
 		"",
+	}
+	if b.cfg.Moodle != nil {
+		lines = append(lines,
+			"Школа:",
+			"/grades — оцінки й середні по предметах",
+			"",
+		)
+	}
+	lines = append(lines,
 		"/start — привітання, показує chat id",
 		"",
 		"У приватці зі мною запис можна писати й без /visit — просто текстом.",
-	}, "\n"))
+	)
+	return strings.Join(lines, "\n")
 }
 
 func (b *Bot) cmdBalance(c tele.Context) error {

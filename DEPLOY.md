@@ -75,6 +75,25 @@ just deploy-hetzner-tag family-hub
   `MEALPLAN_FILL_TIME`, `MEALPLAN_SLOTS`, `MEALPLAN_HORIZON_DAYS`,
   `MEALPLAN_REST_DAYS`, `MEALIE_URL`, `MEALIE_TOKEN` or `MEALIE_PUBLIC_URL`;
   Mealie is gone.
+- School grades come from the school's Moodle and are off until three
+  secrets are set in `host_vars/hetzner/secrets.sops.yaml`:
+  `family_hub_school_moodle_url`, `family_hub_school_moodle_username` and
+  `family_hub_school_moodle_password` (the container's `SCHOOL_MOODLE_URL`,
+  `_USERNAME`, `_PASSWORD`). The address is a secret because it names the
+  school; the code has no default for it. These three are the exception to "no
+  defaults": the role defaults them to empty, which leaves the integration off
+  instead of failing the play. The rest is plain role variables in
+  `defaults/main.yml`: `family_hub_school_moodle_week0` (`SCHOOL_MOODLE_WEEK0`,
+  the Monday the school calls «Тиждень 0», e.g. `2026-08-31`; it has to be
+  moved every September, and after any holiday the school does not number) and
+  `family_hub_school_moodle_review_dow` / `_review_time`
+  (`SCHOOL_MOODLE_REVIEW_DOW` / `_TIME`, `5` and `19:45` — Friday evening).
+  `SCHOOL_MOODLE_SYNC_INTERVAL` is left at its `2h` default. Without the week
+  anchor, or with a malformed one, the Friday review is off while the sync and
+  `/grades` keep working. The first sync after a deploy that turns this on
+  announces nothing — every course is seeded silently — and from then on each
+  sync that finds new grades posts one message in the group listing them. After a holiday, if the review says
+  the «Тиждень N» section is missing everywhere, move the week anchor.
 - Recurring reminders record what came due through their own ticker, which
   takes no configuration and does not depend on `NOTIFICATIONS_ENABLED` or on
   a notify chat — that record is data, not a message, and putting it behind a
@@ -108,13 +127,16 @@ digest ticker hosts several wall-clock messages with separate gates, so its
 boot line reports each: `bot: digests started appointment_digests=false
 … reminder_nag=20:00 reminder_push=true menu=true
 menu_time=07:00 menu_evening=true menu_evening_time=20:00 dish_suggest=true
-dish_suggest_dow=6 dish_suggest_time=10:00` is the expected prod shape — the
+dish_suggest_dow=6 dish_suggest_time=10:00 school_review=true
+school_review_dow=5 school_review_time=19:45` is the expected prod shape — the
 appointment summaries stay off because Home Assistant sends those, while the
-chore nag and the menu run from here. `dish_suggest=false`
+chore nag, the menu and the school review run from here. `dish_suggest=false`
 with a day and time set means `AI_API_KEY` is missing, which the boot log also
 says as `bot: cooking log disabled (AI_API_KEY not set)`. It only falls back to
-`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder or menu clocks)` when none
-is configured. The cost-prompt ticker should log
+`bot: digests disabled (NOTIFICATIONS_ENABLED not set, no reminder, menu or school review clocks)` when none
+is configured. `school_review=false` with a day and time set means Moodle is
+not configured or `SCHOOL_MOODLE_WEEK0` is missing; a malformed anchor is
+logged at boot as `moodle: weekly review disabled`. The cost-prompt ticker should log
 `bot: cost prompts started cost_prompt_delay_min=60`, and the billing reminder
 `bot: billing reminders started`. Neither that one nor the pre-lesson warning
 takes any configuration: how far ahead each course warns is its own
@@ -128,6 +150,13 @@ window: a container down across a reminder writes the missing row on its next
 tick, with no watermark to reset by hand. A gap longer than the window leaves
 those occurrences unrecorded for good — 30 days is far past any outage worth
 tolerating silently, but it is a real limit, not a rounding error.
+
+The Moodle sync logs `moodle: syncer started interval=2h0m0s` and, unless the
+container started in the 22:00–07:00 quiet hours, `moodle: synced courses=…
+grades=… new=0` within a minute — `new=0` is right on the first sync, which
+seeds silently. `moodle: disabled (SCHOOL_MOODLE_URL, _USERNAME or _PASSWORD
+not set)` means a secret is missing; `moodle: sync err=…` with an
+`invalidlogin` code means the password changed.
 
 ## Migrations
 

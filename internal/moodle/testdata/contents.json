@@ -1,0 +1,10 @@
+[
+ {"id":901,"name":"Загальне","visible":1,"summary":"","summaryformat":1,"section":0,"hiddenbynumsections":0,"uservisible":true,"modules":[
+  {"id":700,"url":"https://moodle.example/mod/forum/view.php?id=700","name":"Оголошення","instance":500,"contextid":8000,"visible":1,"uservisible":true,"visibleoncoursepage":1,"modicon":"","modname":"forum","modplural":"Форуми","indent":0,"onclick":"","afterlink":null,"customdata":"\"\"","noviewlink":false,"completion":0,"downloadcontent":1,"dates":[]}
+ ]},
+ {"id":912,"name":"Тиждень 12. Квадратні рівняння","visible":1,"summary":"","summaryformat":1,"section":12,"hiddenbynumsections":0,"uservisible":true,"modules":[
+  {"id":701,"url":"https://moodle.example/mod/lesson/view.php?id=701","name":"Урок 1","instance":501,"contextid":8001,"visible":1,"uservisible":true,"visibleoncoursepage":1,"modicon":"","modname":"lesson","modplural":"Уроки","indent":0,"onclick":"","afterlink":null,"customdata":"\"\"","noviewlink":false,"completion":1,"completiondata":{"state":1,"timecompleted":1794643200,"overrideby":null,"valueused":false,"hascompletion":true,"isautomatic":false,"istrackeduser":true,"uservisible":true,"details":[]},"downloadcontent":1,"dates":[]},
+  {"id":702,"url":"https://moodle.example/mod/quiz/view.php?id=702","name":"Контрольна робота 2","instance":502,"contextid":8002,"visible":1,"uservisible":true,"visibleoncoursepage":1,"modicon":"","modname":"quiz","modplural":"Тести","indent":0,"onclick":"","afterlink":null,"customdata":"\"\"","noviewlink":false,"completion":2,"downloadcontent":1,"dates":[]},
+  {"id":703,"name":"Пояснення","instance":503,"contextid":8003,"visible":1,"uservisible":true,"visibleoncoursepage":1,"modicon":"","modname":"label","modplural":"Мітки","indent":0,"onclick":"","afterlink":null,"customdata":"\"\"","noviewlink":true,"completion":0,"downloadcontent":1,"dates":[]}
+ ]}
+]

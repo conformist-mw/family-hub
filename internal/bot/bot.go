@@ -18,6 +18,7 @@ import (
 	"familyhub/internal/actor"
 	"familyhub/internal/audit"
 	"familyhub/internal/dish"
+	"familyhub/internal/moodle"
 	"familyhub/internal/parse"
 	"familyhub/internal/reminders"
 	"familyhub/internal/store"
@@ -86,6 +87,19 @@ type Config struct {
 	// of the bot untouched — the same bargain free-text capture makes with
 	// GEMINI_API_KEY. The dishes themselves live in the local store.
 	Dish *dish.Recognizer
+
+	// Moodle syncs the school's gradebook into the local store. nil — a
+	// deploy without Moodle credentials — leaves /grades unregistered: the
+	// store would only ever answer that there are no grades yet.
+	Moodle *moodle.Service
+
+	// SchoolReviewDOW/Time is when the bot posts the review of the school
+	// week. DOW is 0=Sun..6=Sat and <0 disables, matching DishSuggestDOW; ""
+	// for the time disables it too, and so does a nil Moodle or one without a
+	// week anchor — the review is about week N, and without the anchor there
+	// is no N.
+	SchoolReviewDOW  int
+	SchoolReviewTime string
 }
 
 // menuEnabled and menuEveningEnabled gate on a configured time alone: the
@@ -106,6 +120,15 @@ func (c Config) dishSuggestEnabled() bool {
 	return c.DishSuggestTime != "" && c.DishSuggestDOW >= 0 && c.Dish != nil
 }
 
+// schoolReviewEnabled needs the Moodle service and its week anchor as well as
+// a day and a time: the clock firing without the service would call a nil
+// receiver in RunDigests' goroutine, and without the anchor every review would
+// name a week that is not the one on the school's site.
+func (c Config) schoolReviewEnabled() bool {
+	return c.SchoolReviewTime != "" && c.SchoolReviewDOW >= 0 &&
+		c.Moodle != nil && c.Moodle.HasWeekAnchor()
+}
+
 type Bot struct {
 	b       *tele.Bot
 	cfg     Config
@@ -124,10 +147,15 @@ type Bot struct {
 	// recognition and the taps that correct and confirm it.
 	cookedCards *cookedPending
 
-	// suggestRunning guards the weekly dish suggestions, the only message
-	// that leaves the ticker's goroutine: without it a model call slow enough
-	// to outlast a minute would have a second one started on top of the first.
+	// suggestRunning guards the weekly dish suggestions, which leave the
+	// ticker's goroutine: without it a model call slow enough to outlast a
+	// minute would have a second one started on top of the first.
 	suggestRunning atomic.Bool
+
+	// schoolReviewRunning does the same for the school review, the other
+	// message built off the ticker's goroutine: it reads a page per course
+	// from Moodle and first waits out any sync in progress.
+	schoolReviewRunning atomic.Bool
 
 	// paidTaps holds the warnings whose "оплатив" button has been taken, so a
 	// double tap records one payment, not two. In memory only: the tap edits
@@ -280,6 +308,11 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 		logger.Info("bot: cooking log disabled (AI_API_KEY not set)")
 	}
 
+	// /grades reads the store the sync fills, never Moodle itself.
+	if cfg.Moodle != nil {
+		tb.Handle("/grades", bot.cmdGrades)
+	}
+
 	// Populate the "/" menu — how the group discovers the appointment commands
 	// (best-effort; a network hiccup here must not block startup).
 	cmds := []tele.Command{
@@ -294,6 +327,9 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	cmds = append(cmds, tele.Command{Text: "menu", Description: "Що готувати завтра: кілька варіантів меню"})
 	if cfg.Dish != nil {
 		cmds = append(cmds, tele.Command{Text: "cooked", Description: "Що приготували: фото тарілки або /cooked драники"})
+	}
+	if cfg.Moodle != nil {
+		cmds = append(cmds, tele.Command{Text: "grades", Description: "Шкільні оцінки й середні по предметах"})
 	}
 	cmds = append(cmds,
 		tele.Command{Text: "week", Description: "Записи на найближчий тиждень"},
@@ -344,15 +380,19 @@ func (b *Bot) NotifyText(text string) error { return b.notify(text) }
 // Mini App reaches the group the same way one captured by the bot does.
 func (b *Bot) NotifyHTML(text string) error { return b.notify(text, tele.ModeHTML) }
 
-// notify sends to the notify chat, split into ≤4000-char chunks (Telegram caps
-// messages at 4096). The split falls on line boundaries and every line closes
-// its own tags, so chunking cannot cut HTML in half. No notify chat means
-// nowhere to post, which is not an error.
+// messageLimit is the size a message is split to, in bytes: Telegram caps a
+// message at 4096 characters, and bytes never undercount them.
+const messageLimit = 4000
+
+// notify sends to the notify chat, split into ≤messageLimit chunks. The split
+// falls on line boundaries and every line closes its own tags, so chunking
+// cannot cut HTML in half. No notify chat means nowhere to post, which is not
+// an error.
 func (b *Bot) notify(text string, opts ...any) error {
 	if b.cfg.NotifyChat == 0 {
 		return nil
 	}
-	chunks := audit.SplitMessage(text, 4000)
+	chunks := audit.SplitMessage(text, messageLimit)
 	for i, chunk := range chunks {
 		// Only the last chunk carries the app button: one per chunk would put
 		// three of them under a long reconciliation.

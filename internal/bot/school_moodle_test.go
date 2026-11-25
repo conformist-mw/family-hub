@@ -3,8 +3,11 @@ package bot
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -14,8 +17,10 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"familyhub/internal/db"
 	"familyhub/internal/model"
 	"familyhub/internal/moodle"
+	"familyhub/internal/store"
 )
 
 func avgOf(v float64) *float64 { return &v }
@@ -57,7 +62,7 @@ func TestFormatNewGrades(t *testing.T) {
 	text := formatNewGrades([]model.SchoolGrade{
 		{Name: "Оцінка вчителя 12", GradeRaw: 2.2, GradeText: "2,2", CourseName: "Алгебра", CourseAverage: "5,5"},
 		{Name: "Контрольна робота 3", GradeRaw: 10, GradeText: "10,0", CourseName: "Фізика", CourseAverage: "8,0"},
-		{Name: "Тест <вступ>", GradeRaw: 9, GradeText: "", CourseName: "Історія & право", CourseAverage: ""},
+		{Name: "Тест <вступ>", GradeRaw: 9, GradeText: "9", CourseName: "Історія & право", CourseAverage: ""},
 	})
 	want := "🆕 Нові оцінки\n" +
 		"<b>Алгебра</b>: ОВ 12 — 2,2 (сер. 5,5)\n" +
@@ -122,6 +127,21 @@ func TestFormatGradesSummaryEmpty(t *testing.T) {
 	}
 }
 
+// An average Moodle sent no text for is rendered from the number.
+func TestAverageTextFromTheNumber(t *testing.T) {
+	if got := averageText(avgOf(3.5), ""); got != "3,5 ⚠️" {
+		t.Errorf("averageText(3.5, \"\") = %q, want \"3,5 ⚠️\"", got)
+	}
+	if got := averageText(nil, ""); got != "" {
+		t.Errorf("averageText(nil, \"\") = %q, want empty", got)
+	}
+}
+
+// report wraps courses as a review of data synced just now.
+func report(courses ...moodle.CourseProgress) moodle.WeekReport {
+	return moodle.WeekReport{Courses: courses, SyncedAt: reviewWeek().Start.AddDate(0, 0, 4)}
+}
+
 func reviewWeek() moodle.Week {
 	loc := time.FixedZone("EET", 2*3600)
 	start := time.Date(2026, 11, 16, 0, 0, 0, 0, loc)
@@ -129,32 +149,39 @@ func reviewWeek() moodle.Week {
 }
 
 func TestFormatWeekReview(t *testing.T) {
-	text := formatWeekReview(reviewWeek(), []moodle.CourseProgress{
-		{Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5", QuizzesGraded: 1, QuizzesTotal: 3, Grades: []model.SchoolGrade{
+	text := formatWeekReview(reviewWeek(), report(
+		moodle.CourseProgress{Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5", QuizzesGraded: 1, QuizzesTotal: 3, Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 11", GradeRaw: 7.8, GradeText: "7,8"},
 			{Name: "Контрольна робота 2", GradeRaw: 10, GradeText: "10,0"},
 		}},
-		{Name: "Фізика", Average: avgOf(3.2), AverageText: "3,2", QuizzesGraded: 0, QuizzesTotal: 2},
+		moodle.CourseProgress{Name: "Фізика", Average: avgOf(3.2), AverageText: "3,2", QuizzesGraded: 0, QuizzesTotal: 2},
 		// No quiz and no grade this week: left out.
-		{Name: "Фізкультура", Average: avgOf(9), AverageText: "9,0"},
+		moodle.CourseProgress{Name: "Фізкультура", Average: avgOf(9), AverageText: "9,0"},
 		// No section of its own, but graded this week: shown with a note.
-		{Name: "Хімія", NoSection: true, Grades: []model.SchoolGrade{
+		moodle.CourseProgress{Name: "Хімія", NoSection: true, Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 11", GradeRaw: 6, GradeText: "6,0"},
 		}},
 		// No section and nothing graded: left out.
-		{Name: "Мистецтво", NoSection: true},
+		moodle.CourseProgress{Name: "Мистецтво", NoSection: true},
+		// Not a weekly course, but graded this week: its grades, no note.
+		moodle.CourseProgress{Name: "Історія", NotWeekly: true, Grades: []model.SchoolGrade{
+			{Name: "Семестрова контрольна робота", GradeRaw: 8, GradeText: "8,0"},
+		}},
+		moodle.CourseProgress{Name: "Право", NotWeekly: true},
 		// Progress unreadable: shown anyway, grades and average still there.
-		{Name: "Біологія", Unavailable: true, Average: avgOf(8.4), AverageText: "8,4", Grades: []model.SchoolGrade{
+		moodle.CourseProgress{Name: "Біологія", Unavailable: true, Average: avgOf(8.4), AverageText: "8,4", Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 11", GradeRaw: 9, GradeText: "9"},
 		}},
-		{Name: "Географія", Unavailable: true},
-	})
+		moodle.CourseProgress{Name: "Географія", Unavailable: true},
+	))
 	want := "📅 Тиждень 11 (16.11–22.11)\n" +
 		"<b>Алгебра</b> — оцінено 1/3 тестів · сер. 5,5\n" +
 		"   <i>ОВ 11 — 7,8 · КР 2 — 10</i>\n" +
 		"<b>Фізика</b> — оцінено 0/2 тестів · сер. 3,2 ⚠️\n" +
 		"<b>Хімія</b> — секції «Тиждень 11» немає\n" +
 		"   <i>ОВ 11 — 6</i>\n" +
+		"<b>Історія</b>\n" +
+		"   <i>Семестрова контрольна робота — 8</i>\n" +
 		"<b>Біологія</b> — прогрес недоступний · сер. 8,4\n" +
 		"   <i>ОВ 11 — 9</i>\n" +
 		"<b>Географія</b> — прогрес недоступний"
@@ -167,13 +194,15 @@ func TestFormatWeekReview(t *testing.T) {
 func TestFormatWeekReviewNoSectionAnywhere(t *testing.T) {
 	// Every readable course lacks the week's section: the anchor is off, and
 	// that is said once rather than per subject.
-	text := formatWeekReview(reviewWeek(), []moodle.CourseProgress{
-		{Name: "Алгебра", NoSection: true, AverageText: "5,5", Average: avgOf(5.5), Grades: []model.SchoolGrade{
+	// A course that is not weekly does not count either way.
+	text := formatWeekReview(reviewWeek(), report(
+		moodle.CourseProgress{Name: "Алгебра", NoSection: true, AverageText: "5,5", Average: avgOf(5.5), Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 11", GradeRaw: 7, GradeText: "7"},
 		}},
-		{Name: "Фізика", NoSection: true},
-		{Name: "Біологія", Unavailable: true},
-	})
+		moodle.CourseProgress{Name: "Фізика", NoSection: true},
+		moodle.CourseProgress{Name: "Право", NotWeekly: true},
+		moodle.CourseProgress{Name: "Біологія", Unavailable: true},
+	))
 	want := "📅 Тиждень 11 (16.11–22.11)\n" +
 		"<i>Секції «Тиждень 11» немає в жодному предметі.</i>\n" +
 		"<b>Алгебра</b> — сер. 5,5\n" +
@@ -186,23 +215,40 @@ func TestFormatWeekReviewNoSectionAnywhere(t *testing.T) {
 }
 
 func TestFormatWeekReviewEmpty(t *testing.T) {
-	for name, progress := range map[string][]moodle.CourseProgress{
-		"no courses": nil,
-		"no quizzes": {{Name: "Алгебра", AverageText: "5,5", Average: avgOf(5.5)}},
-	} {
-		got := formatWeekReview(reviewWeek(), progress)
-		if got != "📅 Тиждень 11 (16.11–22.11)\nЗа тиждень ні завдань, ні оцінок." {
-			t.Errorf("%s: got %q", name, got)
-		}
+	got := formatWeekReview(reviewWeek(), report(moodle.CourseProgress{Name: "Алгебра", AverageText: "5,5", Average: avgOf(5.5)}))
+	if got != "📅 Тиждень 11 (16.11–22.11)\nЗа тиждень ні завдань, ні оцінок." {
+		t.Errorf("no quizzes: got %q", got)
 	}
 }
 
+// Before the first sync there is no week to review, not an empty one.
+func TestFormatWeekReviewBeforeTheFirstSync(t *testing.T) {
+	got := formatWeekReview(reviewWeek(), moodle.WeekReport{})
+	if got != "📅 Тиждень 11 (16.11–22.11)\nMoodle ще не синхронізувався — огляду немає." {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFormatWeekReviewStale(t *testing.T) {
+	r := report(moodle.CourseProgress{Name: "Алгебра", QuizzesGraded: 1, QuizzesTotal: 2})
+	r.Stale = true
+	r.SyncedAt = time.Date(2026, 11, 18, 21, 30, 0, 0, time.UTC)
+	text := formatWeekReview(reviewWeek(), r)
+	want := "📅 Тиждень 11 (16.11–22.11)\n" +
+		"<i>⚠️ Moodle не синхронізувався з 18.11 21:30 — оцінки тижня можуть бути неповні.</i>\n" +
+		"<b>Алгебра</b> — оцінено 1/2 тестів"
+	if text != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
+	}
+	assertLinesBalanced(t, text)
+}
+
 func TestFormatWeekReviewEscapesNames(t *testing.T) {
-	text := formatWeekReview(reviewWeek(), []moodle.CourseProgress{
-		{Name: "Мова <і> література", QuizzesGraded: 1, QuizzesTotal: 1, Grades: []model.SchoolGrade{
+	text := formatWeekReview(reviewWeek(), report(
+		moodle.CourseProgress{Name: "Мова <і> література", QuizzesGraded: 1, QuizzesTotal: 1, Grades: []model.SchoolGrade{
 			{Name: "Есе \"Я & світ\"", GradeRaw: 8, GradeText: "8"},
 		}},
-	})
+	))
 	assertContainsAll(t, text, "<b>Мова &lt;і&gt; література</b>", "Есе &#34;Я &amp; світ&#34; — 8")
 	assertLinesBalanced(t, text)
 }
@@ -273,7 +319,7 @@ func fakeTelegram(t *testing.T, b *Bot) func() []sentMessage {
 // seedSchool stores courses and their grades the way a first sync does.
 func seedSchool(t *testing.T, b *Bot, courses []model.SchoolCourse, grades []model.SchoolGrade) {
 	t.Helper()
-	if _, err := b.store.ApplySchoolSync(courses, grades, time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := b.store.ApplySchoolSync(courses, grades, reviewFriday.Add(-time.Hour)); err != nil {
 		t.Fatalf("seed school: %v", err)
 	}
 }
@@ -464,7 +510,7 @@ func reviewBot(t *testing.T, site string) (*Bot, func() []sentMessage) {
 	b.cfg.Moodle = moodle.NewService(b.store, moodle.NewClient(site), moodle.Config{
 		Username: "pupil", Password: "secret",
 		Week0: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
-	}, time.UTC, b.logger, nil)
+	}, time.UTC, b.logger, func() time.Time { return reviewFriday })
 	seedSchool(t, b, []model.SchoolCourse{
 		{ID: 11, Name: "Алгебра", Position: 0, Average: avgOf(5.5), AverageText: "5,5"},
 	}, []model.SchoolGrade{
@@ -527,6 +573,56 @@ func TestSchoolReviewSkipsWhenMoodleFails(t *testing.T) {
 	}
 	if got := sent(); len(got) != 0 {
 		t.Fatalf("sent %+v, want nothing", got)
+	}
+}
+
+// The summer before the anchor's school year has no week to review.
+func TestSchoolReviewSkipsBeforeTheSchoolYear(t *testing.T) {
+	var logins atomic.Int32
+	b, sent := reviewBot(t, fakeMoodle(t, nil, &logins, false))
+	b.sendSchoolReview(t.Context(), time.Date(2026, 8, 21, 19, 45, 0, 0, time.UTC))
+	if b.schoolReviewRunning.Load() || logins.Load() != 0 {
+		t.Fatal("a review started before the school year")
+	}
+	if got := sent(); len(got) != 0 {
+		t.Fatalf("sent %+v", got)
+	}
+}
+
+func TestGradesCommandStoreFailure(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bot{cfg: Config{Loc: time.UTC}, store: store.New(database),
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	database.Close() // every read now fails
+	sent := fakeTelegram(t, b)
+	runGrades(t, b)
+	if got := sent(); len(got) != 1 || got[0].Text != "Не вдалося прочитати оцінки." {
+		t.Fatalf("sent %+v, want the failure reply", got)
+	}
+}
+
+// A failed send is logged and swallowed: the sync calling it has nobody to
+// hand the error to.
+func TestNotifyNewGradesSendFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"ok":false,"error_code":500,"description":"down"}`, http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	var logs strings.Builder
+	b := menuBot(t)
+	b.cfg.NotifyChat = -100
+	b.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	tb, err := tele.NewBot(tele.Settings{Token: "test", URL: srv.URL, Offline: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.b = tb
+	b.NotifyNewGrades([]model.SchoolGrade{{Name: "ОВ 1", GradeText: "7", CourseName: "Алгебра"}})
+	if !strings.Contains(logs.String(), "notify new grades") {
+		t.Errorf("send failure not logged: %q", logs.String())
 	}
 }
 

@@ -34,21 +34,25 @@ func (b *Bot) NotifyNewGrades(grades []model.SchoolGrade) {
 	}
 }
 
-// schoolReviewTimeout bounds the whole review: it may first wait out a sync
-// holding the site, then reads two pages per course from Moodle, each of
-// which the client gives up on after 30 seconds.
-const schoolReviewTimeout = 5 * time.Minute
-
 // sendSchoolReview posts the review of the school week containing now. Like
 // the dish suggestions it runs off the ticker's goroutine, so a slow Moodle
 // does not hold back the other clocks, and one run at a time. A failed read is
 // logged and the review skipped: half a review would read as a quiet week.
+// The service bounds how long the reads may take; ctx is only the server's.
+//
+// A week before the anchor is the summer before the school year: there is no
+// school week to review, so nothing is posted.
 func (b *Bot) sendSchoolReview(ctx context.Context, now time.Time) {
 	// RunDigests only calls this when schoolReviewEnabled, which requires the
 	// service; the check stays because a nil one reached from that goroutine
 	// would take the whole server down.
 	svc := b.cfg.Moodle
 	if svc == nil {
+		return
+	}
+	week := svc.Week(now)
+	if week.N < 0 {
+		b.logger.Info("bot: school review skipped, the school year has not started", "week", week.N)
 		return
 	}
 	if !b.schoolReviewRunning.CompareAndSwap(false, true) {
@@ -58,16 +62,12 @@ func (b *Bot) sendSchoolReview(ctx context.Context, now time.Time) {
 	go func() {
 		defer b.schoolReviewRunning.Store(false)
 
-		ctx, cancel := context.WithTimeout(ctx, schoolReviewTimeout)
-		defer cancel()
-
-		week := svc.Week(now)
-		progress, err := svc.WeekProgress(ctx, week)
+		report, err := svc.WeekProgress(ctx, week)
 		if err != nil {
 			b.logger.Error("bot: school review", "week", week.N, "err", err)
 			return
 		}
-		if err := b.NotifyHTML(formatWeekReview(week, progress)); err != nil {
+		if err := b.NotifyHTML(formatWeekReview(week, report)); err != nil {
 			b.logger.Error("bot: send school review", "week", week.N, "err", err)
 		}
 	}()
@@ -157,18 +157,32 @@ func formatGradesSummary(courses []model.SchoolCourse) string {
 // no quiz this week and no grade in it is left out; one whose progress could
 // not be read is always shown, with its grades.
 //
-// A course without a "Тиждень N" section usually just has no weekly layout,
-// so it is noted only on a subject that is shown anyway. When no readable
-// course has the section, the week number itself is off (holidays moved the
-// anchor), and that gets one line instead of twenty.
-func formatWeekReview(week moodle.Week, progress []moodle.CourseProgress) string {
+// A course with no "Тиждень N" sections at all (only term tests) has no week
+// to report on and shows just its grades. A weekly course missing this week's
+// section is noted only on a subject that is shown anyway. When no readable
+// weekly course has the section, the week number itself is off (holidays
+// moved the anchor), and that gets one line instead of twenty.
+//
+// Before the first sync there is nothing to review, and the message says so
+// rather than reporting an empty week. Grades from a sync that has been
+// failing for long carry a warning: the week may be missing some.
+func formatWeekReview(week moodle.Week, report moodle.WeekReport) string {
 	var sb strings.Builder
 	last := week.End.AddDate(0, 0, -1)
 	fmt.Fprintf(&sb, "📅 Тиждень %d (%s–%s)", week.N, week.Start.Format("02.01"), last.Format("02.01"))
+	if len(report.Courses) == 0 {
+		sb.WriteString("\nMoodle ще не синхронізувався — огляду немає.")
+		return sb.String()
+	}
+	if report.Stale {
+		fmt.Fprintf(&sb, "\n<i>⚠️ Moodle не синхронізувався з %s — оцінки тижня можуть бути неповні.</i>",
+			report.SyncedAt.Format("02.01 15:04"))
+	}
+	progress := report.Courses
 
 	readable, missing := 0, 0
 	for _, p := range progress {
-		if !p.Unavailable {
+		if !p.Unavailable && !p.NotWeekly {
 			readable++
 			if p.NoSection {
 				missing++
@@ -220,7 +234,7 @@ func formatWeekReview(week moodle.Week, progress []moodle.CourseProgress) string
 
 // gradeEntry names a grade with its item: "ОВ 12 — 7,8" (escaped HTML).
 func gradeEntry(g model.SchoolGrade) string {
-	return html.EscapeString(model.ShortItemName(g.Name) + " — " + gradeValue(g))
+	return html.EscapeString(model.ShortItemName(g.Name) + " — " + tidyGrade(g.GradeText))
 }
 
 // numberedAbbrev is an abbreviated item that is nothing but its number
@@ -234,18 +248,9 @@ var numberedAbbrev = regexp.MustCompile(`^(ОВ|КР)(\s+\d+)?$`)
 func compactGradeEntry(g model.SchoolGrade) string {
 	name := model.ShortItemName(g.Name)
 	if m := numberedAbbrev.FindStringSubmatch(name); m != nil {
-		return html.EscapeString(m[1] + " " + gradeValue(g))
+		return html.EscapeString(m[1] + " " + tidyGrade(g.GradeText))
 	}
 	return gradeEntry(g)
-}
-
-// gradeValue is Moodle's rendering of the grade, tidied; the raw value when
-// Moodle gave none.
-func gradeValue(g model.SchoolGrade) string {
-	if s := tidyGrade(g.GradeText); s != "" {
-		return s
-	}
-	return model.FormatGrade(g.GradeRaw)
 }
 
 // averageText renders a course average with ⚠️ when it is low (judged by the

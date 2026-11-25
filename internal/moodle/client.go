@@ -35,7 +35,6 @@ const maxBody = 16 << 20
 // calls) or an error field (login).
 type APIError struct {
 	Function  string // wsfunction, or "login"
-	Exception string // exception class; empty for login errors
 	ErrorCode string // e.g. "invalidtoken", "invalidlogin"
 	Message   string
 }
@@ -122,7 +121,7 @@ func (c *Client) call(ctx context.Context, fn string, params url.Values, out any
 			Message   string `json:"message"`
 		}
 		if err := json.Unmarshal(trimmed, &exc); err == nil && exc.Exception != "" {
-			return &APIError{Function: fn, Exception: exc.Exception, ErrorCode: exc.ErrorCode, Message: exc.Message}
+			return &APIError{Function: fn, ErrorCode: exc.ErrorCode, Message: exc.Message}
 		}
 	}
 	if err := json.Unmarshal(body, out); err != nil {
@@ -169,11 +168,17 @@ func (c *Client) SiteInfo(ctx context.Context) (SiteInfo, error) {
 	return info, err
 }
 
-// Course is one enrolled course.
+// Course is one enrolled course. ShowGrades is the course's "show gradebook to
+// students" setting; with it off Moodle refuses the pupil the course's grade
+// items. nil (an older site that does not send it) means shown.
 type Course struct {
-	ID       int64  `json:"id"`
-	FullName string `json:"fullname"`
+	ID         int64  `json:"id"`
+	FullName   string `json:"fullname"`
+	ShowGrades *bool  `json:"showgrades"`
 }
+
+// GradesShown reports whether the pupil may read the course's gradebook.
+func (c Course) GradesShown() bool { return c.ShowGrades == nil || *c.ShowGrades }
 
 // Courses lists the courses userID is enrolled in, in Moodle's own order.
 func (c *Client) Courses(ctx context.Context, userID int64) ([]Course, error) {
@@ -234,21 +239,17 @@ func (c *Client) GradeItems(ctx context.Context, courseID, userID int64) ([]Grad
 	return items, nil
 }
 
-// Section is one section of a course page; on this site each is a week
+// Section is one section of a course page; on a weekly course each is a week
 // ("Тиждень N").
 type Section struct {
-	ID      int64    `json:"id"`
 	Name    string   `json:"name"`
-	Number  int      `json:"section"`
 	Modules []Module `json:"modules"`
 }
 
-// Module is one activity or resource in a section. ID is the course-module id
-// (cmid); Instance is the activity's own id, which a grade item's iteminstance
-// refers to.
+// Module is one activity or resource in a section. Instance is the activity's
+// own id, which a grade item's iteminstance refers to; ModName is its type
+// ("quiz", "lesson", "label").
 type Module struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
 	Instance int64  `json:"instance"`
 	ModName  string `json:"modname"`
 }

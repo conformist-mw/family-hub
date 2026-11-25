@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -243,8 +244,95 @@ func TestAGradeOfACourseOutsideTheSyncIsRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("a grade of an unknown course was accepted")
 	}
-	if sum, _ := st.SchoolSummary(); len(sum) != 0 {
+	sum, err := st.SchoolSummary()
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if len(sum) != 0 {
 		t.Fatalf("a rejected sync left %+v behind", sum)
+	}
+}
+
+// A sync that fails halfway through its transaction (here a course name the
+// schema refuses, after the other course is already written) leaves the
+// previous sync exactly as it was.
+func TestAFailedSchoolSyncRollsBack(t *testing.T) {
+	st := testStore(t)
+	applySchool(t, st,
+		[]model.SchoolCourse{schoolCourse(1, "Алгебра", 0, 5.5), schoolCourse(2, "Фізика", 1, 0)},
+		[]model.SchoolGrade{schoolGrade(101, 1, "ОВ 1", 7, "2026-11-20T10:00")})
+
+	_, err := st.ApplySchoolSync(
+		[]model.SchoolCourse{schoolCourse(1, "Алгебра", 0, 3), schoolCourse(3, "", 1, 0)},
+		[]model.SchoolGrade{schoolGrade(101, 1, "ОВ 1", 2, "2026-11-20T10:00")}, syncNow)
+	if err == nil {
+		t.Fatal("a course without a name was accepted")
+	}
+	sum, err := st.SchoolSummary()
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if len(sum) != 2 || sum[1].ID != 2 {
+		t.Fatalf("courses = %+v, want algebra and physics still there", sum)
+	}
+	if *sum[0].Average != 5.5 || len(sum[0].Grades) != 1 || sum[0].Grades[0].GradeRaw != 7 {
+		t.Fatalf("algebra = %+v, want the previous average and grade", sum[0])
+	}
+}
+
+// An empty sync while courses are stored is refused and changes nothing.
+func TestEmptySchoolSyncIsRefused(t *testing.T) {
+	st := testStore(t)
+	applySchool(t, st, []model.SchoolCourse{schoolCourse(1, "Алгебра", 0, 0)},
+		[]model.SchoolGrade{schoolGrade(101, 1, "ОВ 1", 7, "2026-11-20T10:00")})
+	if _, err := st.ApplySchoolSync(nil, nil, syncNow); !errors.Is(err, store.ErrEmptySchoolSync) {
+		t.Fatalf("err = %v, want ErrEmptySchoolSync", err)
+	}
+	sum, err := st.SchoolSummary()
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if len(sum) != 1 || len(sum[0].Grades) != 1 {
+		t.Fatalf("store after an empty sync = %+v", sum)
+	}
+}
+
+// An undated grade is dated by the sync that first sees it and keeps that
+// date while its value stands; a changed value is dated anew.
+func TestUndatedSchoolGradeKeepsFirstSeenDate(t *testing.T) {
+	st := testStore(t)
+	courses := []model.SchoolCourse{schoolCourse(1, "Алгебра", 0, 0)}
+	undated := func(raw float64) []model.SchoolGrade {
+		return []model.SchoolGrade{schoolGrade(101, 1, "ОВ 1", raw, "")}
+	}
+	gradedAt := func() string {
+		t.Helper()
+		sum, err := st.SchoolSummary()
+		if err != nil {
+			t.Fatalf("summary: %v", err)
+		}
+		return sum[0].Grades[0].GradedAt
+	}
+
+	applySchool(t, st, courses, undated(7))
+	if at := gradedAt(); at != "2026-11-25T10:00" {
+		t.Fatalf("first seen at %q, want the sync time", at)
+	}
+	if _, err := st.ApplySchoolSync(courses, undated(7), syncNow.Add(4*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if at := gradedAt(); at != "2026-11-25T10:00" {
+		t.Errorf("unchanged grade re-dated to %q", at)
+	}
+	fresh, err := st.ApplySchoolSync(courses, undated(9), syncNow.Add(6*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := gradedAt(); at != "2026-11-25T16:00" {
+		t.Errorf("changed grade dated %q, want the sync time", at)
+	}
+	if len(fresh) != 1 || fresh[0].GradedAt != "2026-11-25T16:00" {
+		t.Errorf("fresh = %+v, want the changed grade with its new date", fresh)
 	}
 }
 

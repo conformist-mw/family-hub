@@ -85,7 +85,6 @@ func main() {
 	} else {
 		logger.Info("moodle: disabled (SCHOOL_MOODLE_URL, _USERNAME or _PASSWORD not set)")
 	}
-	reviewDOW, reviewTime := schoolMoodle.reviewClock()
 
 	var lessonsBot *bot.Bot
 	var webhookHandler http.Handler
@@ -170,9 +169,10 @@ func main() {
 			Dish:            recognizer,
 			Moodle:          moodleSvc,
 			// Not behind NOTIFICATIONS_ENABLED either: HA knows nothing of
-			// the school's site.
-			SchoolReviewDOW:  reviewDOW,
-			SchoolReviewTime: reviewTime,
+			// the school's site. Without Moodle (nil moodleSvc) the review
+			// stays off whatever these say.
+			SchoolReviewDOW:  parseDOW(os.Getenv("SCHOOL_MOODLE_REVIEW_DOW")),
+			SchoolReviewTime: strings.TrimSpace(os.Getenv("SCHOOL_MOODLE_REVIEW_TIME")),
 		}
 		cfg = withMenuEnv(cfg, os.Getenv)
 		// No deferred Stop(): telebot's Stop() handshakes with the Start()
@@ -303,24 +303,21 @@ func withMenuEnv(cfg bot.Config, getenv func(string) string) bot.Config {
 	return cfg
 }
 
-// schoolMoodleEnv is the SCHOOL_MOODLE_* configuration: the site, the
-// service's settings and the weekly review's clock.
+// schoolMoodleEnv is the SCHOOL_MOODLE_* configuration of the sync: the site
+// and the service's settings. The weekly review's day and time go straight
+// into bot.Config.
 type schoolMoodleEnv struct {
-	URL        string
-	Service    moodle.Config
-	ReviewDOW  int
-	ReviewTime string
+	URL     string
+	Service moodle.Config
 }
-
-// defaultMoodleSyncInterval applies when SCHOOL_MOODLE_SYNC_INTERVAL is unset
-// or unparseable.
-const defaultMoodleSyncInterval = 2 * time.Hour
 
 // schoolMoodleFromEnv reads SCHOOL_MOODLE_*. It returns nil when the URL,
 // username or password is missing: there is no default site, and a sync that
-// cannot log in would only fill the log with errors. An unparseable
-// SCHOOL_MOODLE_WEEK0 leaves the sync on and only the weekly review off (no
-// anchor, no week number); the error says why.
+// cannot log in would only fill the log with errors. An unset, unparseable or
+// non-positive SCHOOL_MOODLE_SYNC_INTERVAL leaves Interval zero, which the
+// service reads as its default. An unparseable SCHOOL_MOODLE_WEEK0 leaves the
+// sync on and only the weekly review off (no anchor, no week number); the
+// error says why.
 func schoolMoodleFromEnv(getenv func(string) string) (*schoolMoodleEnv, error) {
 	url := strings.TrimSpace(getenv("SCHOOL_MOODLE_URL"))
 	username := strings.TrimSpace(getenv("SCHOOL_MOODLE_USERNAME"))
@@ -333,10 +330,7 @@ func schoolMoodleFromEnv(getenv func(string) string) (*schoolMoodleEnv, error) {
 		Service: moodle.Config{
 			Username: username,
 			Password: password,
-			Interval: defaultMoodleSyncInterval,
 		},
-		ReviewDOW:  parseDOW(getenv("SCHOOL_MOODLE_REVIEW_DOW")),
-		ReviewTime: strings.TrimSpace(getenv("SCHOOL_MOODLE_REVIEW_TIME")),
 	}
 	if d, err := time.ParseDuration(strings.TrimSpace(getenv("SCHOOL_MOODLE_SYNC_INTERVAL"))); err == nil && d > 0 {
 		env.Service.Interval = d
@@ -351,16 +345,6 @@ func schoolMoodleFromEnv(getenv func(string) string) (*schoolMoodleEnv, error) {
 		}
 	}
 	return env, err
-}
-
-// reviewClock is the weekly review's day and time for bot.Config: off (-1,
-// "") when Moodle is not configured. A -1 rather than the zero value, which
-// is Sunday.
-func (e *schoolMoodleEnv) reviewClock() (int, string) {
-	if e == nil {
-		return -1, ""
-	}
-	return e.ReviewDOW, e.ReviewTime
 }
 
 // parseDOW returns 0..6 for a valid day-of-week, or -1 (disabled) otherwise.

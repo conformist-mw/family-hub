@@ -2,6 +2,7 @@ package moodle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -62,8 +63,7 @@ type Service struct {
 	// in and read through it, and the review's clock can fire mid-sync.
 	site sync.Mutex
 
-	notifyMu sync.Mutex
-	notify   func([]model.SchoolGrade)
+	notify func([]model.SchoolGrade)
 }
 
 // NewService builds the sync service. A nil loc means time.Local, a nil now
@@ -90,19 +90,11 @@ func NewService(st *store.Store, client *Client, cfg Config, loc *time.Location,
 }
 
 // SetNotify sets the callback that receives the grades each sync found new.
-// The bot is built after the service, so the callback is attached late; until
-// it is (or when there is no bot at all) grades are still stored, just not
-// announced.
+// The bot is built after the service, so the callback is attached late, but
+// it must be before Run starts: the field is read unguarded. Without one (no
+// bot at all) grades are still stored, just not announced.
 func (s *Service) SetNotify(fn func([]model.SchoolGrade)) {
-	s.notifyMu.Lock()
-	defer s.notifyMu.Unlock()
 	s.notify = fn
-}
-
-func (s *Service) notifyFunc() func([]model.SchoolGrade) {
-	s.notifyMu.Lock()
-	defer s.notifyMu.Unlock()
-	return s.notify
 }
 
 // Run syncs immediately, then on every Interval tick, until ctx is done. It
@@ -126,16 +118,18 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 // syncUnlessQuiet runs one sync unless the clock is in quiet hours, and logs
-// the outcome. It reports whether a sync was attempted.
-func (s *Service) syncUnlessQuiet(ctx context.Context) bool {
+// the outcome.
+func (s *Service) syncUnlessQuiet(ctx context.Context) {
 	if quiet(s.now()) {
 		s.log.Debug("moodle: quiet hours, sync skipped")
-		return false
+		return
 	}
-	if err := s.SyncOnce(ctx); err != nil {
+	switch err := s.SyncOnce(ctx); {
+	case errors.Is(err, store.ErrEmptySchoolSync):
+		s.log.Warn("moodle: sync skipped", "err", err)
+	case err != nil:
 		s.log.Error("moodle: sync", "err", err)
 	}
-	return true
 }
 
 func quiet(t time.Time) bool {
@@ -151,17 +145,22 @@ func quiet(t time.Time) bool {
 // hours costs one extra request, and there is then no expired-token path to
 // get wrong.
 //
-// Any failed read aborts before the store is touched. The store treats a sync
-// as the whole truth and deletes what it no longer contains, so writing a sync
-// where one course timed out would wipe that course's grades and later re-seed
-// it silently, losing whatever was graded in between.
+// The store treats a sync as the whole truth and deletes what it no longer
+// contains, so a course left out would lose its grades and later be re-seeded
+// silently, losing whatever was graded in between. A failed request (the site
+// down or timing out) therefore aborts before the store is touched. A course
+// whose gradebook Moodle itself refuses (an exception in its answer, which
+// will most likely come back the same next time) must not block every other
+// course for good, so it keeps the grades the store holds; one the store does
+// not know yet is left out, to be seeded silently once it can be read. A
+// course that hides its gradebook from pupils is not mirrored at all.
 func (s *Service) SyncOnce(ctx context.Context) error {
 	fresh, err := s.sync(ctx)
 	if err != nil {
 		return err
 	}
-	if notify := s.notifyFunc(); len(fresh) > 0 && notify != nil {
-		notify(fresh)
+	if len(fresh) > 0 && s.notify != nil {
+		s.notify(fresh)
 	}
 	return nil
 }
@@ -194,21 +193,36 @@ func (s *Service) sync(ctx context.Context) ([]model.SchoolGrade, error) {
 		avgByCourse[a.CourseID] = a
 	}
 
-	stored, err := s.storedGradeDates()
-	if err != nil {
-		return nil, err
-	}
-
 	courses := make([]model.SchoolCourse, 0, len(enrolled))
 	var grades []model.SchoolGrade
+	var stored map[int64][]model.SchoolGrade // read on the first refused course
 	for i, c := range enrolled {
-		courses = append(courses, toCourse(c, i, avgByCourse[c.ID]))
+		if !c.GradesShown() {
+			continue
+		}
 		items, err := s.client.GradeItems(ctx, c.ID, info.UserID)
+		var refused *APIError
+		if errors.As(err, &refused) {
+			if stored == nil {
+				if stored, err = s.storedGrades(); err != nil {
+					return nil, err
+				}
+			}
+			kept, known := stored[c.ID]
+			s.log.Warn("moodle: gradebook refused, keeping stored grades",
+				"course", c.ID, "known", known, "err", refused)
+			if known {
+				courses = append(courses, toCourse(c, i, avgByCourse[c.ID]))
+				grades = append(grades, kept...)
+			}
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("course %d: %w", c.ID, err)
 		}
+		courses = append(courses, toCourse(c, i, avgByCourse[c.ID]))
 		for _, it := range items {
-			if g, ok := s.toGrade(c.ID, it, now, stored); ok {
+			if g, ok := s.toGrade(c.ID, it); ok {
 				grades = append(grades, g)
 			}
 		}
@@ -234,49 +248,33 @@ func toCourse(c Course, position int, avg CourseAverage) model.SchoolCourse {
 	return out
 }
 
-// storedGrade is what the store already holds for one grade item, for keeping
-// the date of a grade Moodle gives no date for.
-type storedGrade struct {
-	raw      float64
-	gradedAt string
-}
-
-func (s *Service) storedGradeDates() (map[int64]storedGrade, error) {
+// storedGrades is every course the store knows, with its grades: what a
+// course whose gradebook Moodle refused keeps.
+func (s *Service) storedGrades() (map[int64][]model.SchoolGrade, error) {
 	courses, err := s.store.SchoolSummary()
 	if err != nil {
 		return nil, err
 	}
-	out := map[int64]storedGrade{}
+	out := make(map[int64][]model.SchoolGrade, len(courses))
 	for _, c := range courses {
-		for _, g := range c.Grades {
-			out[g.ItemID] = storedGrade{raw: g.GradeRaw, gradedAt: g.GradedAt}
-		}
+		out[c.ID] = c.Grades
 	}
 	return out, nil
 }
 
 // toGrade maps a gradebook row to a stored grade, or reports ok=false for one
 // that is not a grade worth keeping: a course or category total (the course
-// average already carries that) or an activity nobody has graded yet.
-//
-// A grade with no date in Moodle is dated by the sync that first saw it, and
-// keeps that date while its value stands. Re-dating it on every sync would
-// move it into the current week forever, so the weekly review would list the
-// same old grade every Friday.
-func (s *Service) toGrade(courseID int64, it GradeItem, now time.Time, stored map[int64]storedGrade) (model.SchoolGrade, bool) {
+// average already carries that) or an activity nobody has graded yet. A grade
+// Moodle has no date for is left undated for the store to date.
+func (s *Service) toGrade(courseID int64, it GradeItem) (model.SchoolGrade, bool) {
 	if it.ItemType != "mod" || it.GradeRaw == nil {
 		return model.SchoolGrade{}, false
 	}
 	raw := *it.GradeRaw
 
 	var gradedAt string
-	switch old, ok := stored[it.ID]; {
-	case it.GradeDateGraded > 0:
+	if it.GradeDateGraded > 0 {
 		gradedAt = time.Unix(it.GradeDateGraded, 0).In(s.loc).Format(model.LocalDatetime)
-	case ok && old.raw == raw:
-		gradedAt = old.gradedAt
-	default:
-		gradedAt = now.Format(model.LocalDatetime)
 	}
 
 	text := strings.TrimSpace(it.GradeFormatted)
@@ -367,9 +365,14 @@ type CourseProgress struct {
 	// only reliable sign that the week's work was done; lessons, labels and
 	// books carry no such signal and are not counted.
 	QuizzesGraded, QuizzesTotal int
-	// NoSection: the course has no "Тиждень N" section for this week. Every
-	// course missing one at once means the week anchor is off (holidays).
+	// NoSection: the course is laid out in "Тиждень N" sections but has none
+	// for this week. Every weekly course missing one at once means the week
+	// anchor is off (holidays).
 	NoSection bool
+	// NotWeekly: the course has no "Тиждень N" section at all (a course that
+	// only holds its term tests), so there is no week of it to report on —
+	// only the grades it got.
+	NotWeekly bool
 	// Unavailable: the course's contents could not be read, so the quiz counts
 	// and NoSection say nothing. Grades and average come from the store and
 	// are still valid.
@@ -379,50 +382,76 @@ type CourseProgress struct {
 }
 
 // weekSection matches a section named after its school week ("Тиждень 12",
-// "Тиждень 12. Квадратні рівняння") and captures the number.
-var weekSection = regexp.MustCompile(`(?i)^\s*Тиждень\s+(\d+)`)
+// "Тиждень 12. Квадратні рівняння") and captures the number. Moodle's editor
+// may put a no-break space after the word, which \s alone does not match.
+var weekSection = regexp.MustCompile(`(?i)^[\s\p{Zs}]*Тиждень[\s\p{Zs}]+(\d+)`)
 
 // quizModule is the module name of a quiz in course contents and the
 // itemmodule of its grade item.
 const quizModule = "quiz"
+
+// WeekReport is what the weekly review shows: every stored course's progress
+// and how current the stored grades are.
+type WeekReport struct {
+	Courses []CourseProgress
+	// SyncedAt is when the last successful sync ran; zero before the first.
+	SyncedAt time.Time
+	// Stale: no sync has succeeded for longer than a working day of failed
+	// ones would explain, so the week's grades may be missing some.
+	Stale bool
+}
+
+// weekProgressTimeout bounds the review's reads once it has the client: a
+// login and one contents page per course, each of which the client gives up
+// on after 30 seconds. The wait for a sync in progress comes before it and is
+// not counted, so a long sync does not eat the review's time.
+const weekProgressTimeout = 5 * time.Minute
 
 // WeekProgress reports, for every course the last sync stored (in Moodle's
 // order), how many quizzes of that week's section are graded and which grades
 // fell in the week.
 //
 // Courses and grades come from the store rather than Moodle: the sync keeps
-// them current and already carries the averages. Before the first successful
-// sync there are none, and the review is empty. A quiz counts as graded
-// whenever its grade came: one written in week 12 but marked a week later
-// still closes week 12.
+// them current and already carries the averages. They are read only once the
+// client is free, so a review that waited out a sync sees what that sync
+// wrote. Before the first successful sync there are none, and the report is
+// empty. A quiz counts as graded whenever its grade came: one written in week
+// 12 but marked a week later still closes week 12.
 //
 // A course whose contents cannot be read is marked Unavailable rather than
 // failing the review: one slow course should not cost the family the whole
 // Friday message. Failing to log in does fail it.
-func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress, error) {
+func (s *Service) WeekProgress(ctx context.Context, week Week) (WeekReport, error) {
+	s.site.Lock()
+	defer s.site.Unlock()
+
 	courses, err := s.store.SchoolSummary()
 	if err != nil {
-		return nil, err
+		return WeekReport{}, err
 	}
 	grades, err := s.store.SchoolGradesBetween(
 		week.Start.In(s.loc).Format(model.LocalDatetime),
 		week.End.In(s.loc).Format(model.LocalDatetime))
 	if err != nil {
-		return nil, err
+		return WeekReport{}, err
 	}
 	byCourse := map[int64][]model.SchoolGrade{}
 	for _, g := range grades {
 		byCourse[g.CourseID] = append(byCourse[g.CourseID], g)
 	}
+	report := WeekReport{SyncedAt: s.lastSync(courses)}
+	if len(courses) == 0 {
+		return report, nil
+	}
+	report.Stale = s.now().Sub(report.SyncedAt) > s.staleAfter()
 
-	s.site.Lock()
-	defer s.site.Unlock()
-
+	ctx, cancel := context.WithTimeout(ctx, weekProgressTimeout)
+	defer cancel()
 	if err := s.client.Login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
-		return nil, err
+		return WeekReport{}, err
 	}
 
-	out := make([]CourseProgress, 0, len(courses))
+	report.Courses = make([]CourseProgress, 0, len(courses))
 	for _, c := range courses {
 		p := CourseProgress{
 			CourseID:    c.ID,
@@ -433,14 +462,35 @@ func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress
 		}
 		if err := s.courseWeek(ctx, &p, week.N, gradedQuizzes(c.Grades)); err != nil {
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				return WeekReport{}, ctx.Err()
 			}
 			s.log.Warn("moodle: week progress", "course", c.ID, "err", err)
 			p.Unavailable = true
 		}
-		out = append(out, p)
+		report.Courses = append(report.Courses, p)
 	}
-	return out, nil
+	return report, nil
+}
+
+// lastSync is the latest synced_at among the stored courses (every course of
+// one sync carries the same), zero when there are none.
+func (s *Service) lastSync(courses []model.SchoolCourse) time.Time {
+	var last time.Time
+	for _, c := range courses {
+		t, err := time.ParseInLocation(model.LocalDatetime, c.SyncedAt, s.loc)
+		if err == nil && t.After(last) {
+			last = t
+		}
+	}
+	return last
+}
+
+// staleAfter is how old the last sync may be before the review warns about
+// it: two missed intervals, plus the night's quiet hours, which can sit
+// between a review and the last sync before them.
+func (s *Service) staleAfter() time.Duration {
+	night := time.Duration(24-quietFrom+quietUntil) * time.Hour
+	return 2*s.cfg.interval() + night
 }
 
 // gradedQuizzes is the set of quiz instances among a course's stored grades.
@@ -464,9 +514,11 @@ func (s *Service) courseWeek(ctx context.Context, p *CourseProgress, n int, grad
 	if err != nil {
 		return err
 	}
-	found := false
+	weekly, found := false, false
 	for _, sec := range sections {
-		if num, ok := sectionWeek(sec.Name); !ok || num != n {
+		num, ok := sectionWeek(sec.Name)
+		weekly = weekly || ok
+		if !ok || num != n {
 			continue
 		}
 		found = true
@@ -480,7 +532,8 @@ func (s *Service) courseWeek(ctx context.Context, p *CourseProgress, n int, grad
 			}
 		}
 	}
-	p.NoSection = !found
+	p.NotWeekly = !weekly
+	p.NoSection = weekly && !found
 	return nil
 }
 

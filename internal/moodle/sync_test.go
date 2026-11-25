@@ -2,6 +2,7 @@ package moodle
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -331,6 +332,203 @@ func TestSyncCourseFailureAppliesNothing(t *testing.T) {
 	}
 }
 
+// Whichever read fails, the store keeps the previous sync and nothing is
+// announced.
+func TestSyncReadFailureAppliesNothing(t *testing.T) {
+	for _, fn := range []string{
+		"core_webservice_get_site_info",
+		"core_enrol_get_users_courses",
+		"gradereport_overview_get_course_grades",
+		"gradereport_user_get_grade_items",
+	} {
+		t.Run(fn, func(t *testing.T) {
+			f := newSyncFixture(t, day)
+			f.syncOK(t)
+			before := f.summary(t)
+			f.site.set("202", physicsItemsWith("12"))
+			f.site.fakeMoodle.mu.Lock()
+			f.site.fakeMoodle.status[fn] = http.StatusServiceUnavailable
+			f.site.fakeMoodle.mu.Unlock()
+			if err := f.svc.SyncOnce(context.Background()); err == nil {
+				t.Fatal("sync with a failing read succeeded")
+			}
+			after := f.summary(t)
+			if len(after) != len(before) || after[202].Grades[0].GradeRaw != 9 {
+				t.Errorf("store changed: %+v", after)
+			}
+			if len(f.sent) != 0 {
+				t.Errorf("failed sync notified %v", f.sent)
+			}
+		})
+	}
+}
+
+// A store failure (here a course name the schema refuses) leaves the
+// previous sync in place and announces nothing.
+func TestSyncStoreFailureAppliesNothing(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.syncOK(t)
+	f.site.set("202", physicsItemsWith("12"))
+	f.site.fakeMoodle.mu.Lock()
+	f.site.fakeMoodle.body["core_enrol_get_users_courses"] = `[{"id":201,"fullname":"Алгебра 9"},{"id":202,"fullname":"  "}]`
+	f.site.fakeMoodle.mu.Unlock()
+	if err := f.svc.SyncOnce(context.Background()); err == nil {
+		t.Fatal("sync the store refused succeeded")
+	}
+	if g := f.summary(t)[202]; g.Name != "Фізика" || g.Grades[0].GradeRaw != 9 {
+		t.Errorf("physics = %+v, want the previous sync", g)
+	}
+	if len(f.sent) != 0 {
+		t.Errorf("failed sync notified %v", f.sent)
+	}
+}
+
+// A course whose gradebook Moodle refuses (no permission) must not hold every
+// other course hostage: the rest syncs, and the refused course keeps what the
+// store has, so nothing in it is lost or re-announced.
+func TestSyncRefusedCourseKeepsItsGrades(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.syncOK(t)
+
+	refused := `{"exception":"moodle_exception","errorcode":"nopermissiontoviewgrades","message":"No permission"}`
+	f.site.set("202", refused)
+	f.site.set("201", `{"usergrades":[{"courseid":201,"userid":1001,"gradeitems":[
+ {"id":3001,"itemname":"Оцінка вчителя 10","itemtype":"mod","itemmodule":"lesson","iteminstance":501,"graderaw":7.8,"gradedategraded":1794643200,"gradeformatted":"7,8"},
+ {"id":3005,"itemname":"Оцінка вчителя 11","itemtype":"mod","itemmodule":"lesson","iteminstance":505,"graderaw":9,"gradedategraded":1794729600,"gradeformatted":"9,0"}
+]}],"warnings":[]}`)
+	f.syncOK(t)
+	got := f.summary(t)
+	if ids := gradeIDs(got[201].Grades); !slices.Equal(ids, []int64{3001, 3005}) {
+		t.Errorf("algebra grades = %v, want the new 3005 too", ids)
+	}
+	if ids := gradeIDs(got[202].Grades); !slices.Equal(ids, []int64{4001}) {
+		t.Errorf("physics grades = %v, want the stored [4001] kept", ids)
+	}
+	if len(f.sent) != 1 || !slices.Equal(gradeIDs(f.sent[0]), []int64{3005}) {
+		t.Errorf("sent = %v, want only 3005", f.sent)
+	}
+
+	// Readable again: its grades are known, so only a real change is news.
+	f.site.set("202", physicsItemsWith("9"))
+	f.syncOK(t)
+	if len(f.sent) != 1 {
+		t.Errorf("physics coming back re-announced its grades: %v", f.sent)
+	}
+}
+
+// A refused course the store does not know yet is left out, to be seeded
+// silently once it can be read; announcing its whole history then would be
+// noise.
+func TestSyncRefusedNewCourseIsSeededLater(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.site.set("202", `{"exception":"moodle_exception","errorcode":"nopermissiontoviewgrades","message":"No"}`)
+	f.syncOK(t)
+	if _, ok := f.summary(t)[202]; ok {
+		t.Fatal("a refused new course was stored")
+	}
+	f.site.set("202", physicsItems)
+	f.syncOK(t)
+	if ids := gradeIDs(f.summary(t)[202].Grades); !slices.Equal(ids, []int64{4001}) {
+		t.Errorf("physics grades = %v, want [4001]", ids)
+	}
+	if len(f.sent) != 0 {
+		t.Errorf("seeding a course notified %v", f.sent)
+	}
+}
+
+// A course that hides its gradebook from pupils is not read or stored.
+func TestSyncSkipsHiddenGradebook(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.site.fakeMoodle.body["core_enrol_get_users_courses"] = `[
+ {"id":201,"fullname":"Алгебра 9","showgrades":true},
+ {"id":202,"fullname":"Фізика 9","showgrades":false}
+]`
+	f.site.fail("202", http.StatusForbidden) // would abort the sync if read
+	f.syncOK(t)
+	got := f.summary(t)
+	if _, ok := got[202]; ok || len(got) != 1 {
+		t.Errorf("courses = %v, want only algebra", got)
+	}
+}
+
+// An enrolment list that suddenly comes back empty is not taken as the child
+// leaving every subject.
+func TestSyncEmptyEnrolmentKeepsStore(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.syncOK(t)
+	f.site.fakeMoodle.body["core_enrol_get_users_courses"] = `[]`
+	err := f.svc.SyncOnce(context.Background())
+	if !errors.Is(err, store.ErrEmptySchoolSync) {
+		t.Fatalf("err = %v, want ErrEmptySchoolSync", err)
+	}
+	if got := f.summary(t); len(got) != 2 || len(got[202].Grades) != 1 {
+		t.Errorf("store after an empty sync = %+v, want it untouched", got)
+	}
+}
+
+// An unnamed grade item takes its module's name, or a generic one, instead of
+// failing the sync on the store's non-empty name.
+func TestSyncUnnamedGradeItems(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.site.set("202", `{"usergrades":[{"courseid":202,"userid":1001,"gradeitems":[
+ {"id":4001,"itemname":null,"itemtype":"mod","itemmodule":"quiz","iteminstance":601,"graderaw":9,"gradedategraded":0,"gradeformatted":"9,0"},
+ {"id":4005,"itemname":"  ","itemtype":"mod","itemmodule":null,"iteminstance":605,"graderaw":8,"gradedategraded":0,"gradeformatted":"8,0"}
+]}],"warnings":[]}`)
+	f.syncOK(t)
+	var names []string
+	for _, g := range f.summary(t)[202].Grades {
+		names = append(names, g.Name)
+	}
+	if !slices.Equal(names, []string{"quiz", "Оцінка"}) {
+		t.Errorf("names = %q, want [quiz Оцінка]", names)
+	}
+}
+
+// The notify callback runs once the client is free: a slow Telegram send must
+// not hold up the weekly review.
+func TestSyncNotifiesAfterReleasingTheClient(t *testing.T) {
+	f := newSyncFixture(t, day)
+	f.syncOK(t)
+	f.site.set("202", physicsItemsWith("12"))
+	called := false
+	f.svc.SetNotify(func([]model.SchoolGrade) {
+		called = true
+		if !f.svc.site.TryLock() {
+			t.Error("notify called with the client still locked")
+			return
+		}
+		f.svc.site.Unlock()
+	})
+	f.syncOK(t)
+	if !called {
+		t.Fatal("notify not called")
+	}
+}
+
+// The sync and the review share one client; under -race this fails if they
+// ever use it at the same time.
+func TestSyncAndWeekProgressConcurrently(t *testing.T) {
+	f := newProgressFixture(t)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if err := f.svc.SyncOnce(ctx); err != nil {
+				t.Errorf("sync: %v", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := f.svc.WeekProgress(ctx, f.svc.Week(day)); err != nil {
+				t.Errorf("week progress: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 func TestSyncLoginFailure(t *testing.T) {
 	f := newSyncFixture(t, day)
 	f.svc.cfg.Password = "wrong"
@@ -345,31 +543,39 @@ func TestSyncLoginFailure(t *testing.T) {
 func TestQuietHours(t *testing.T) {
 	cases := []struct {
 		hour, min int
-		sync      bool
+		quiet     bool
 	}{
-		{21, 59, true},
-		{22, 0, false},
-		{23, 30, false},
-		{0, 0, false},
-		{6, 59, false},
-		{7, 0, true},
-		{12, 0, true},
+		{21, 59, false},
+		{22, 0, true},
+		{23, 30, true},
+		{0, 0, true},
+		{6, 59, true},
+		{7, 0, false},
+		{12, 0, false},
 	}
 	for _, tc := range cases {
-		f := newSyncFixture(t, time.Date(2026, 11, 25, tc.hour, tc.min, 0, 0, syncLoc))
-		got := f.svc.syncUnlessQuiet(context.Background())
-		calls := f.site.callCount()
-		if got != tc.sync || (calls > 0) != tc.sync {
-			t.Errorf("%02d:%02d: synced=%v with %d requests, want sync=%v", tc.hour, tc.min, got, calls, tc.sync)
+		if got := quiet(time.Date(2026, 11, 25, tc.hour, tc.min, 0, 0, syncLoc)); got != tc.quiet {
+			t.Errorf("%02d:%02d: quiet=%v, want %v", tc.hour, tc.min, got, tc.quiet)
 		}
 	}
 }
 
-func TestQuietHoursUseServiceLocation(t *testing.T) {
-	// 21:00 UTC is 23:00 in the service's zone: quiet.
-	f := newSyncFixture(t, time.Date(2026, 11, 25, 21, 0, 0, 0, time.UTC))
-	if f.svc.syncUnlessQuiet(context.Background()) {
-		t.Error("synced at 23:00 local")
+func TestSyncUnlessQuiet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		now  time.Time
+		sync bool
+	}{
+		{"daytime", day, true},
+		{"night", time.Date(2026, 11, 25, 23, 0, 0, 0, syncLoc), false},
+		// 21:00 UTC is 23:00 in the service's zone: quiet.
+		{"night in the service's zone", time.Date(2026, 11, 25, 21, 0, 0, 0, time.UTC), false},
+	} {
+		f := newSyncFixture(t, tc.now)
+		f.svc.syncUnlessQuiet(context.Background())
+		if calls := f.site.callCount(); (calls > 0) != tc.sync {
+			t.Errorf("%s: %d requests, want sync=%v", tc.name, calls, tc.sync)
+		}
 	}
 }
 

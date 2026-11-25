@@ -2,6 +2,7 @@ package moodle
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"testing"
@@ -51,7 +52,7 @@ func (f *syncFixture) progress(t *testing.T, at time.Time) map[int64]CourseProgr
 		t.Fatalf("week progress: %v", err)
 	}
 	out := map[int64]CourseProgress{}
-	for _, p := range got {
+	for _, p := range got.Courses {
 		out[p.CourseID] = p
 	}
 	return out
@@ -62,10 +63,14 @@ func TestWeekProgressCountsGradedQuizzes(t *testing.T) {
 	if w := f.svc.Week(day); w.N != 12 {
 		t.Fatalf("fixture day is week %d, want 12", w.N)
 	}
-	got, err := f.svc.WeekProgress(context.Background(), f.svc.Week(day))
+	report, err := f.svc.WeekProgress(context.Background(), f.svc.Week(day))
 	if err != nil {
 		t.Fatalf("week progress: %v", err)
 	}
+	if report.Stale || !report.SyncedAt.Equal(day) {
+		t.Errorf("synced at %v stale=%v, want the fixture's sync and fresh", report.SyncedAt, report.Stale)
+	}
+	got := report.Courses
 	if len(got) != 2 || got[0].CourseID != 201 || got[1].CourseID != 202 {
 		t.Fatalf("courses = %+v, want 201 then 202", got)
 	}
@@ -198,8 +203,12 @@ func TestWeekProgressUnreadableCourse(t *testing.T) {
 func TestWeekProgressLoginFailure(t *testing.T) {
 	f := newProgressFixture(t)
 	f.svc.cfg.Password = "wrong-password"
+	before := f.site.callCount()
 	if _, err := f.svc.WeekProgress(context.Background(), f.svc.Week(day)); err == nil {
 		t.Fatal("WeekProgress with a failed login returned no error")
+	}
+	if n := f.site.callCount() - before; n != 1 {
+		t.Errorf("made %d requests, want only the failed login", n)
 	}
 }
 
@@ -207,8 +216,90 @@ func TestWeekProgressBeforeFirstSync(t *testing.T) {
 	f := newSyncFixture(t, day)
 	f.svc.cfg.Week0 = time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
 	got, err := f.svc.WeekProgress(context.Background(), f.svc.Week(day))
-	if err != nil || len(got) != 0 {
+	if err != nil || len(got.Courses) != 0 || !got.SyncedAt.IsZero() || got.Stale {
 		t.Errorf("WeekProgress before any sync = %+v, %v; want empty, nil", got, err)
+	}
+	if n := f.site.callCount(); n != 0 {
+		t.Errorf("made %d requests with nothing to report on", n)
+	}
+}
+
+// A shutdown mid-review stops it with the context's error rather than
+// reporting the remaining courses as unavailable.
+func TestWeekProgressCancelled(t *testing.T) {
+	f := newProgressFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.site.mu.Lock()
+	f.site.onCall = func(fn string) {
+		if fn == fnContents {
+			cancel()
+		}
+	}
+	f.site.mu.Unlock()
+	got, err := f.svc.WeekProgress(ctx, f.svc.Week(day))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(got.Courses) != 0 {
+		t.Errorf("cancelled review returned %+v", got.Courses)
+	}
+}
+
+// Every weekly section named after the week counts, not just the first.
+func TestWeekProgressMergesWeekSections(t *testing.T) {
+	f := newProgressFixture(t)
+	f.site.courseBody[courseKey(fnContents, "202")] = `[
+ {"name":"Тиждень 12. Механіка","modules":[{"instance":601,"modname":"quiz"}]},
+ {"name":"Тиждень 12 (продовження)","modules":[{"instance":612,"modname":"quiz"},{"instance":613,"modname":"quiz"}]}
+]`
+	phys := f.progress(t, day)[202]
+	if phys.QuizzesGraded != 1 || phys.QuizzesTotal != 3 || phys.NoSection {
+		t.Errorf("physics = %d/%d noSection=%v, want 1/3 over both sections",
+			phys.QuizzesGraded, phys.QuizzesTotal, phys.NoSection)
+	}
+}
+
+// A course with no week sections at all only holds its term tests: it is not
+// weekly, so it is not missing this week's section either.
+func TestWeekProgressNotWeeklyCourse(t *testing.T) {
+	f := newProgressFixture(t)
+	f.site.courseBody[courseKey(fnContents, "202")] = `[
+ {"name":"Загальне","modules":[]},
+ {"name":"Семестрова контрольна робота","modules":[{"instance":601,"modname":"quiz"}]}
+]`
+	phys := f.progress(t, day)[202]
+	if !phys.NotWeekly || phys.NoSection || phys.QuizzesTotal != 0 || phys.Unavailable {
+		t.Errorf("physics = %+v, want NotWeekly without NoSection", phys)
+	}
+	if ids := gradeIDs(phys.Grades); !slices.Equal(ids, []int64{4001}) {
+		t.Errorf("physics grades = %v, want [4001]", ids)
+	}
+	if alg := f.progress(t, day)[201]; alg.NotWeekly {
+		t.Error("algebra, which has week sections, reported as not weekly")
+	}
+}
+
+// A review long after the last good sync says so: its week may be missing
+// grades the failed syncs never fetched.
+func TestWeekProgressStale(t *testing.T) {
+	f := newProgressFixture(t)
+	for _, tc := range []struct {
+		after time.Duration
+		stale bool
+	}{
+		{12 * time.Hour, false}, // an evening sync read the next morning
+		{14 * time.Hour, true},
+		{3 * 24 * time.Hour, true},
+	} {
+		f.now = day.Add(tc.after)
+		got, err := f.svc.WeekProgress(context.Background(), f.svc.Week(day))
+		if err != nil {
+			t.Fatalf("week progress: %v", err)
+		}
+		if got.Stale != tc.stale {
+			t.Errorf("%v after the sync: stale=%v, want %v", tc.after, got.Stale, tc.stale)
+		}
 	}
 }
 
@@ -227,6 +318,7 @@ func TestSectionWeek(t *testing.T) {
 		{"Загальне", 0, false},
 		{"Повторення. Тиждень 12", 0, false},
 		{"Тиждень", 0, false},
+		{"Тиждень\u00a012", 12, true},
 	}
 	for _, tc := range cases {
 		n, ok := sectionWeek(tc.name)

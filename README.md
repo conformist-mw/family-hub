@@ -44,10 +44,11 @@ to add, think about, or turn down. `/menu` asks the day ahead — tomorrow by de
 answers with three whole-day menus chosen with the last weeks in view; one tap
 makes a variant the day's plan, which the next morning's menu then opens with.
 
-The bot also follows the child's school gradebook in Moodle. A new grade is a
-message in the group within a couple of hours, `/grades` shows every subject's
-average with its grades, and on Friday evening a review of the school week says,
-per subject, how many of that week's quizzes are graded and what was graded.
+The bot also follows the child's school gradebook in Moodle. New grades reach
+the group within a couple of hours, one message per sync that finds any,
+`/grades` shows every subject's average with its grades, and on Friday evening
+a review of the school week says, per subject, how many of that week's quizzes
+are graded and what was graded.
 
 ## Why
 

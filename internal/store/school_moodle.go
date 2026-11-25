@@ -2,12 +2,21 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
 
 	"familyhub/internal/model"
 )
+
+// ErrEmptySchoolSync is ApplySchoolSync refusing a sync with no courses while
+// the store holds some. An enrolment list that comes back empty is far more
+// likely a hiccup on the school's side than the child leaving every subject,
+// and taking it at its word would delete every grade and re-seed them all
+// silently on the next good sync, losing whatever was graded in between. A new
+// school year needs no empty sync: its first enrolment list replaces the old.
+var ErrEmptySchoolSync = errors.New("school sync has no courses; keeping the stored ones")
 
 // ApplySchoolSync writes one complete Moodle sync — every enrolled course and
 // every graded item of those courses — and returns the grades that are news:
@@ -24,6 +33,11 @@ import (
 // it). The caller must therefore only call this with a sync where every course
 // succeeded — a course dropped by a timeout would otherwise lose its grades
 // and come back next time as a silent seed.
+//
+// A grade with an empty GradedAt is one Moodle gave no date for. It keeps the
+// stored date while its value stands and is dated now otherwise: re-dating it
+// on every sync would move it into the current week forever, so the weekly
+// review would list the same old grade every Friday.
 //
 // All of it happens in one transaction: a failure leaves the previous sync in
 // place. Fresh grades come back in course order, then by when they were graded.
@@ -47,6 +61,9 @@ func (s *Store) ApplySchoolSync(courses []model.SchoolCourse, grades []model.Sch
 	known, err := schoolCourseIDs(tx)
 	if err != nil {
 		return nil, err
+	}
+	if len(courses) == 0 && len(known) > 0 {
+		return nil, ErrEmptySchoolSync
 	}
 	stored, err := schoolGradeValues(tx)
 	if err != nil {
@@ -83,6 +100,14 @@ func (s *Store) ApplySchoolSync(courses []model.SchoolCourse, grades []model.Sch
 	var fresh []model.SchoolGrade
 	for _, g := range grades {
 		seen[g.ItemID] = true
+		old, had := stored[g.ItemID]
+		unchanged := had && old.raw == g.GradeRaw
+		if g.GradedAt == "" {
+			g.GradedAt = syncedAt
+			if unchanged {
+				g.GradedAt = old.gradedAt
+			}
+		}
 		if _, err := tx.Exec(`
 			INSERT INTO school_grades
 				(item_id, course_id, item_module, item_instance, name, grade_raw, grade_text, graded_at)
@@ -96,10 +121,7 @@ func (s *Store) ApplySchoolSync(courses []model.SchoolCourse, grades []model.Sch
 			g.GradeRaw, g.GradeText, g.GradedAt); err != nil {
 			return nil, err
 		}
-		if !known[g.CourseID] {
-			continue
-		}
-		if old, ok := stored[g.ItemID]; ok && old == g.GradeRaw {
+		if !known[g.CourseID] || unchanged {
 			continue
 		}
 		c := byID[g.CourseID]
@@ -149,20 +171,26 @@ func schoolCourseIDs(tx *sql.Tx) (map[int64]bool, error) {
 	return out, rows.Err()
 }
 
-func schoolGradeValues(tx *sql.Tx) (map[int64]float64, error) {
-	rows, err := tx.Query(`SELECT item_id, grade_raw FROM school_grades`)
+// storedGrade is what the store holds for one grade item before a sync.
+type storedGrade struct {
+	raw      float64
+	gradedAt string
+}
+
+func schoolGradeValues(tx *sql.Tx) (map[int64]storedGrade, error) {
+	rows, err := tx.Query(`SELECT item_id, grade_raw, graded_at FROM school_grades`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[int64]float64{}
+	out := map[int64]storedGrade{}
 	for rows.Next() {
 		var id int64
-		var raw float64
-		if err := rows.Scan(&id, &raw); err != nil {
+		var g storedGrade
+		if err := rows.Scan(&id, &g.raw, &g.gradedAt); err != nil {
 			return nil, err
 		}
-		out[id] = raw
+		out[id] = g
 	}
 	return out, rows.Err()
 }

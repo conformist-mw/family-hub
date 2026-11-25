@@ -84,14 +84,15 @@ just deploy-hetzner-tag family-hub
   defaults": the role defaults them to empty, which leaves the integration off
   instead of failing the play. The rest is plain role variables in
   `defaults/main.yml`: `family_hub_school_moodle_week0` (`SCHOOL_MOODLE_WEEK0`,
-  the Monday the school calls «Тиждень 0», `2026-08-31` this year) and
+  the Monday the school calls «Тиждень 0», e.g. `2026-08-31`; it has to be
+  moved every September, and after any holiday the school does not number) and
   `family_hub_school_moodle_review_dow` / `_review_time`
   (`SCHOOL_MOODLE_REVIEW_DOW` / `_TIME`, `5` and `19:45` — Friday evening).
   `SCHOOL_MOODLE_SYNC_INTERVAL` is left at its `2h` default. Without the week
   anchor, or with a malformed one, the Friday review is off while the sync and
   `/grades` keep working. The first sync after a deploy that turns this on
   announces nothing — every course is seeded silently — and from then on each
-  new grade is one message in the group. After a holiday, if the review says
+  sync that finds new grades posts one message in the group listing them. After a holiday, if the review says
   the «Тиждень N» section is missing everywhere, move the week anchor.
 - Recurring reminders record what came due through their own ticker, which
   takes no configuration and does not depend on `NOTIFICATIONS_ENABLED` or on

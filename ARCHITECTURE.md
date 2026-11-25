@@ -1109,22 +1109,33 @@ the handlers feed.
   keeping a token. At one sync every two hours that is one extra request, and
   there is no expired-token path to get wrong. The client is not safe for
   concurrent use and the review's clock can fire mid-sync, so one mutex
-  serialises them; the new-grade callback runs after the lock is released, so a
-  slow Telegram send does not hold up the review.
+  serialises them. The review reads the store only once it holds the lock, so
+  after waiting out a sync it sees what that sync wrote. The new-grade callback
+  runs after the lock is released, so a slow Telegram send does not hold up the
+  review.
 - **What is stored.** `school_courses` and `school_grades` (migration 0017),
   keyed by Moodle's own ids — the grade item id is the one thing that tells a
   new grade from the same grade seen again. Only graded activity items are kept
   (`itemtype = mod` with a raw grade): course and category totals are what the
   course average already says. A grade is new when its item was not stored or
-  its raw value changed. A grade Moodle gives no date is dated by the sync that
-  first saw it and keeps that date while its value stands; re-dating it on every
-  sync would drag the same old grade into every Friday review.
-- **A sync is all or nothing.** The store takes a sync as the whole truth: a
-  course missing from it is deleted with its grades, so a new school year does
-  not mix into last year's averages, and a grade the teacher removed goes too.
-  That makes a partial sync dangerous — written with one course timed out, it
-  would wipe that course and later re-seed it silently, losing whatever was
-  graded in between. So if any course fails to read, nothing is written.
+  its raw value changed. A grade Moodle gives no date is dated by the store at
+  the sync that first saw it and keeps that date while its value stands;
+  re-dating it on every sync would drag the same old grade into every Friday
+  review.
+- **A sync is the whole truth, so a gap must not reach the store.** A course
+  missing from a sync is deleted with its grades, so a new school year does not
+  mix into last year's averages, and a grade the teacher removed goes too. That
+  makes a partial sync dangerous — written with one course timed out, it would
+  wipe that course and later re-seed it silently, losing whatever was graded in
+  between. So a failed request (the site down, a timeout, an HTTP error) writes
+  nothing. A course whose gradebook Moodle itself refuses — an `exception` in
+  the answer, which will most likely come back on every run — must not block
+  the other courses for good, so it keeps the grades the store holds; one the
+  store does not know yet is left out and seeded silently once it can be read.
+  A course that hides its gradebook from pupils (`showgrades` off) is not
+  mirrored. An enrolment list that comes back empty while courses are stored is
+  refused rather than taken as the child leaving every subject: a new year's
+  first list replaces the old one anyway.
 - **Seeding is per course, not per first run.** A course not yet in
   `school_courses` is written silently: its grades are history, not news. Only
   a course the store already knows produces a message. A single "first sync"
@@ -1143,8 +1154,11 @@ the handlers feed.
   command away.
 - **`/grades` reads the store, never Moodle**, so it answers at once and works
   while the school's site is down. Per course: the average, with ⚠️ below 4
-  (compared on the stored number, not Moodle's text), then the grades in order,
-  «Оцінка вчителя N» shortened to «ОВ N» and «Контрольна робота N» to «КР N».
+  (compared on the stored number, not Moodle's text), then the grades in order.
+  There «Оцінка вчителя N» and «Контрольна робота N» lose their running number
+  and read «ОВ 7,8 · КР 10»; any other item keeps its name, set off by a dash
+  («Тест 3 — 9»). New-grade messages and the review keep the number: «ОВ 12 —
+  2,2».
   A long answer is split by `audit.SplitMessage`, and every line closes its own
   tags, so a cut between any two lines is still valid HTML.
 - **The week anchor.** Sections are named «Тиждень N» and carry no dates, and
@@ -1156,8 +1170,8 @@ the handlers feed.
   when no course has it, rather than twenty — and the date moves. Without the
   anchor the review is off; the sync and `/grades` do not need it.
 - **Why the review counts graded quizzes, not completion.** The obvious
-  progress signal, Moodle's activity completion, turned out unused: across a
-  whole school year almost nothing was ever marked complete, so «done X of Y»
+  progress signal, Moodle's activity completion, turned out unused: across the
+  year so far almost nothing was ever marked complete, so «done X of Y»
   read 0/N in every subject. What the school does reliably is grade quizzes. So
   for each course the review counts the quiz modules in that week's section and
   how many of them have a stored grade — matched on `item_module = 'quiz'` and
@@ -1168,13 +1182,22 @@ the handlers feed.
   is listed under the week it was given. The week's grades come from the store
   by `graded_at`, Monday to Sunday; the courses and averages come from the last
   sync. Only the course contents are read live.
+- **Courses that are not weekly.** Some courses hold only their term tests and
+  have no «Тиждень N» section at all. They have no week to report on, so the
+  review shows only their grades, with no «секції немає» note, and they do not
+  count towards "the section is missing everywhere".
 - **How the review fails.** It runs in its own goroutine behind an
-  `atomic.Bool` with a five-minute timeout, like the dish suggestions: it may
-  first wait out a running sync, then reads one page per course. A course whose
+  `atomic.Bool`, like the dish suggestions: it may first wait out a running
+  sync, then reads one page per course within five minutes, counted from when
+  it gets the client so a long sync does not eat that time. A course whose
   contents cannot be read shows «прогрес недоступний» with its grades and
   average rather than costing the whole message. A failed login sends nothing,
-  because an empty review would read as a quiet week. A course with no quizzes
-  that week and no grades is left out.
+  because an empty review would read as a quiet week. For the same reason a
+  review before the first successful sync says there is nothing synced yet,
+  and one whose last good sync is older than two intervals plus the night pause
+  opens with a warning that the week may be missing grades. A course with no
+  quizzes that week and no grades is left out. A week before the anchor (the
+  summer before the year starts) gets no review at all.
 - **Off unless configured.** Without `SCHOOL_MOODLE_URL`, `_USERNAME` and
   `_PASSWORD` there is no service: no sync, no `/grades`, and the review's clock
   does not count towards `anyDigestEnabled`. The bot's config holds a concrete

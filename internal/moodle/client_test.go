@@ -151,6 +151,23 @@ func TestLoginWrongPassword(t *testing.T) {
 	}
 }
 
+// An answer with neither a token nor an error is a failed login too, not a
+// session with an empty token.
+func TestLoginWithoutToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL)
+	err := c.Login(context.Background(), testUser, testPassword)
+	if err == nil || !strings.Contains(err.Error(), "no token") {
+		t.Fatalf("err = %v, want a no-token error", err)
+	}
+	if c.token != "" {
+		t.Fatalf("token = %q after a tokenless answer", c.token)
+	}
+}
+
 func TestCallBeforeLoginFails(t *testing.T) {
 	f, c := newFake(t)
 	if _, err := c.SiteInfo(context.Background()); err == nil {
@@ -183,12 +200,33 @@ func TestCourses(t *testing.T) {
 		t.Fatalf("got %d courses, want %d", len(courses), len(want))
 	}
 	for i := range want {
-		if courses[i] != want[i] {
-			t.Errorf("course %d = %+v, want %+v", i, courses[i], want[i])
+		if courses[i].ID != want[i].ID || courses[i].FullName != want[i].FullName || !courses[i].GradesShown() {
+			t.Errorf("course %d = %+v, want %+v with grades shown", i, courses[i], want[i])
 		}
 	}
 	if got := f.last().form["userid"]; got != "1001" {
 		t.Fatalf("userid param = %q, want 1001", got)
+	}
+}
+
+// A course can hide its gradebook from pupils; a site that does not send the
+// setting at all is taken to show it.
+func TestCourseGradesShown(t *testing.T) {
+	f, c := loggedIn(t)
+	f.body["core_enrol_get_users_courses"] = `[
+ {"id":1,"fullname":"A","showgrades":true},
+ {"id":2,"fullname":"B","showgrades":false},
+ {"id":3,"fullname":"C"}
+]`
+	courses, err := c.Courses(context.Background(), 1001)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []bool{true, false, true}
+	for i, c := range courses {
+		if c.GradesShown() != want[i] {
+			t.Errorf("course %d: GradesShown = %v, want %v", c.ID, c.GradesShown(), want[i])
+		}
 	}
 }
 
@@ -278,10 +316,10 @@ func TestContents(t *testing.T) {
 		t.Fatalf("got %d sections, want 2", len(sections))
 	}
 	week := sections[1]
-	if week.Name != "Тиждень 12. Квадратні рівняння" || week.Number != 12 || len(week.Modules) != 3 {
+	if week.Name != "Тиждень 12. Квадратні рівняння" || len(week.Modules) != 3 {
 		t.Fatalf("week section = %+v", week)
 	}
-	if m := week.Modules[0]; m != (Module{ID: 701, Name: "Урок 1", Instance: 501, ModName: "lesson"}) {
+	if m := week.Modules[0]; m != (Module{Instance: 501, ModName: "lesson"}) {
 		t.Errorf("module = %+v", m)
 	}
 	if m := week.Modules[2]; m.ModName != "label" {
@@ -344,8 +382,7 @@ func TestExceptionIsTypedError(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("err = %v, want *APIError", err)
 	}
-	if apiErr.Function != "core_webservice_get_site_info" || apiErr.ErrorCode != "invalidtoken" ||
-		apiErr.Exception != "moodle_exception" {
+	if apiErr.Function != "core_webservice_get_site_info" || apiErr.ErrorCode != "invalidtoken" {
 		t.Fatalf("api error = %+v", apiErr)
 	}
 	if strings.Contains(err.Error(), "stale-token") {

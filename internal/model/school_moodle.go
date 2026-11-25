@@ -35,7 +35,9 @@ type SchoolGrade struct {
 	Name         string
 	GradeRaw     float64
 	GradeText    string // Moodle's rendering ("7,8")
-	GradedAt     string // LocalDatetime
+	// GradedAt is a LocalDatetime. Left empty on write for a grade Moodle
+	// gave no date for; store.ApplySchoolSync then dates it.
+	GradedAt string
 
 	CourseName    string
 	CourseAverage string

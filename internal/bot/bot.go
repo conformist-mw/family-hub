@@ -153,7 +153,7 @@ type Bot struct {
 	suggestRunning atomic.Bool
 
 	// schoolReviewRunning does the same for the school review, the other
-	// message built off the ticker's goroutine: it reads some forty pages
+	// message built off the ticker's goroutine: it reads a page per course
 	// from Moodle and first waits out any sync in progress.
 	schoolReviewRunning atomic.Bool
 

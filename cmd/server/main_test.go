@@ -51,12 +51,10 @@ func TestWithMenuEnv(t *testing.T) {
 
 func TestSchoolMoodleFromEnv(t *testing.T) {
 	full := map[string]string{
-		"SCHOOL_MOODLE_URL":         "https://moodle.example",
-		"SCHOOL_MOODLE_USERNAME":    "pupil",
-		"SCHOOL_MOODLE_PASSWORD":    "secret",
-		"SCHOOL_MOODLE_WEEK0":       "2026-08-31",
-		"SCHOOL_MOODLE_REVIEW_DOW":  "5",
-		"SCHOOL_MOODLE_REVIEW_TIME": "19:45",
+		"SCHOOL_MOODLE_URL":      "https://moodle.example",
+		"SCHOOL_MOODLE_USERNAME": "pupil",
+		"SCHOOL_MOODLE_PASSWORD": "secret",
+		"SCHOOL_MOODLE_WEEK0":    "2026-08-31",
 	}
 	env := func(over map[string]string) func(string) string {
 		m := map[string]string{}
@@ -81,20 +79,21 @@ func TestSchoolMoodleFromEnv(t *testing.T) {
 		if want := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC); !got.Service.Week0.Equal(want) {
 			t.Errorf("Week0 = %v, want %v", got.Service.Week0, want)
 		}
-		if dow, at := got.reviewClock(); dow != 5 || at != "19:45" {
-			t.Errorf("review clock = %d %q", dow, at)
-		}
 	})
 
+	// Zero leaves the choice of default to the service.
 	t.Run("interval", func(t *testing.T) {
 		for in, want := range map[string]time.Duration{
-			"":     2 * time.Hour,
-			"junk": 2 * time.Hour,
-			"0s":   2 * time.Hour,
-			"-1h":  2 * time.Hour,
+			"":     0,
+			"junk": 0,
+			"0s":   0,
+			"-1h":  0,
 			"30m":  30 * time.Minute,
 		} {
-			got, _ := schoolMoodleFromEnv(env(map[string]string{"SCHOOL_MOODLE_SYNC_INTERVAL": in}))
+			got, err := schoolMoodleFromEnv(env(map[string]string{"SCHOOL_MOODLE_SYNC_INTERVAL": in}))
+			if err != nil || got == nil {
+				t.Fatalf("SCHOOL_MOODLE_SYNC_INTERVAL=%q: got %+v, %v", in, got, err)
+			}
 			if got.Service.Interval != want {
 				t.Errorf("SCHOOL_MOODLE_SYNC_INTERVAL=%q: interval = %v, want %v", in, got.Service.Interval, want)
 			}
@@ -107,22 +106,13 @@ func TestSchoolMoodleFromEnv(t *testing.T) {
 			if got != nil || err != nil {
 				t.Errorf("%s empty: got %+v, %v, want nil", key, got, err)
 			}
-			// A nil config must still switch the review clock off, not
-			// leave DOW at 0 = Sunday.
-			if dow, at := got.reviewClock(); dow != -1 || at != "" {
-				t.Errorf("%s empty: review clock = %d %q, want off", key, dow, at)
-			}
 		}
 	})
 
-	t.Run("review off without anchor or day", func(t *testing.T) {
+	t.Run("review off without anchor", func(t *testing.T) {
 		got, err := schoolMoodleFromEnv(env(map[string]string{"SCHOOL_MOODLE_WEEK0": ""}))
 		if err != nil || got == nil || !got.Service.Week0.IsZero() {
 			t.Errorf("no WEEK0: got %+v, %v, want sync on and no anchor", got, err)
-		}
-		got, _ = schoolMoodleFromEnv(env(map[string]string{"SCHOOL_MOODLE_REVIEW_DOW": ""}))
-		if dow, _ := got.reviewClock(); dow != -1 {
-			t.Errorf("no REVIEW_DOW: DOW = %d, want -1", dow)
 		}
 	})
 

@@ -131,9 +131,9 @@
 - Modify: `internal/moodle/sync.go`
 - Create: `internal/moodle/progress_test.go`
 
-- [ ] `Service.WeekProgress(ctx, week)` → по курсу: X/Y (Technical Details), оцінки тижня, середнє, ознака «секції немає»
-- [ ] тести: label/невідстежувані не рахуються, state 3 не пройдено, збіг за префіксом, секції немає
-- [ ] `go test ./internal/moodle/...` — зелено
+- [x] `Service.WeekProgress(ctx, week)` → по курсу: X/Y (Technical Details), оцінки тижня, середнє, ознака «секції немає»
+- [x] тести: label/невідстежувані не рахуються, state 3 не пройдено, збіг за префіксом, секції немає
+- [x] `go test ./internal/moodle/...` — зелено
 
 ### Task 5: Message formatting
 

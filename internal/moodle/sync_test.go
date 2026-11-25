@@ -35,14 +35,19 @@ func physicsItemsWith(raw string) string {
 
 // syncSite is the fake Moodle from the client tests with a per-course
 // gradebook: gradeItems and gradeStatus override the answer for one course id
-// (course 201 falls through to the grade_items.json fixture).
+// (course 201 falls through to the grade_items.json fixture). courseBody and
+// courseStatus do the same for any other function, keyed by courseKey.
 type syncSite struct {
 	*fakeMoodle
-	mu          sync.Mutex
-	gradeItems  map[string]string
-	gradeStatus map[string]int
-	onCall      func(fn string)
+	mu           sync.Mutex
+	gradeItems   map[string]string
+	gradeStatus  map[string]int
+	courseBody   map[string]string
+	courseStatus map[string]int
+	onCall       func(fn string)
 }
+
+func courseKey(fn, course string) string { return fn + "/" + course }
 
 func (s *syncSite) set(course, body string) {
 	s.mu.Lock()
@@ -83,9 +88,20 @@ func (s *syncSite) handler() http.Handler {
 		course := r.PostForm.Get("courseid")
 		status, failed := s.gradeStatus[course]
 		body, custom := s.gradeItems[course]
+		otherStatus, otherFailed := s.courseStatus[courseKey(fn, course)]
+		otherBody, otherCustom := s.courseBody[courseKey(fn, course)]
 		s.mu.Unlock()
 		if onCall != nil {
 			onCall(fn)
+		}
+		if otherFailed {
+			w.WriteHeader(otherStatus)
+			return
+		}
+		if otherCustom {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, otherBody)
+			return
 		}
 		if fn == "gradereport_user_get_grade_items" {
 			if failed {
@@ -115,9 +131,11 @@ func (f *syncFixture) clock() time.Time { return f.now }
 func newSyncFixture(t *testing.T, now time.Time) *syncFixture {
 	t.Helper()
 	site := &syncSite{
-		fakeMoodle:  &fakeMoodle{t: t, status: map[string]int{}, body: map[string]string{}},
-		gradeItems:  map[string]string{"202": physicsItems},
-		gradeStatus: map[string]int{},
+		fakeMoodle:   &fakeMoodle{t: t, status: map[string]int{}, body: map[string]string{}},
+		gradeItems:   map[string]string{"202": physicsItems},
+		gradeStatus:  map[string]int{},
+		courseBody:   map[string]string{},
+		courseStatus: map[string]int{},
 	}
 	srv := httptest.NewServer(site.handler())
 	t.Cleanup(srv.Close)

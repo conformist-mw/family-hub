@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -349,4 +351,149 @@ func mondayOf(t time.Time) time.Time {
 // of them is a whole number of 24-hour days whatever the DST rules.
 func civilDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// CourseProgress is one course's line in the weekly review: how much of the
+// week's section is done, the grades given that week, and the course average.
+type CourseProgress struct {
+	CourseID    int64
+	Name        string
+	Average     *float64 // nil while the course has no average
+	AverageText string   // Moodle's rendering ("5,5"), "" when there is none
+
+	// Done of Total activities of the week's section are complete. Only
+	// activities with completion tracking count, labels never do.
+	Done, Total int
+	// NoSection: the course has no "Тиждень N" section for this week. Every
+	// course missing one at once means the week anchor is off (holidays).
+	NoSection bool
+	// Unavailable: the course's contents or completion could not be read, so
+	// Done/Total/NoSection say nothing. Grades and average come from the store
+	// and are still valid.
+	Unavailable bool
+
+	Grades []model.SchoolGrade // graded within the week, oldest first
+}
+
+// weekSection matches a section named after its school week ("Тиждень 12",
+// "Тиждень 12. Квадратні рівняння") and captures the number.
+var weekSection = regexp.MustCompile(`(?i)^\s*Тиждень\s+(\d+)`)
+
+// Completion states that count as done: 1 complete, 2 complete and passed.
+// 3 is "complete, failed" — the quiz was taken but not passed, which is
+// exactly what the review should not call finished.
+const (
+	completionComplete     = 1
+	completionCompletePass = 2
+)
+
+// WeekProgress reports, for every course the last sync stored (in Moodle's
+// order), how far the pupil got through that week's section and which grades
+// fell in the week.
+//
+// Courses come from the store rather than Moodle: the sync keeps them current
+// and already carries the averages. Before the first successful sync there are
+// none, and the review is empty.
+//
+// A course whose contents or completion cannot be read is marked Unavailable
+// rather than failing the review: one slow course should not cost the family
+// the whole Friday message. Failing to log in does fail it.
+func (s *Service) WeekProgress(ctx context.Context, week Week) ([]CourseProgress, error) {
+	courses, err := s.store.SchoolSummary()
+	if err != nil {
+		return nil, err
+	}
+	grades, err := s.store.SchoolGradesBetween(
+		week.Start.In(s.loc).Format(model.LocalDatetime),
+		week.End.In(s.loc).Format(model.LocalDatetime))
+	if err != nil {
+		return nil, err
+	}
+	byCourse := map[int64][]model.SchoolGrade{}
+	for _, g := range grades {
+		byCourse[g.CourseID] = append(byCourse[g.CourseID], g)
+	}
+
+	s.site.Lock()
+	defer s.site.Unlock()
+
+	if err := s.client.Login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
+		return nil, err
+	}
+	info, err := s.client.SiteInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]CourseProgress, 0, len(courses))
+	for _, c := range courses {
+		p := CourseProgress{
+			CourseID:    c.ID,
+			Name:        c.Name,
+			Average:     c.Average,
+			AverageText: c.AverageText,
+			Grades:      byCourse[c.ID],
+		}
+		if err := s.courseWeek(ctx, &p, week.N, info.UserID); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			s.log.Warn("moodle: week progress", "course", c.ID, "err", err)
+			p.Unavailable = true
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// courseWeek fills Done, Total and NoSection for one course from its week-n
+// section and the pupil's completion states.
+func (s *Service) courseWeek(ctx context.Context, p *CourseProgress, n int, userID int64) error {
+	sections, err := s.client.Contents(ctx, p.CourseID)
+	if err != nil {
+		return err
+	}
+	var modules []Module
+	found := false
+	for _, sec := range sections {
+		if num, ok := sectionWeek(sec.Name); ok && num == n {
+			found = true
+			modules = append(modules, sec.Modules...)
+		}
+	}
+	if !found {
+		p.NoSection = true
+		return nil
+	}
+
+	statuses, err := s.client.Completion(ctx, p.CourseID, userID)
+	if err != nil {
+		return err
+	}
+	state := make(map[int64]int, len(statuses))
+	for _, st := range statuses {
+		state[st.CMID] = st.State
+	}
+	for _, m := range modules {
+		st, tracked := state[m.ID]
+		if !tracked || m.ModName == "label" {
+			continue
+		}
+		p.Total++
+		if st == completionComplete || st == completionCompletePass {
+			p.Done++
+		}
+	}
+	return nil
+}
+
+// sectionWeek reads the week number off a section name, ok=false when the
+// section is not a "Тиждень N" one.
+func sectionWeek(name string) (int, bool) {
+	m := weekSection.FindStringSubmatch(name)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	return n, err == nil
 }

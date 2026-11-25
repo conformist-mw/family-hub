@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	tele "gopkg.in/telebot.v3"
+	tele "gopkg.in/telebot.v4"
 
 	"familyhub/internal/db"
 	"familyhub/internal/model"
@@ -279,14 +279,16 @@ func TestTidyGrade(t *testing.T) {
 }
 
 // sentMessage is one sendMessage or sendRichMessage call the fake Telegram
-// API received. A rich message has its content in Rich.HTML and no Text.
+// API received. A rich message has its content in Rich.HTML and no Text;
+// telebot sends rich_message as a JSON-encoded string, kept in RichRaw.
 type sentMessage struct {
 	ChatID    json.Number `json:"chat_id"`
 	Text      string      `json:"text"`
 	ParseMode string      `json:"parse_mode"`
+	RichRaw   string      `json:"rich_message"`
 	Rich      struct {
 		HTML string `json:"html"`
-	} `json:"rich_message"`
+	} `json:"-"`
 }
 
 // fakeTelegram points b at an offline telebot whose API is a local server
@@ -305,6 +307,11 @@ func fakeTelegram(t *testing.T, b *Bot) func() []sentMessage {
 		var m sentMessage
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
 			t.Errorf("decode %s: %v", r.URL.Path, err)
+		}
+		if m.RichRaw != "" {
+			if err := json.Unmarshal([]byte(m.RichRaw), &m.Rich); err != nil {
+				t.Errorf("decode rich_message %q: %v", m.RichRaw, err)
+			}
 		}
 		mu.Lock()
 		sent = append(sent, m)

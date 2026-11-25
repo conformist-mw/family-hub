@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	tele "gopkg.in/telebot.v3"
+	tele "gopkg.in/telebot.v4"
 
 	"familyhub/internal/actor"
 	"familyhub/internal/audit"

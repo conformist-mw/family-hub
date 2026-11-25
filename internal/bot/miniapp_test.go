@@ -3,7 +3,7 @@ package bot
 import (
 	"testing"
 
-	tele "gopkg.in/telebot.v3"
+	tele "gopkg.in/telebot.v4"
 )
 
 func testBot(username string) *Bot {

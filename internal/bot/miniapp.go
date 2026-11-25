@@ -5,7 +5,7 @@ import (
 
 	"familyhub/internal/menu"
 
-	tele "gopkg.in/telebot.v3"
+	tele "gopkg.in/telebot.v4"
 )
 
 // Getting into the Mini App from the family group.

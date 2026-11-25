@@ -119,7 +119,7 @@ per-lesson courses, and "is today covered by a paid period" for monthly passes.
 - Go (`net/http`, `html/template`)
 - SQLite via `modernc.org/sqlite` (pure Go, no CGO)
 - `pressly/goose` migrations, embedded
-- `gopkg.in/telebot.v3` for the Telegram bot
+- `gopkg.in/telebot.v4` for the Telegram bot
 - `google.golang.org/genai` for free-text parsing (Gemini)
 - the OpenAI chat-completions protocol over plain `net/http` to read plate
   photos and suggest new dishes

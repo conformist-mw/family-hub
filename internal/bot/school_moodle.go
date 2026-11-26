@@ -114,13 +114,13 @@ func formatNewGrades(grades []model.SchoolGrade) string {
 	} else {
 		fmt.Fprintf(&sb, "<h4>🆕 Нові оцінки · %d</h4>", len(grades))
 	}
-	sb.WriteString(`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th>Середній</th></tr>`)
+	sb.WriteString(`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th align="center">Середній</th></tr>`)
 	for _, g := range grades {
 		grade := "<b>" + html.EscapeString(tidyGrade(g.GradeText)) + "</b>"
 		if mixed {
 			grade += " <i>" + html.EscapeString(shortKind(g)) + "</i>"
 		}
-		fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center">%s</td><td>%s</td></tr>`,
+		fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center">%s</td><td align="center">%s</td></tr>`,
 			strings.TrimSpace(gradeLevel(g.CourseAverageNum)+" "+html.EscapeString(g.CourseName)),
 			grade, averageMove(g.CoursePrevAverage, g.CourseAverage))
 	}

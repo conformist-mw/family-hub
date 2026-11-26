@@ -64,8 +64,8 @@ func TestFormatNewGrades(t *testing.T) {
 			CourseAverage: "6,3", CoursePrevAverage: "7,5", CourseAverageNum: avgOf(6.3)},
 	})
 	want := `<h4>🆕 Нова оцінка</h4>` +
-		`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th>Середній</th></tr>` +
-		`<tr><td>🟡 Історія &amp; право</td><td align="center"><b>4</b></td><td>7,5 → 6,3</td></tr>` +
+		`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th align="center">Середній</th></tr>` +
+		`<tr><td>🟡 Історія &amp; право</td><td align="center"><b>4</b></td><td align="center">7,5 → 6,3</td></tr>` +
 		`</table><footer>Оцінка вчителя</footer>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
@@ -83,10 +83,10 @@ func TestFormatNewGradesMixedKinds(t *testing.T) {
 		{Name: "Тест <вступ>", GradeText: "9", CourseName: "Історія"},
 	})
 	want := `<h4>🆕 Нові оцінки · 3</h4>` +
-		`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th>Середній</th></tr>` +
-		`<tr><td>🟢 Фізика</td><td align="center"><b>10</b> <i>КР</i></td><td>8</td></tr>` +
-		`<tr><td>🔴 Хімія</td><td align="center"><b>2,2</b> <i>ОВ</i></td><td>2,2</td></tr>` +
-		`<tr><td>Історія</td><td align="center"><b>9</b> <i>Тест &lt;вступ&gt;</i></td><td></td></tr>` +
+		`<table compact><tr><th>Предмет</th><th align="center">Оцінка</th><th align="center">Середній</th></tr>` +
+		`<tr><td>🟢 Фізика</td><td align="center"><b>10</b> <i>КР</i></td><td align="center">8</td></tr>` +
+		`<tr><td>🔴 Хімія</td><td align="center"><b>2,2</b> <i>ОВ</i></td><td align="center">2,2</td></tr>` +
+		`<tr><td>Історія</td><td align="center"><b>9</b> <i>Тест &lt;вступ&gt;</i></td><td align="center"></td></tr>` +
 		`</table>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)

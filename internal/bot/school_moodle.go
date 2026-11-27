@@ -18,9 +18,8 @@ import (
 // The school's Moodle in the family chat: new grades as the sync finds them,
 // /grades for the whole gradebook, and the Friday review of the school week.
 // The formatters below are pure — the sync and the store hand them data, the
-// handlers send what they return. In the plain-HTML ones every line closes its
-// own tags, so NotifyHTML may cut the text between any two lines; /grades is
-// one rich message and is never cut.
+// handlers send what they return. Each is one rich message: tables exist
+// nowhere else in Telegram, and a rich message is never cut.
 
 // NotifyNewGrades posts the grades one sync found to the family group, as a
 // rich-message table. It is the sync's notify callback, so it has nobody to
@@ -69,10 +68,38 @@ func (b *Bot) sendSchoolReview(ctx context.Context, now time.Time) {
 			b.logger.Error("bot: school review", "week", week.N, "err", err)
 			return
 		}
-		if err := b.NotifyHTML(formatWeekReview(week, report)); err != nil {
+		if _, err := b.sendToGroup(&tele.InputRichMessage{HTML: formatWeekReview(week, report)}); err != nil {
 			b.logger.Error("bot: send school review", "week", week.N, "err", err)
 		}
 	}()
+}
+
+// reviewTimeout bounds /review: the wait for a sync in progress plus the
+// service's own bound on the reads.
+const reviewTimeout = 10 * time.Minute
+
+// cmdReview answers /review with the review of the current school week, in
+// the chat that asked: the Friday one posted on demand, to check it in a
+// private chat or post it again. Unlike /grades it reads Moodle, so it takes a
+// while; the handler runs on its own goroutine.
+func (b *Bot) cmdReview(c tele.Context) error { return b.reviewInChat(c, b.now()) }
+
+// reviewInChat sends the review of the week containing now to c's chat.
+func (b *Bot) reviewInChat(c tele.Context, now time.Time) error {
+	svc := b.cfg.Moodle
+	week := svc.Week(now)
+	if week.N < 0 {
+		return c.Send("📅 Навчальний рік ще не почався — огляду немає.")
+	}
+	_ = c.Notify(tele.Typing)
+	ctx, cancel := context.WithTimeout(context.Background(), reviewTimeout)
+	defer cancel()
+	report, err := svc.WeekProgress(ctx, week)
+	if err != nil {
+		b.logger.Error("bot: /review", "week", week.N, "err", err)
+		return c.Send("Не вдалося прочитати Moodle — спробуйте пізніше.")
+	}
+	return c.Send(&tele.InputRichMessage{HTML: formatWeekReview(week, report)})
 }
 
 // cmdGrades answers /grades from the store, never from Moodle: it is what
@@ -90,7 +117,7 @@ func (b *Bot) cmdGrades(c tele.Context) error {
 	return c.Send(&tele.InputRichMessage{HTML: formatGradesTable(courses, b.now())})
 }
 
-// lowAverage marks a subject whose average is below it with ⚠️.
+// lowAverage marks a subject whose average is below it 🔴 (початковий рівень).
 const lowAverage = 4.0
 
 // formatNewGrades is the Rich HTML table of the grades one sync found: per
@@ -182,13 +209,7 @@ func formatGradesTable(courses []model.SchoolCourse, now time.Time) string {
 	}
 	// Weakest first; a subject with grades but no average yet goes last.
 	// Stable, so equal averages keep Moodle's order.
-	sort.SliceStable(shown, func(i, j int) bool {
-		a, b := shown[i].Average, shown[j].Average
-		if a == nil || b == nil {
-			return a != nil && b == nil
-		}
-		return *a < *b
-	})
+	sort.SliceStable(shown, func(i, j int) bool { return weaker(shown[i].Average, shown[j].Average) })
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "<h3>📚 Оцінки · %s</h3>", now.Format("02.01"))
@@ -199,11 +220,8 @@ func formatGradesTable(courses []model.SchoolCourse, now time.Time) string {
 			for i, g := range c.Grades {
 				grades[i] = tableGrade(g)
 			}
-			avg := html.EscapeString(tidyGrade(c.AverageText))
-			if avg == "" && c.Average != nil {
-				avg = model.FormatGrade(*c.Average)
-			}
-			fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center"><b>%s</b></td><td>%s</td></tr>`,
+			avg := averageCell(c.Average, c.AverageText)
+			fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center">%s</td><td>%s</td></tr>`,
 				strings.TrimSpace(gradeLevel(c.Average)+" "+html.EscapeString(c.Name)), avg, strings.Join(grades, " · "))
 		}
 		sb.WriteString("</table>")
@@ -214,6 +232,14 @@ func formatGradesTable(courses []model.SchoolCourse, now time.Time) string {
 	}
 	fmt.Fprintf(&sb, "<footer>%s</footer>", foot)
 	return sb.String()
+}
+
+// weaker orders averages weakest first, a missing one last.
+func weaker(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a != nil && b == nil
+	}
+	return *a < *b
 }
 
 // gradeLevel is the level of an average on the school's 12-point scale:
@@ -242,16 +268,18 @@ func tableGrade(g model.SchoolGrade) string {
 	return s
 }
 
-// formatWeekReview is the Friday review: per subject, how many of the week's
-// quizzes are graded, the grades of the week and the average. A subject with
-// no quiz this week and no grade in it is left out; one whose progress could
-// not be read is always shown, with its grades.
+// formatWeekReview is the Friday review as a Rich HTML table, laid out like
+// /grades: per subject its level and average, how many of the week's quizzes
+// are graded, and the grades given this week, tests in bold; the weakest
+// average first. A subject with no quiz this week and no grade in it is left
+// out; one whose progress could not be read is always shown, with "?" for its
+// quizzes.
 //
 // A course with no "Тиждень N" sections at all (only term tests) has no week
 // to report on and shows just its grades. A weekly course missing this week's
-// section is noted only on a subject that is shown anyway. When no readable
-// weekly course has the section, the week number itself is off (holidays
-// moved the anchor), and that gets one line instead of twenty.
+// section is named under the table, only when it is shown anyway. When no
+// readable weekly course has the section, the week number itself is off
+// (holidays moved the anchor), and that gets one line instead of twenty.
 //
 // Before the first sync there is nothing to review, and the message says so
 // rather than reporting an empty week. Grades from a sync that has been
@@ -259,19 +287,18 @@ func tableGrade(g model.SchoolGrade) string {
 func formatWeekReview(week moodle.Week, report moodle.WeekReport) string {
 	var sb strings.Builder
 	last := week.End.AddDate(0, 0, -1)
-	fmt.Fprintf(&sb, "📅 Тиждень %d (%s–%s)", week.N, week.Start.Format("02.01"), last.Format("02.01"))
+	fmt.Fprintf(&sb, "<h3>📅 Тиждень %d · %s–%s</h3>", week.N, week.Start.Format("02.01"), last.Format("02.01"))
 	if len(report.Courses) == 0 {
-		sb.WriteString("\nMoodle ще не синхронізувався — огляду немає.")
+		sb.WriteString("<p>Moodle ще не синхронізувався — огляду немає.</p>")
 		return sb.String()
 	}
 	if report.Stale {
-		fmt.Fprintf(&sb, "\n<i>⚠️ Moodle не синхронізувався з %s — оцінки тижня можуть бути неповні.</i>",
+		fmt.Fprintf(&sb, "<p><i>⚠️ Moodle не синхронізувався з %s — оцінки тижня можуть бути неповні.</i></p>",
 			report.SyncedAt.Format("02.01 15:04"))
 	}
-	progress := report.Courses
 
 	readable, missing := 0, 0
-	for _, p := range progress {
+	for _, p := range report.Courses {
 		if !p.Unavailable && !p.NotWeekly {
 			readable++
 			if p.NoSection {
@@ -281,55 +308,63 @@ func formatWeekReview(week moodle.Week, report moodle.WeekReport) string {
 	}
 	noWeek := readable > 0 && missing == readable
 	if noWeek {
-		fmt.Fprintf(&sb, "\n<i>Секції «Тиждень %d» немає в жодному предметі.</i>", week.N)
+		fmt.Fprintf(&sb, "<p><i>Секції «Тиждень %d» немає в жодному предметі.</i></p>", week.N)
 	}
 
-	shown := 0
-	for _, p := range progress {
-		if !p.Unavailable && p.QuizzesTotal == 0 && len(p.Grades) == 0 {
-			continue
+	var shown []moodle.CourseProgress
+	for _, p := range report.Courses {
+		if p.Unavailable || p.QuizzesTotal > 0 || len(p.Grades) > 0 {
+			shown = append(shown, p)
 		}
-		shown++
-		var parts []string
+	}
+	if len(shown) == 0 {
+		if !noWeek {
+			sb.WriteString("<p>За тиждень ні завдань, ні оцінок.</p>")
+		}
+		return sb.String()
+	}
+	sort.SliceStable(shown, func(i, j int) bool { return weaker(shown[i].Average, shown[j].Average) })
+
+	var noSection []string
+	unavailable := false
+	sb.WriteString(`<table striped compact><tr><th>Предмет</th><th align="center">Сер.</th>` +
+		`<th align="center">Тести</th><th>Оцінки тижня</th></tr>`)
+	for _, p := range shown {
+		quizzes := "—"
 		switch {
 		case p.Unavailable:
-			parts = append(parts, "прогрес недоступний")
+			quizzes, unavailable = "?", true
 		case p.NoSection:
 			if !noWeek {
-				parts = append(parts, fmt.Sprintf("секції «Тиждень %d» немає", week.N))
+				noSection = append(noSection, html.EscapeString(p.Name))
 			}
 		case p.QuizzesTotal > 0:
-			parts = append(parts, fmt.Sprintf("оцінено %d/%d тестів", p.QuizzesGraded, p.QuizzesTotal))
+			quizzes = fmt.Sprintf("%d/%d", p.QuizzesGraded, p.QuizzesTotal)
 		}
-		if avg := averageText(p.Average, p.AverageText); avg != "" {
-			parts = append(parts, "сер. "+avg)
+		avg := averageCell(p.Average, p.AverageText)
+		grades := make([]string, len(p.Grades))
+		for i, g := range p.Grades {
+			grades[i] = tableGrade(g)
 		}
-		fmt.Fprintf(&sb, "\n<b>%s</b>", html.EscapeString(p.Name))
-		if len(parts) > 0 {
-			sb.WriteString(" — " + strings.Join(parts, " · "))
-		}
-		if len(p.Grades) > 0 {
-			entries := make([]string, len(p.Grades))
-			for i, g := range p.Grades {
-				entries[i] = gradeEntry(g)
-			}
-			fmt.Fprintf(&sb, "\n   <i>%s</i>", strings.Join(entries, " · "))
-		}
+		fmt.Fprintf(&sb, `<tr><td>%s</td><td align="center">%s</td><td align="center">%s</td><td>%s</td></tr>`,
+			strings.TrimSpace(gradeLevel(p.Average)+" "+html.EscapeString(p.Name)), avg, quizzes, strings.Join(grades, " · "))
 	}
-	if shown == 0 && !noWeek {
-		sb.WriteString("\nЗа тиждень ні завдань, ні оцінок.")
+	sb.WriteString("</table>")
+
+	foot := []string{"Тести — скільки тестів тижня вже оцінено.", "Жирним — контрольні."}
+	if unavailable {
+		foot = append(foot, "«?» — Moodle не віддав прогрес.")
 	}
+	if len(noSection) > 0 {
+		foot = append(foot, fmt.Sprintf("Без секції «Тиждень %d»: %s.", week.N, strings.Join(noSection, ", ")))
+	}
+	fmt.Fprintf(&sb, "<footer>%s</footer>", strings.Join(foot, " "))
 	return sb.String()
 }
 
-// gradeEntry names a grade with its item: "ОВ 12 — 7,8" (escaped HTML).
-func gradeEntry(g model.SchoolGrade) string {
-	return html.EscapeString(model.ShortItemName(g.Name) + " — " + tidyGrade(g.GradeText))
-}
-
-// averageText renders a course average with ⚠️ when it is low (judged by the
-// number, not the text). "" when the course has no average.
-func averageText(avg *float64, text string) string {
+// averageCell renders a course average for a table, in bold: Moodle's text,
+// tidied, or the number when Moodle sent no text; "" when the course has none.
+func averageCell(avg *float64, text string) string {
 	s := html.EscapeString(tidyGrade(text))
 	if s == "" && avg != nil {
 		s = model.FormatGrade(*avg)
@@ -337,10 +372,7 @@ func averageText(avg *float64, text string) string {
 	if s == "" {
 		return ""
 	}
-	if avg != nil && *avg < lowAverage {
-		s += " ⚠️"
-	}
-	return s
+	return "<b>" + s + "</b>"
 }
 
 var decimalGrade = regexp.MustCompile(`^\d+,\d+$`)

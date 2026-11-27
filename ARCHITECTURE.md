@@ -495,7 +495,8 @@ for exactly that reason.
   Unknown chats receive a short "доступ запрещён".
 - Commands: `/start`, `/help`, `/balance`, `/stats`, `/add` (lessons),
   `/visit`, `/week`, `/list` (appointments), `/app` (Mini App) and, when
-  Moodle is configured, `/grades` (see "School grades"). The "/" menu is set
+  Moodle is configured, `/grades` and, with the week anchor, `/review` (see
+  "School grades"). The "/" menu is set
   on startup.
 - **Opening the Mini App from the group** (`internal/bot/miniapp.go`): a menu
   button and an inline `web_app` button are both private-chat only, so what
@@ -1157,14 +1158,22 @@ the handlers feed.
   weakest average first: 🔴 below 4, 🟡 4–6, 🟢 7 and up (the school's levels,
   judged on the stored number, not Moodle's text), the average, then the grades
   in order with only the tests in bold — the «ОВ/КР» labels were the hardest
-  part of the old list to read. The review still writes «ОВ 12 — 2,2».
+  part of the old list to read.
 - **A new grade is a table too**: subject with its level, the grade, and the
   average as the sync moved it («7,5 → 6,3»). The "was" is the course's
   average_text read in the same transaction before the sync overwrites it, so
   it needs no column of its own. The grade's kind («Оцінка вчителя») goes under
   the table, or beside each grade when one sync brings several kinds; the
   item's running number never shows — «ОВ 12 — 4» read as two grades.
-- **`/grades` is a rich message.** Tables exist only in Bot API rich messages
+- **The Friday review is the same table** with one more column: subject with
+  its level, the average, the week's quizzes graded («1/2»; «—» when the week
+  has none, «?» when its contents could not be read) and the grades given that
+  week, tests in bold, weakest average first. A line of «Предмет — оцінено 0/2
+  тестів · сер. 8,2» per subject with the grades on a second line read as a
+  wall of text, and «ОВ 12 — 4» as two grades. `/review` builds the same
+  message for the current week and sends it to the chat that asked — to check
+  it privately or post it again — reading Moodle live like the clock does.
+- **`/grades`, the new grades and the review are rich messages.** Tables exist only in Bot API rich messages
   (`sendRichMessage`, Rich HTML style), sent as `tele.InputRichMessage`. One
   rich message holds 32768 characters, far more than a year of grades, so it
   is never split; a refused one is the command's error, with no plain-text
@@ -1192,14 +1201,15 @@ the handlers feed.
   sync. Only the course contents are read live.
 - **Courses that are not weekly.** Some courses hold only their term tests and
   have no «Тиждень N» section at all. They have no week to report on, so the
-  review shows only their grades, with no «секції немає» note, and they do not
+  review shows only their grades, with «—» for quizzes and no «без секції»
+  note, and they do not
   count towards "the section is missing everywhere".
 - **How the review fails.** It runs in its own goroutine behind an
   `atomic.Bool`, like the dish suggestions: it may first wait out a running
   sync, then reads one page per course within five minutes, counted from when
   it gets the client so a long sync does not eat that time. A course whose
-  contents cannot be read shows «прогрес недоступний» with its grades and
-  average rather than costing the whole message. A failed login sends nothing,
+  contents cannot be read shows «?» for its quizzes, with its grades and
+  average, rather than costing the whole message. A failed login sends nothing,
   because an empty review would read as a quiet week. For the same reason a
   review before the first successful sync says there is nothing synced yet,
   and one whose last good sync is older than two intervals plus the night pause

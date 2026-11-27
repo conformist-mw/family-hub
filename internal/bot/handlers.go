@@ -51,8 +51,8 @@ func (b *Bot) cmdHelp(c tele.Context) error {
 	return c.Send(b.helpText())
 }
 
-// helpText lists the commands by area; /grades only when Moodle is set up,
-// because that is the only time it is registered.
+// helpText lists the commands by area; /grades and /review only when they
+// are registered.
 func (b *Bot) helpText() string {
 	lines := []string{
 		"Заняття:",
@@ -70,11 +70,11 @@ func (b *Bot) helpText() string {
 		"",
 	}
 	if b.cfg.Moodle != nil {
-		lines = append(lines,
-			"Школа:",
-			"/grades — оцінки й середні по предметах",
-			"",
-		)
+		lines = append(lines, "Школа:", "/grades — оцінки й середні по предметах")
+		if b.cfg.reviewCommandEnabled() {
+			lines = append(lines, "/review — огляд тижня: тести й оцінки по предметах")
+		}
+		lines = append(lines, "")
 	}
 	lines = append(lines,
 		"/start — привітання, показує chat id",

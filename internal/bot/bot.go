@@ -129,6 +129,12 @@ func (c Config) schoolReviewEnabled() bool {
 		c.Moodle != nil && c.Moodle.HasWeekAnchor()
 }
 
+// reviewCommandEnabled: /review reads the week the anchor names, so it needs
+// both, but not the Friday clock.
+func (c Config) reviewCommandEnabled() bool {
+	return c.Moodle != nil && c.Moodle.HasWeekAnchor()
+}
+
 type Bot struct {
 	b       *tele.Bot
 	cfg     Config
@@ -312,6 +318,10 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	if cfg.Moodle != nil {
 		tb.Handle("/grades", bot.cmdGrades)
 	}
+	// /review needs the anchor to name the week, like the Friday clock.
+	if cfg.reviewCommandEnabled() {
+		tb.Handle("/review", bot.cmdReview)
+	}
 
 	// Populate the "/" menu — how the group discovers the appointment commands
 	// (best-effort; a network hiccup here must not block startup).
@@ -330,6 +340,9 @@ func New(cfg Config, st *store.Store, parser *parse.Parser, logger *slog.Logger)
 	}
 	if cfg.Moodle != nil {
 		cmds = append(cmds, tele.Command{Text: "grades", Description: "Шкільні оцінки й середні по предметах"})
+	}
+	if cfg.reviewCommandEnabled() {
+		cmds = append(cmds, tele.Command{Text: "review", Description: "Огляд шкільного тижня"})
 	}
 	cmds = append(cmds,
 		tele.Command{Text: "week", Description: "Записи на найближчий тиждень"},

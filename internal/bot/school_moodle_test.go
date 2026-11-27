@@ -125,7 +125,7 @@ func TestFormatGradesTable(t *testing.T) {
 		`<tr><td>🟡 Алгебра</td><td align="center"><b>5,5</b></td><td>7,8 · <b>10</b> · 9</td></tr>` +
 		`<tr><td>🟢 Мистецтво</td><td align="center"><b>7</b></td><td></td></tr>` +
 		`<tr><td>🟢 Історія &amp; право</td><td align="center"><b>9,3</b></td><td>9,25</td></tr>` +
-		`<tr><td>Географія</td><td align="center"><b></b></td><td>8</td></tr>` +
+		`<tr><td>Географія</td><td align="center"></td><td>8</td></tr>` +
 		`</table><footer>Жирним — контрольні. Ще 2 предмети без оцінок.</footer>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
@@ -152,12 +152,12 @@ func TestFormatGradesTableNoGradesYet(t *testing.T) {
 }
 
 // An average Moodle sent no text for is rendered from the number.
-func TestAverageTextFromTheNumber(t *testing.T) {
-	if got := averageText(avgOf(3.5), ""); got != "3,5 ⚠️" {
-		t.Errorf("averageText(3.5, \"\") = %q, want \"3,5 ⚠️\"", got)
+func TestAverageCellFromTheNumber(t *testing.T) {
+	if got := averageCell(avgOf(3.5), ""); got != "<b>3,5</b>" {
+		t.Errorf("averageCell(3.5, \"\") = %q, want \"<b>3,5</b>\"", got)
 	}
-	if got := averageText(nil, ""); got != "" {
-		t.Errorf("averageText(nil, \"\") = %q, want empty", got)
+	if got := averageCell(nil, ""); got != "" {
+		t.Errorf("averageCell(nil, \"\") = %q, want empty", got)
 	}
 }
 
@@ -172,6 +172,9 @@ func reviewWeek() moodle.Week {
 	return moodle.Week{N: 11, Start: start, End: start.AddDate(0, 0, 7)}
 }
 
+const reviewHead = `<table striped compact><tr><th>Предмет</th><th align="center">Сер.</th>` +
+	`<th align="center">Тести</th><th>Оцінки тижня</th></tr>`
+
 func TestFormatWeekReview(t *testing.T) {
 	text := formatWeekReview(reviewWeek(), report(
 		moodle.CourseProgress{Name: "Алгебра", Average: avgOf(5.5), AverageText: "5,5", QuizzesGraded: 1, QuizzesTotal: 3, Grades: []model.SchoolGrade{
@@ -181,7 +184,7 @@ func TestFormatWeekReview(t *testing.T) {
 		moodle.CourseProgress{Name: "Фізика", Average: avgOf(3.2), AverageText: "3,2", QuizzesGraded: 0, QuizzesTotal: 2},
 		// No quiz and no grade this week: left out.
 		moodle.CourseProgress{Name: "Фізкультура", Average: avgOf(9), AverageText: "9,0"},
-		// No section of its own, but graded this week: shown with a note.
+		// No section of its own, but graded this week: shown, named below.
 		moodle.CourseProgress{Name: "Хімія", NoSection: true, Grades: []model.SchoolGrade{
 			{Name: "Оцінка вчителя 11", GradeRaw: 6, GradeText: "6,0"},
 		}},
@@ -198,21 +201,18 @@ func TestFormatWeekReview(t *testing.T) {
 		}},
 		moodle.CourseProgress{Name: "Географія", Unavailable: true},
 	))
-	want := "📅 Тиждень 11 (16.11–22.11)\n" +
-		"<b>Алгебра</b> — оцінено 1/3 тестів · сер. 5,5\n" +
-		"   <i>ОВ 11 — 7,8 · КР 2 — 10</i>\n" +
-		"<b>Фізика</b> — оцінено 0/2 тестів · сер. 3,2 ⚠️\n" +
-		"<b>Хімія</b> — секції «Тиждень 11» немає\n" +
-		"   <i>ОВ 11 — 6</i>\n" +
-		"<b>Історія</b>\n" +
-		"   <i>Семестрова контрольна робота — 8</i>\n" +
-		"<b>Біологія</b> — прогрес недоступний · сер. 8,4\n" +
-		"   <i>ОВ 11 — 9</i>\n" +
-		"<b>Географія</b> — прогрес недоступний"
+	want := `<h3>📅 Тиждень 11 · 16.11–22.11</h3>` + reviewHead +
+		`<tr><td>🔴 Фізика</td><td align="center"><b>3,2</b></td><td align="center">0/2</td><td></td></tr>` +
+		`<tr><td>🟡 Алгебра</td><td align="center"><b>5,5</b></td><td align="center">1/3</td><td>7,8 · <b>10</b></td></tr>` +
+		`<tr><td>🟢 Біологія</td><td align="center"><b>8,4</b></td><td align="center">?</td><td>9</td></tr>` +
+		`<tr><td>Хімія</td><td align="center"></td><td align="center">—</td><td>6</td></tr>` +
+		`<tr><td>Історія</td><td align="center"></td><td align="center">—</td><td>8</td></tr>` +
+		`<tr><td>Географія</td><td align="center"></td><td align="center">?</td><td></td></tr>` +
+		`</table><footer>Тести — скільки тестів тижня вже оцінено. Жирним — контрольні. ` +
+		`«?» — Moodle не віддав прогрес. Без секції «Тиждень 11»: Хімія.</footer>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
 	}
-	assertLinesBalanced(t, text)
 }
 
 func TestFormatWeekReviewNoSectionAnywhere(t *testing.T) {
@@ -225,22 +225,19 @@ func TestFormatWeekReviewNoSectionAnywhere(t *testing.T) {
 		}},
 		moodle.CourseProgress{Name: "Фізика", NoSection: true},
 		moodle.CourseProgress{Name: "Право", NotWeekly: true},
-		moodle.CourseProgress{Name: "Біологія", Unavailable: true},
 	))
-	want := "📅 Тиждень 11 (16.11–22.11)\n" +
-		"<i>Секції «Тиждень 11» немає в жодному предметі.</i>\n" +
-		"<b>Алгебра</b> — сер. 5,5\n" +
-		"   <i>ОВ 11 — 7</i>\n" +
-		"<b>Біологія</b> — прогрес недоступний"
+	want := `<h3>📅 Тиждень 11 · 16.11–22.11</h3>` +
+		`<p><i>Секції «Тиждень 11» немає в жодному предметі.</i></p>` + reviewHead +
+		`<tr><td>🟡 Алгебра</td><td align="center"><b>5,5</b></td><td align="center">—</td><td>7</td></tr>` +
+		`</table><footer>Тести — скільки тестів тижня вже оцінено. Жирним — контрольні.</footer>`
 	if text != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
 	}
-	assertLinesBalanced(t, text)
 }
 
 func TestFormatWeekReviewEmpty(t *testing.T) {
 	got := formatWeekReview(reviewWeek(), report(moodle.CourseProgress{Name: "Алгебра", AverageText: "5,5", Average: avgOf(5.5)}))
-	if got != "📅 Тиждень 11 (16.11–22.11)\nЗа тиждень ні завдань, ні оцінок." {
+	if got != "<h3>📅 Тиждень 11 · 16.11–22.11</h3><p>За тиждень ні завдань, ні оцінок.</p>" {
 		t.Errorf("no quizzes: got %q", got)
 	}
 }
@@ -248,7 +245,7 @@ func TestFormatWeekReviewEmpty(t *testing.T) {
 // Before the first sync there is no week to review, not an empty one.
 func TestFormatWeekReviewBeforeTheFirstSync(t *testing.T) {
 	got := formatWeekReview(reviewWeek(), moodle.WeekReport{})
-	if got != "📅 Тиждень 11 (16.11–22.11)\nMoodle ще не синхронізувався — огляду немає." {
+	if got != "<h3>📅 Тиждень 11 · 16.11–22.11</h3><p>Moodle ще не синхронізувався — огляду немає.</p>" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -258,23 +255,20 @@ func TestFormatWeekReviewStale(t *testing.T) {
 	r.Stale = true
 	r.SyncedAt = time.Date(2026, 11, 18, 21, 30, 0, 0, time.UTC)
 	text := formatWeekReview(reviewWeek(), r)
-	want := "📅 Тиждень 11 (16.11–22.11)\n" +
-		"<i>⚠️ Moodle не синхронізувався з 18.11 21:30 — оцінки тижня можуть бути неповні.</i>\n" +
-		"<b>Алгебра</b> — оцінено 1/2 тестів"
-	if text != want {
-		t.Fatalf("got:\n%s\nwant:\n%s", text, want)
-	}
-	assertLinesBalanced(t, text)
+	assertContainsAll(t, text,
+		`</h3><p><i>⚠️ Moodle не синхронізувався з 18.11 21:30 — оцінки тижня можуть бути неповні.</i></p><table`,
+		`<td align="center">1/2</td>`)
 }
 
 func TestFormatWeekReviewEscapesNames(t *testing.T) {
 	text := formatWeekReview(reviewWeek(), report(
-		moodle.CourseProgress{Name: "Мова <і> література", QuizzesGraded: 1, QuizzesTotal: 1, Grades: []model.SchoolGrade{
-			{Name: "Есе \"Я & світ\"", GradeRaw: 8, GradeText: "8"},
+		moodle.CourseProgress{Name: "Мова <і> література", NoSection: true, Grades: []model.SchoolGrade{
+			{Name: "Есе", GradeRaw: 8, GradeText: "<8>"},
 		}},
+		moodle.CourseProgress{Name: "Фізика", QuizzesTotal: 1},
 	))
-	assertContainsAll(t, text, "<b>Мова &lt;і&gt; література</b>", "Есе &#34;Я &amp; світ&#34; — 8")
-	assertLinesBalanced(t, text)
+	assertContainsAll(t, text, "<td>Мова &lt;і&gt; література</td>", "<td>&lt;8&gt;</td>",
+		"Без секції «Тиждень 11»: Мова &lt;і&gt; література.")
 }
 
 func TestTidyGrade(t *testing.T) {
@@ -311,13 +305,18 @@ type sentMessage struct {
 }
 
 // fakeTelegram points b at an offline telebot whose API is a local server
-// that accepts every sendMessage and sendRichMessage and keeps it. The returned func reads what
-// was sent so far.
+// that accepts every sendMessage and sendRichMessage and keeps it (a chat
+// action is accepted and dropped). The returned func reads what was sent so
+// far.
 func fakeTelegram(t *testing.T, b *Bot) func() []sentMessage {
 	t.Helper()
 	var mu sync.Mutex
 	var sent []sentMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
+			return
+		}
 		if !strings.HasSuffix(r.URL.Path, "/sendMessage") && !strings.HasSuffix(r.URL.Path, "/sendRichMessage") {
 			t.Errorf("unexpected Telegram call %s", r.URL.Path)
 			http.Error(w, "unexpected", http.StatusNotFound)
@@ -537,11 +536,37 @@ func TestSchoolReviewPostsTheCurrentWeek(t *testing.T) {
 	waitFor(t, "the review to finish", func() bool { return !b.schoolReviewRunning.Load() })
 
 	got := sent()
-	want := "📅 Тиждень 12 (23.11–29.11)\n" +
-		"<b>Алгебра</b> — оцінено 1/2 тестів · сер. 5,5\n" +
-		"   <i>ОВ 12 — 2,2</i>"
-	if len(got) != 1 || got[0].ChatID != "-100" || got[0].ParseMode != "HTML" || got[0].Text != want {
-		t.Fatalf("sent %+v, want HTML %q to the group", got, want)
+	if len(got) != 1 || got[0].ChatID != "-100" || got[0].Text != "" {
+		t.Fatalf("sent %+v, want one rich message to the group", got)
+	}
+	assertContainsAll(t, got[0].Rich.HTML, "<h3>📅 Тиждень 12 · 23.11–29.11</h3>",
+		`<tr><td>🟡 Алгебра</td><td align="center"><b>5,5</b></td><td align="center">1/2</td><td>2,2</td></tr>`)
+}
+
+// /review answers in the chat that asked, not the group, with the same review.
+func TestReviewCommandAnswersInTheChat(t *testing.T) {
+	var logins atomic.Int32
+	b, sent := reviewBot(t, fakeMoodle(t, nil, &logins, false))
+	c := b.b.NewContext(tele.Update{Message: &tele.Message{Chat: &tele.Chat{ID: 42}, Text: "/review"}})
+	if err := b.reviewInChat(c, reviewFriday); err != nil {
+		t.Fatalf("reviewInChat: %v", err)
+	}
+	got := sent()
+	if len(got) != 1 || got[0].ChatID != "42" {
+		t.Fatalf("sent %+v, want one message to chat 42", got)
+	}
+	assertContainsAll(t, got[0].Rich.HTML, "<h3>📅 Тиждень 12 · 23.11–29.11</h3>", `<td align="center">1/2</td>`)
+}
+
+func TestReviewCommandWhenMoodleFails(t *testing.T) {
+	var logins atomic.Int32
+	b, sent := reviewBot(t, fakeMoodle(t, nil, &logins, true))
+	c := b.b.NewContext(tele.Update{Message: &tele.Message{Chat: &tele.Chat{ID: 42}, Text: "/review"}})
+	if err := b.reviewInChat(c, reviewFriday); err != nil {
+		t.Fatalf("reviewInChat: %v", err)
+	}
+	if got := sent(); len(got) != 1 || !strings.Contains(got[0].Text, "Не вдалося прочитати Moodle") {
+		t.Fatalf("sent %+v, want the failure reply", got)
 	}
 }
 
